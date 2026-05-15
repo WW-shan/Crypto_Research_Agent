@@ -19,7 +19,7 @@ RejectReason = Literal[
 
 
 class FeasibilityScore(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
     approved: bool
     score: int = Field(ge=0, le=100)

@@ -1,3 +1,7 @@
+import pytest
+from pydantic import ValidationError
+
+
 def test_low_capital_high_speed_trade_is_rejected():
     from crypto_alpha_agent.risk.feasibility import score_feasibility
 
@@ -126,3 +130,57 @@ def test_downside_above_threshold_is_rejected():
 
     assert score.approved is False
     assert "downside_above_limit" in score.reasons
+
+
+def test_feasibility_score_rejects_coerced_string_bool_and_score():
+    from crypto_alpha_agent.risk.feasibility import FeasibilityScore
+
+    with pytest.raises(ValidationError):
+        FeasibilityScore(
+            approved="false",
+            score="99",
+            reasons=[],
+            capital_required_usd=100.0,
+            current_capital_usd=300.0,
+            expected_net_pnl_usd=25.0,
+            max_downside_usd=50.0,
+            repeatable=True,
+            speed_dependency="low",
+            rpc_dependency="low",
+        )
+
+
+def test_feasibility_score_rejects_coerced_string_numbers():
+    from crypto_alpha_agent.risk.feasibility import FeasibilityScore
+
+    with pytest.raises(ValidationError):
+        FeasibilityScore(
+            approved=True,
+            score=99,
+            reasons=[],
+            capital_required_usd="100",
+            current_capital_usd="300",
+            expected_net_pnl_usd="25",
+            max_downside_usd="50",
+            repeatable=True,
+            speed_dependency="low",
+            rpc_dependency="low",
+        )
+
+
+def test_feasibility_score_rejects_coerced_reasons_list():
+    from crypto_alpha_agent.risk.feasibility import FeasibilityScore
+
+    with pytest.raises(ValidationError):
+        FeasibilityScore(
+            approved=True,
+            score=99,
+            reasons=("capital_above_budget",),
+            capital_required_usd=100.0,
+            current_capital_usd=300.0,
+            expected_net_pnl_usd=25.0,
+            max_downside_usd=50.0,
+            repeatable=True,
+            speed_dependency="low",
+            rpc_dependency="low",
+        )
