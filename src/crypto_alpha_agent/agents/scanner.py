@@ -11,7 +11,7 @@ SignalCategory = Literal["cex", "dex", "chain", "social", "news"]
 
 
 class ScannerSignal(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
     category: SignalCategory
     source: str

@@ -15,7 +15,7 @@ AnomalyClassification = Literal[
 
 
 class RankedAnomaly(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
     signal: ScannerSignal
     classification: AnomalyClassification
@@ -75,7 +75,7 @@ class AnomalyDetector:
         social_only = signal.category in {"social", "news"} or signal.weak_signal
         thin_evidence = evidence_count <= 1
         fleeting = signal.persistence_seconds < 120
-        return social_only and (thin_evidence or fleeting)
+        return social_only or (thin_evidence and fleeting)
 
     @staticmethod
     def _base_score(signal: ScannerSignal) -> float:

@@ -1,4 +1,8 @@
+import pytest
+from pydantic import ValidationError
+
 from crypto_alpha_agent.agents.anomaly import AnomalyDetector
+from crypto_alpha_agent.agents.anomaly import RankedAnomaly
 from crypto_alpha_agent.agents.scanner import MarketScanner, ScannerSignal
 
 
@@ -127,6 +131,44 @@ def test_anomaly_detector_ranks_persistent_statistical_structural_signal_above_s
     assert ranked[1].executable is False
 
 
+def test_persistent_multi_evidence_news_signal_remains_non_executable_supporting_signal():
+    market_opportunity = ScannerSignal(
+        category="chain",
+        source="bridge_flow_monitor",
+        asset="OP",
+        metric="bridge_flow_deviation",
+        value=4_500_000.0,
+        z_score=3.1,
+        deviation=0.24,
+        persistence_seconds=1_500,
+        liquidity_usd=2_500_000,
+        capital_required_usd=75_000,
+        evidence=["bridge inflows persisted", "contract events confirm flow"],
+        chain="optimism",
+    )
+    news_signal = ScannerSignal(
+        category="news",
+        source="headline_cluster",
+        asset="OP",
+        metric="headline_velocity",
+        value=55.0,
+        z_score=7.5,
+        deviation=0.95,
+        persistence_seconds=7_200,
+        liquidity_usd=10_000_000,
+        capital_required_usd=10_000,
+        evidence=["three outlets reported upgrade", "social discussion persisted", "governance forum linked"],
+    )
+
+    ranked = AnomalyDetector().rank([news_signal, market_opportunity])
+
+    news_result = next(result for result in ranked if result.signal is news_signal)
+    market_result = next(result for result in ranked if result.signal is market_opportunity)
+    assert news_result.classification == "one_off_noise"
+    assert news_result.executable is False
+    assert ranked.index(news_result) > ranked.index(market_result)
+
+
 def test_impossible_to_trade_high_speed_high_capital_rpc_signal_is_mirage():
     mirage = ScannerSignal(
         category="chain",
@@ -207,3 +249,34 @@ def test_capital_exceeds_liquidity_without_speed_rpc_constraints_is_not_executab
     assert impossible_result.classification == "mirage"
     assert impossible_result.executable is False
     assert ranked.index(impossible_result) > ranked.index(next(result for result in ranked if result.signal is executable))
+
+
+def test_scanner_and_anomaly_models_reject_numeric_string_coercion():
+    scanner = MarketScanner(
+        providers=[
+            lambda: [
+                {
+                    "category": "cex",
+                    "source": "bad_provider",
+                    "asset": "ETH",
+                    "metric": "spread_bps",
+                    "value": "42",
+                    "evidence": ["provider emitted string numeric"],
+                }
+            ]
+        ]
+    )
+
+    with pytest.raises(ValidationError):
+        scanner.scan()
+
+    signal = ScannerSignal(
+        category="cex",
+        source="ok_provider",
+        asset="ETH",
+        metric="spread_bps",
+        value=42.0,
+        evidence=["strict signal"],
+    )
+    with pytest.raises(ValidationError):
+        RankedAnomaly(signal=signal, classification="statistical_outlier", score="99", executable=True)
