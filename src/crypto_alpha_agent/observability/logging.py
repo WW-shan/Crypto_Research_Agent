@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import UTC
 import datetime as dt
 from pathlib import Path
@@ -31,11 +32,13 @@ class ObservabilityEvent(BaseModel):
     details: dict[str, JsonPrimitive] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def default_event_date(self) -> Self:
+    def normalize_event(self) -> Self:
         if self.timestamp.tzinfo is None:
             self.timestamp = self.timestamp.replace(tzinfo=UTC)
-        if self.date is None:
-            self.date = self.timestamp.date()
+        self.date = self.timestamp.date()
+        for metric_name, value in self.metrics.items():
+            if not math.isfinite(value):
+                raise ValueError(f"Metric {metric_name!r} must be finite")
         return self
 
 
@@ -64,6 +67,7 @@ class EventLogger:
         if self._handle is not None:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._ensure_trailing_newline()
         self._handle = self.path.open("a", encoding="utf-8")
 
     def close(self) -> None:
@@ -80,6 +84,14 @@ class EventLogger:
         self._handle.write(event.model_dump_json() + "\n")
         self._handle.flush()
         return event
+
+    def _ensure_trailing_newline(self) -> None:
+        if not self.path.exists() or self.path.stat().st_size == 0:
+            return
+        with self.path.open("rb+") as handle:
+            handle.seek(-1, 2)
+            if handle.read(1) != b"\n":
+                handle.write(b"\n")
 
 
 def load_events(path: str | Path) -> EventLoadResult:

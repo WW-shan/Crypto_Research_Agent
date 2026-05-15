@@ -1,6 +1,13 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
-from crypto_alpha_agent.observability.logging import EventLogger, load_events
+import pytest
+from pydantic import ValidationError
+
+from crypto_alpha_agent.observability.logging import (
+    EventLogger,
+    ObservabilityEvent,
+    load_events,
+)
 from crypto_alpha_agent.observability.reports import generate_daily_report
 
 
@@ -82,3 +89,50 @@ def test_daily_report_is_replayable_from_persisted_jsonl_events(tmp_path):
     assert replayed_report.model_dump(mode="json", exclude={"skipped_event_lines"}) == (
         original_report.model_dump(mode="json", exclude={"skipped_event_lines"})
     )
+
+
+def test_event_logger_separates_new_event_after_truncated_jsonl_line(tmp_path):
+    event_path = tmp_path / "events.jsonl"
+    event_path.write_text(
+        '{"timestamp": "2026-05-16T11:00:00Z", "event_type": ',
+        encoding="utf-8",
+    )
+
+    with EventLogger(event_path) as logger:
+        logger.record(
+            timestamp=datetime(2026, 5, 16, 12, 0, tzinfo=UTC),
+            event_type="opportunity_scored",
+            run_id="run-after-partial",
+            metrics={"expected_net_pnl_usd": 12.0},
+        )
+
+    replay = load_events(event_path)
+
+    assert replay.skipped_count == 1
+    assert [event.run_id for event in replay.events] == ["run-after-partial"]
+
+
+@pytest.mark.parametrize("metric_value", [float("nan"), float("inf"), float("-inf")])
+def test_observability_event_rejects_non_finite_metric_values(metric_value):
+    with pytest.raises(ValidationError):
+        ObservabilityEvent.model_validate(
+            {
+                "timestamp": datetime(2026, 5, 16, 9, 30, tzinfo=UTC),
+                "event_type": "opportunity_scored",
+                "run_id": "run-18",
+                "metrics": {"expected_net_pnl_usd": metric_value},
+            }
+        )
+
+
+def test_observability_event_derives_date_from_timestamp_when_supplied_date_disagrees():
+    event = ObservabilityEvent.model_validate(
+        {
+            "timestamp": datetime(2026, 5, 16, 23, 30, tzinfo=UTC),
+            "date": date(2026, 5, 15),
+            "event_type": "opportunity_scored",
+            "run_id": "run-18",
+        }
+    )
+
+    assert event.date == date(2026, 5, 16)
