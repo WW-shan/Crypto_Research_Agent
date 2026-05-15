@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any, Literal
 
 from langgraph.graph import END, START, StateGraph
@@ -179,3 +180,183 @@ def build_graph(
         interrupt_after=interrupt_after,
         debug=debug,
     )
+
+
+def run_deterministic_research_loop(
+    *,
+    signal_fixtures: Sequence[dict[str, Any]],
+    memory_path: str | Path,
+    paper_cash_usd: float = 10_000.0,
+    current_capital_usd: float | None = None,
+) -> AgentState:
+    from crypto_alpha_agent.agents.anomaly import AnomalyDetector
+    from crypto_alpha_agent.agents.coder import StrategyCoder
+    from crypto_alpha_agent.agents.hypothesis import HypothesisGenerator
+    from crypto_alpha_agent.agents.scanner import MarketScanner
+    from crypto_alpha_agent.agents.reflector import reflect_strategy
+    from crypto_alpha_agent.backtest.vectorbt_runner import BacktestResult
+    from crypto_alpha_agent.execution.paper import PaperAccount, PaperOrder
+    from crypto_alpha_agent.memory.store import MemoryRecord, MemoryStore
+    from crypto_alpha_agent.risk.feasibility import score_feasibility as calculate_feasibility
+    from crypto_alpha_agent.risk.guardian import PermissionScope, RiskContext, RiskGuardian, RiskPolicy
+
+    trace: list[str] = []
+    scanner = MarketScanner(providers=[lambda: signal_fixtures])
+
+    trace.append("scan_market")
+    signals = scanner.scan()
+    if not signals:
+        raise ValueError("deterministic loop requires at least one signal fixture")
+
+    trace.append("detect_anomaly")
+    anomalies = AnomalyDetector().rank(signals)
+    executable_anomaly = next((anomaly for anomaly in anomalies if anomaly.executable), anomalies[0])
+    signal = executable_anomaly.signal
+
+    trace.append("generate_hypothesis")
+    hypothesis = HypothesisGenerator().generate([executable_anomaly])[0]
+
+    expected_net_pnl_usd = float(signal.raw.get("expected_net_pnl_usd", 60.0))
+    max_downside_usd = float(signal.raw.get("max_downside_usd", 30.0))
+    capital_required_usd = signal.capital_required_usd or min(paper_cash_usd, 500.0)
+    available_capital_usd = current_capital_usd if current_capital_usd is not None else paper_cash_usd
+
+    trace.append("score_feasibility")
+    feasibility = calculate_feasibility(
+        capital_required_usd=capital_required_usd,
+        current_capital_usd=available_capital_usd,
+        expected_net_pnl_usd=expected_net_pnl_usd,
+        max_downside_usd=max_downside_usd,
+        repeatable=True,
+        speed_dependency=signal.speed_dependency,
+        rpc_dependency=signal.rpc_dependency,
+        action_mode="paper",
+        max_allowed_downside_usd=max_downside_usd * 2.0,
+    )
+
+    trace.append("code_strategy")
+    strategy = StrategyCoder().emit("execution_proposal")
+
+    trace.append("backtest")
+    backtest_result = BacktestResult(
+        net_return=0.12,
+        max_drawdown=-0.04,
+        win_rate=0.8,
+        trade_count=5,
+        average_holding_time=2.0,
+        fee_adjusted_expectancy=0.03,
+        slippage_adjusted_expectancy=0.028,
+    )
+
+    trace.append("critique")
+    critique_decision = reflect_strategy(
+        hypothesis=hypothesis,
+        backtest=backtest_result,
+        feasibility=feasibility,
+    )
+
+    record_id = f"{signal.source}:{signal.asset}:{signal.metric}"
+    store = MemoryStore(memory_path)
+    memory_record = MemoryRecord(
+        record_id=record_id,
+        opportunity={
+            "source": signal.source,
+            "venue": signal.venue,
+            "asset": signal.asset,
+            "edge_type": signal.metric,
+            "evidence": list(signal.evidence),
+            "confidence": min(1.0, max(0.0, executable_anomaly.score / 100.0)),
+            "capital_required_usd": capital_required_usd,
+            "expected_net_pnl_usd": expected_net_pnl_usd,
+            "downside_usd": max_downside_usd,
+            "speed_dependency": signal.speed_dependency,
+            "rpc_dependency": signal.rpc_dependency,
+        },
+        hypothesis=hypothesis.model_dump(),
+        score=feasibility.model_dump(),
+        rejected_reasons=list(critique_decision.rejection_reasons),
+        backtest_artifacts={
+            "engine": "deterministic_fixture",
+            "metrics": backtest_result.model_dump(),
+        },
+        tags=[signal.asset.lower(), signal.metric, critique_decision.outcome],
+    )
+
+    trace.append("update_memory")
+    stored_record = store.upsert(memory_record)
+
+    trace.append("risk_guard")
+    guardian = RiskGuardian(
+        RiskPolicy(
+            max_capital_per_opportunity_usd=paper_cash_usd,
+            max_daily_loss_usd=max_downside_usd * 4.0,
+            max_consecutive_failures=3,
+            allowed_venues=[signal.venue or "synthetic"],
+        )
+    )
+    risk_decision = guardian.evaluate(
+        RiskContext(
+            opportunity_id=record_id,
+            execution_mode="paper",
+            venue=signal.venue or "synthetic",
+            capital_required_usd=capital_required_usd,
+            daily_realized_pnl_usd=0.0,
+            consecutive_failures=0,
+            permission_scope=PermissionScope(
+                venue=signal.venue or "synthetic",
+                api_permissions=["read", "paper"],
+                wallet_permissions=["paper-only"],
+            ),
+        )
+    )
+
+    paper_trade: dict[str, Any] | None = None
+    if risk_decision.execution_allowed:
+        trace.append("paper_execute")
+        account = PaperAccount(cash=paper_cash_usd)
+        entry_price = float(signal.raw.get("entry_price", 100.0))
+        exit_price = float(signal.raw.get("exit_price", 108.0))
+        quantity = capital_required_usd / entry_price
+        buy = account.execute_order(
+            PaperOrder(
+                symbol=signal.asset,
+                side="buy",
+                quantity=quantity,
+                reference_price=entry_price,
+                fee_rate=0.001,
+                slippage_bps=5.0,
+                latency_ms=10.0,
+            )
+        )
+        sell = account.execute_order(
+            PaperOrder(
+                symbol=signal.asset,
+                side="sell",
+                quantity=quantity,
+                reference_price=exit_price,
+                fee_rate=0.001,
+                slippage_bps=5.0,
+                latency_ms=10.0,
+            )
+        )
+        paper_trade = {
+            "status": "closed",
+            "risk_decision": risk_decision.model_dump(),
+            "buy": buy.model_dump(),
+            "sell": sell.model_dump(),
+        }
+        stored_record = store.upsert(stored_record.model_copy(update={"paper_trade_outcome": paper_trade}))
+
+    return {
+        "trace": trace,
+        "signals": [signal.model_dump() for signal in signals],
+        "anomalies": [anomaly.model_dump() for anomaly in anomalies],
+        "hypothesis": hypothesis.model_dump(),
+        "feasibility": feasibility.model_dump(),
+        "strategy": strategy.model_dump(),
+        "backtest": backtest_result.model_dump(),
+        "critique": critique_decision.model_dump(),
+        "memory_record_id": stored_record.record_id,
+        "risk_decision": risk_decision.model_dump(),
+        "paper_trade": paper_trade,
+    }
