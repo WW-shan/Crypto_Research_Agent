@@ -16,6 +16,9 @@ class DuneQueryResult(BaseModel):
 
 
 def normalize_dune_query_result(raw: dict[str, Any], *, query_id: int) -> DuneQueryResult:
+    if not isinstance(raw, dict):
+        raise ValueError("Dune result raw payload must be an object")
+
     result = raw.get("result")
     if not isinstance(result, dict) or "rows" not in result:
         raise ValueError("Dune result must contain result.rows")

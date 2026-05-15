@@ -17,6 +17,9 @@ class DefiLlamaProtocolSnapshot(BaseModel):
 
 
 def normalize_defillama_protocol_snapshot(raw: dict[str, Any]) -> DefiLlamaProtocolSnapshot:
+    if not isinstance(raw, dict):
+        raise ValueError("DefiLlama protocol snapshot raw payload must be an object")
+
     if not raw.get("name"):
         raise ValueError("DefiLlama protocol snapshot must contain name")
     if not raw.get("slug"):

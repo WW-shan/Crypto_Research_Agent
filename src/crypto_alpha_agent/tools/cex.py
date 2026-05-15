@@ -34,6 +34,9 @@ def _is_number(value: Any) -> bool:
 
 
 def normalize_cex_snapshot(raw: dict[str, Any]) -> CexMarketSnapshot:
+    if not isinstance(raw, dict):
+        raise ValueError("CEX snapshot raw payload must be an object")
+
     candidates: list[tuple[str, str, dict[str, Any]]] = []
     for venue, markets in raw.items():
         if not isinstance(markets, dict):

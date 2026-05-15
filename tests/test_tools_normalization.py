@@ -213,3 +213,22 @@ def test_cex_rejects_malformed_quotes():
 
     with pytest.raises(ValueError, match="CEX snapshot must contain venues with market quote objects"):
         normalize_cex_snapshot({"binance": []})
+
+
+def test_normalizers_reject_top_level_malformed_raw_payloads():
+    from crypto_alpha_agent.tools.cex import normalize_cex_snapshot
+    from crypto_alpha_agent.tools.defillama import normalize_defillama_protocol_snapshot
+    from crypto_alpha_agent.tools.dune import normalize_dune_query_result
+    from crypto_alpha_agent.tools.thegraph import normalize_thegraph_query_result
+
+    with pytest.raises(ValueError, match="CEX snapshot raw payload must be an object"):
+        normalize_cex_snapshot([])
+
+    with pytest.raises(ValueError, match="Dune result raw payload must be an object"):
+        normalize_dune_query_result([], query_id=1)
+
+    with pytest.raises(ValueError, match="The Graph result raw payload must be an object"):
+        normalize_thegraph_query_result(None, subgraph_url="https://example.test/subgraph")
+
+    with pytest.raises(ValueError, match="DefiLlama protocol snapshot raw payload must be an object"):
+        normalize_defillama_protocol_snapshot([])

@@ -16,6 +16,9 @@ class TheGraphQueryResult(BaseModel):
 
 
 def normalize_thegraph_query_result(raw: dict[str, Any], *, subgraph_url: str) -> TheGraphQueryResult:
+    if not isinstance(raw, dict):
+        raise ValueError("The Graph result raw payload must be an object")
+
     if "data" not in raw:
         raise ValueError("The Graph result must contain data")
 
