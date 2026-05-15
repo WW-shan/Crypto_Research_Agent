@@ -58,6 +58,51 @@ def test_paper_round_trip_applies_slippage_fees_latency_and_realized_pnl():
     assert account.realized_net_pnl == pytest.approx(17.4801)
 
 
+def test_paper_round_trip_exports_backtest_result_contract_with_cost_adjustments():
+    from crypto_alpha_agent.backtest.vectorbt_runner import BacktestResult
+    from crypto_alpha_agent.execution.paper import PaperAccount, PaperOrder, paper_round_trip_to_backtest_result
+
+    fee_rate = 0.001
+    slippage_rate = 0.005
+    account = PaperAccount(cash=1_000.0)
+    buy = account.execute_order(
+        PaperOrder(
+            symbol="ETH-USD",
+            side="buy",
+            quantity=2.0,
+            reference_price=100.0,
+            fee_rate=fee_rate,
+            slippage_rate=slippage_rate,
+        )
+    )
+    sell = account.execute_order(
+        PaperOrder(
+            symbol="ETH-USD",
+            side="sell",
+            quantity=2.0,
+            reference_price=110.0,
+            fee_rate=fee_rate,
+            slippage_rate=slippage_rate,
+        )
+    )
+
+    result = paper_round_trip_to_backtest_result(buy.fill, sell.fill, holding_time=3.0)
+
+    assert isinstance(result, BacktestResult)
+    assert result.net_return == pytest.approx(
+        (1.0 - fee_rate)
+        * (sell.fill.fill_price / buy.fill.fill_price)
+        * (1.0 - fee_rate)
+        - 1.0
+    )
+    assert result.max_drawdown == pytest.approx(0.0)
+    assert result.win_rate == pytest.approx(1.0)
+    assert result.trade_count == 1
+    assert result.average_holding_time == pytest.approx(3.0)
+    assert result.fee_adjusted_expectancy == pytest.approx(0.10 - (fee_rate * 2.0))
+    assert result.slippage_adjusted_expectancy == pytest.approx(0.10 - (slippage_rate * 2.0))
+
+
 def test_mark_to_market_reports_cash_inventory_unrealized_and_equity():
     from crypto_alpha_agent.execution.paper import PaperAccount, PaperOrder
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
+from crypto_alpha_agent.backtest.vectorbt_runner import BacktestResult
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 OrderSide = Literal["buy", "sell"]
@@ -221,6 +222,43 @@ class PaperAccount(BaseModel):
         if fill_price <= 0:
             raise ValueError("paper fill price must be positive")
         return fill_price
+
+
+def paper_round_trip_to_backtest_result(
+    entry_fill: PaperFill,
+    exit_fill: PaperFill,
+    holding_time: float,
+) -> BacktestResult:
+    if entry_fill.side != "buy" or exit_fill.side != "sell":
+        raise ValueError("paper round trip requires buy entry and sell exit fills")
+    if entry_fill.symbol != exit_fill.symbol:
+        raise ValueError("paper round trip fills must use the same symbol")
+    if entry_fill.quantity != exit_fill.quantity:
+        raise ValueError("paper round trip fills must use the same quantity")
+    if holding_time < 0:
+        raise ValueError("holding_time must be non-negative")
+
+    entry_fee_rate = entry_fill.fee / entry_fill.gross_value
+    exit_fee_rate = exit_fill.fee / exit_fill.gross_value
+    gross_return = (exit_fill.reference_price - entry_fill.reference_price) / entry_fill.reference_price
+    net_return = (
+        (1.0 - entry_fee_rate)
+        * (exit_fill.fill_price / entry_fill.fill_price)
+        * (1.0 - exit_fee_rate)
+        - 1.0
+    )
+
+    return BacktestResult(
+        net_return=float(net_return),
+        max_drawdown=0.0,
+        win_rate=float(gross_return > 0.0),
+        trade_count=1,
+        average_holding_time=float(holding_time),
+        fee_adjusted_expectancy=float(gross_return - entry_fee_rate - exit_fee_rate),
+        slippage_adjusted_expectancy=float(
+            gross_return - entry_fill.slippage_rate - exit_fill.slippage_rate
+        ),
+    )
 
 
 def _validate_runtime_price(symbol: str, price: float) -> float:
