@@ -4,11 +4,13 @@ from collections import Counter
 from datetime import datetime, timezone
 import hashlib
 import math
+import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 
@@ -106,26 +108,58 @@ class MemoryStore:
         self.dimensions = dimensions
         self._records: list[MemoryRecord] = []
         self._index: dict[str, int] = {}
+        self.skipped_record_count = 0
         self._load()
 
     def _load(self) -> None:
         self._records = []
         self._index = {}
+        self.skipped_record_count = 0
         if not self.path.exists():
             return
         for line in self.path.read_text().splitlines():
             if not line.strip():
                 continue
-            record = MemoryRecord.model_validate_json(line)
+            try:
+                record = MemoryRecord.model_validate_json(line)
+            except ValidationError:
+                self.skipped_record_count += 1
+                continue
+            record = self._ensure_valid_embedding(record)
             self._index[record.record_id] = len(self._records)
             self._records.append(record)
 
-    def _persist(self) -> None:
+    def _persist(self, records: list[MemoryRecord]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("w", encoding="utf-8") as handle:
-            for record in self._records:
-                handle.write(record.model_dump_json())
-                handle.write("\n")
+        temp_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=self.path.parent,
+                prefix=f".{self.path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temp_path = handle.name
+                for record in records:
+                    handle.write(record.model_dump_json())
+                    handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_path, self.path)
+            temp_path = None
+        finally:
+            if temp_path is not None:
+                Path(temp_path).unlink(missing_ok=True)
+
+    def _ensure_valid_embedding(self, record: MemoryRecord) -> MemoryRecord:
+        if len(record.embedding) == self.dimensions:
+            return record
+        return record.model_copy(update={"embedding": _vectorize_text(_record_text(record), self.dimensions)})
+
+    def _rebuild_index(self) -> None:
+        self._index = {record.record_id: index for index, record in enumerate(self._records)}
 
     def _prepare_record(self, record: MemoryRecord) -> MemoryRecord:
         timestamp = record.created_at or _now_iso()
@@ -140,12 +174,14 @@ class MemoryStore:
 
     def append(self, record: MemoryRecord) -> MemoryRecord:
         stored = self._prepare_record(record)
+        records = list(self._records)
         if stored.record_id in self._index:
-            self._records[self._index[stored.record_id]] = stored
+            records[self._index[stored.record_id]] = stored
         else:
-            self._index[stored.record_id] = len(self._records)
-            self._records.append(stored)
-        self._persist()
+            records.append(stored)
+        self._persist(records)
+        self._records = records
+        self._rebuild_index()
         return stored
 
     def upsert(self, record: MemoryRecord) -> MemoryRecord:

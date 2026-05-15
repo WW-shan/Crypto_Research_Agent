@@ -131,3 +131,104 @@ def test_retrieval_ranks_relevant_worked_and_illusion_cases_before_irrelevant(tm
 
     assert failed_results[0].record.record_id == illusion.record_id
     assert all(result.record.rejected_reasons for result in failed_results)
+
+
+def test_memory_store_append_uses_atomic_replace_without_clobbering_existing_file(tmp_path, monkeypatch):
+    from crypto_alpha_agent.memory import store as store_module
+    from crypto_alpha_agent.memory.store import MemoryRecord, MemoryStore
+
+    store_path = tmp_path / "memory.jsonl"
+    store = MemoryStore(store_path)
+    original = store.append(
+        MemoryRecord(
+            record_id="original-record",
+            opportunity=_opportunity_payload("ETH"),
+            hypothesis={"thesis": "existing memory survives failed write"},
+        )
+    )
+    original_content = store_path.read_text()
+
+    def fail_replace(source, target):
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(store_module.os, "replace", fail_replace)
+
+    try:
+        store.append(
+            MemoryRecord(
+                record_id="new-record",
+                opportunity=_opportunity_payload("BTC"),
+                hypothesis={"thesis": "this write fails before replacing durable file"},
+            )
+        )
+    except OSError as exc:
+        assert "simulated replace failure" in str(exc)
+    else:
+        raise AssertionError("append should surface atomic replace failure")
+
+    assert store_path.read_text() == original_content
+    reopened = MemoryStore(store_path)
+    assert [record.record_id for record in reopened.list_records()] == [original.record_id]
+
+
+def test_memory_store_load_skips_malformed_jsonl_lines_and_keeps_valid_records(tmp_path):
+    from crypto_alpha_agent.memory.store import MemoryRecord, MemoryStore
+
+    valid_before = MemoryRecord(
+        record_id="valid-before",
+        opportunity=_opportunity_payload("ETH"),
+        hypothesis={"thesis": "valid record before corrupted line"},
+    )
+    valid_after = MemoryRecord(
+        record_id="valid-after",
+        opportunity=_opportunity_payload("SOL"),
+        hypothesis={"thesis": "valid record after corrupted line"},
+    )
+    store_path = tmp_path / "memory.jsonl"
+    store_path.write_text(
+        "\n".join(
+            [
+                valid_before.model_dump_json(),
+                '{"record_id": "truncated", "opportunity":',
+                valid_after.model_dump_json(),
+            ]
+        )
+        + "\n"
+    )
+
+    store = MemoryStore(store_path, dimensions=16)
+
+    assert [record.record_id for record in store.list_records()] == ["valid-before", "valid-after"]
+    assert store.skipped_record_count == 1
+    assert len(store.get("valid-before").embedding) == 16
+    assert len(store.get("valid-after").embedding) == 16
+
+
+def test_memory_store_recomputes_invalid_or_wrong_size_embeddings_on_load(tmp_path):
+    from crypto_alpha_agent.memory.store import MemoryRecord, MemoryStore
+
+    store_path = tmp_path / "memory.jsonl"
+    malformed_embedding = MemoryRecord(
+        record_id="bad-embedding",
+        opportunity=_opportunity_payload("ETH"),
+        hypothesis={"thesis": "ETH basis memory with malformed embedding"},
+        embedding=[1.0],
+    )
+    empty_embedding = MemoryRecord(
+        record_id="empty-embedding",
+        opportunity=_opportunity_payload("ETH"),
+        hypothesis={"thesis": "ETH funding memory with empty embedding"},
+        embedding=[],
+    )
+    store_path.write_text(
+        malformed_embedding.model_dump_json()
+        + "\n"
+        + empty_embedding.model_dump_json()
+        + "\n"
+    )
+
+    store = MemoryStore(store_path, dimensions=32)
+    results = store.retrieve_similar("ETH funding basis", top_k=2)
+
+    assert {result.record.record_id for result in results} == {"bad-embedding", "empty-embedding"}
+    assert all(len(record.embedding) == 32 for record in store.list_records())
