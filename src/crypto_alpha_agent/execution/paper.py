@@ -242,9 +242,8 @@ def paper_round_trip_to_backtest_result(
     exit_fee_rate = exit_fill.fee / exit_fill.gross_value
     gross_return = (exit_fill.reference_price - entry_fill.reference_price) / entry_fill.reference_price
     net_return = (
-        (1.0 - entry_fee_rate)
-        * (exit_fill.fill_price / entry_fill.fill_price)
-        * (1.0 - exit_fee_rate)
+        (exit_fill.gross_value - exit_fill.fee)
+        / (entry_fill.gross_value + entry_fill.fee)
         - 1.0
     )
 

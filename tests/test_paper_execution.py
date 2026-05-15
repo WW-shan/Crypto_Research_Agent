@@ -59,11 +59,14 @@ def test_paper_round_trip_applies_slippage_fees_latency_and_realized_pnl():
 
 
 def test_paper_round_trip_exports_backtest_result_contract_with_cost_adjustments():
-    from crypto_alpha_agent.backtest.vectorbt_runner import BacktestResult
+    from crypto_alpha_agent.backtest.vectorbt_runner import BacktestResult, run_vectorbt_backtest
     from crypto_alpha_agent.execution.paper import PaperAccount, PaperOrder, paper_round_trip_to_backtest_result
 
     fee_rate = 0.001
     slippage_rate = 0.005
+    prices = [100.0, 110.0]
+    entries = [True, False]
+    exits = [False, True]
     account = PaperAccount(cash=1_000.0)
     buy = account.execute_order(
         PaperOrder(
@@ -86,21 +89,23 @@ def test_paper_round_trip_exports_backtest_result_contract_with_cost_adjustments
         )
     )
 
-    result = paper_round_trip_to_backtest_result(buy.fill, sell.fill, holding_time=3.0)
+    result = paper_round_trip_to_backtest_result(buy.fill, sell.fill, holding_time=1.0)
+    vectorbt_result = run_vectorbt_backtest(
+        prices=prices,
+        entries=entries,
+        exits=exits,
+        fee_rate=fee_rate,
+        slippage_rate=slippage_rate,
+    )
 
     assert isinstance(result, BacktestResult)
-    assert result.net_return == pytest.approx(
-        (1.0 - fee_rate)
-        * (sell.fill.fill_price / buy.fill.fill_price)
-        * (1.0 - fee_rate)
-        - 1.0
-    )
-    assert result.max_drawdown == pytest.approx(0.0)
-    assert result.win_rate == pytest.approx(1.0)
-    assert result.trade_count == 1
-    assert result.average_holding_time == pytest.approx(3.0)
-    assert result.fee_adjusted_expectancy == pytest.approx(0.10 - (fee_rate * 2.0))
-    assert result.slippage_adjusted_expectancy == pytest.approx(0.10 - (slippage_rate * 2.0))
+    assert result.net_return == pytest.approx(vectorbt_result.net_return)
+    assert result.max_drawdown == pytest.approx(vectorbt_result.max_drawdown)
+    assert result.win_rate == pytest.approx(vectorbt_result.win_rate)
+    assert result.trade_count == vectorbt_result.trade_count
+    assert result.average_holding_time == pytest.approx(vectorbt_result.average_holding_time)
+    assert result.fee_adjusted_expectancy == pytest.approx(vectorbt_result.fee_adjusted_expectancy)
+    assert result.slippage_adjusted_expectancy == pytest.approx(vectorbt_result.slippage_adjusted_expectancy)
 
 
 def test_mark_to_market_reports_cash_inventory_unrealized_and_equity():
