@@ -5,6 +5,8 @@ from typing import Any, Literal
 import requests
 from pydantic import BaseModel, ConfigDict, Field
 
+from crypto_alpha_agent.tools.http import HttpClient, SourceHealth
+
 
 class TheGraphQueryResult(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -30,8 +32,25 @@ def normalize_thegraph_query_result(raw: dict[str, Any], *, subgraph_url: str) -
 
 
 class TheGraphClient:
-    def __init__(self, *, session: Any | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        session: Any | None = None,
+        max_attempts: int = 3,
+        timeout_seconds: float = 30.0,
+        backoff_seconds: float = 0.5,
+        sleep: Any | None = None,
+    ) -> None:
         self.session = session or requests.Session()
+        self.http = HttpClient(
+            source="thegraph",
+            session=self.session,
+            max_attempts=max_attempts,
+            timeout_seconds=timeout_seconds,
+            backoff_seconds=backoff_seconds,
+            sleep=sleep,
+        )
+        self.last_health: SourceHealth | None = None
 
     def query(
         self,
@@ -44,6 +63,6 @@ class TheGraphClient:
         if variables is not None:
             payload["variables"] = variables
 
-        response = self.session.post(subgraph_url, json=payload)
-        response.raise_for_status()
+        response, health = self.http.post(subgraph_url, json=payload)
+        self.last_health = health
         return normalize_thegraph_query_result(response.json(), subgraph_url=subgraph_url)
