@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from crypto_alpha_agent.config import ActionMode, RuntimeConfig
 
@@ -10,6 +10,8 @@ DependencyLevel = Literal["none", "low", "medium", "high"]
 
 
 class OpportunityEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     source: str
     venue: str | None = None
     asset: str
@@ -33,6 +35,8 @@ class OpportunityEvent(BaseModel):
 
 
 class ExecutionProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     opportunity: OpportunityEvent
     action_mode: ActionMode = "research_only"
     capital_to_deploy_usd: float = Field(default=0.0, ge=0)
@@ -42,6 +46,8 @@ class ExecutionProposal(BaseModel):
 
 
 class AgentDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     action_mode: ActionMode = "research_only"
     proposal: ExecutionProposal | None = None
     approved: bool = False
@@ -49,6 +55,8 @@ class AgentDecision(BaseModel):
 
 
 class ResearchState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     config: RuntimeConfig = Field(default_factory=RuntimeConfig)
     opportunities: list[OpportunityEvent] = Field(default_factory=list)
     proposals: list[ExecutionProposal] = Field(default_factory=list)
