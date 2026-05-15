@@ -37,6 +37,7 @@ def _context(**overrides) -> RiskContext:
         "daily_realized_pnl_usd": -100.0,
         "consecutive_failures": 0,
         "permission_scope": _scope(),
+        "required_approval_reference_id": "ticket-123",
     }
     data.update(overrides)
     if "manual_approval" not in overrides:
@@ -147,6 +148,80 @@ def test_gated_live_rejects_approval_scoped_to_different_opportunity():
     assert decision.approved is False
     assert decision.live_execution_allowed is False
     assert decision.reason_codes == ["manual_approval_scope_mismatch"]
+
+
+def test_gated_live_rejects_approval_when_required_reference_is_missing():
+    guardian = RiskGuardian(_policy())
+    context = _context(required_approval_reference_id=None)
+
+    decision = guardian.evaluate(context)
+
+    assert decision.approved is False
+    assert decision.live_execution_allowed is False
+    assert decision.reason_codes == ["manual_approval_scope_mismatch"]
+
+
+def test_gated_live_rejects_approval_with_mismatched_required_reference():
+    guardian = RiskGuardian(_policy())
+    context = _context(
+        required_approval_reference_id="ticket-current",
+        manual_approval=ManualApproval(
+            approval_id="approval-current",
+            approved=True,
+            approver="risk-lead",
+            opportunity_id="opp-1",
+            action_mode="gated_live",
+            venue="binance",
+            max_approved_capital_usd=500.0,
+            reason="approved for a different ticket",
+            reference_id="ticket-stale",
+        ),
+    )
+
+    decision = guardian.evaluate(context)
+
+    assert decision.approved is False
+    assert decision.live_execution_allowed is False
+    assert decision.reason_codes == ["manual_approval_scope_mismatch"]
+
+
+def test_gated_live_rejects_approval_with_mismatched_required_approval_id():
+    guardian = RiskGuardian(_policy())
+    context = _context(
+        required_approval_id="approval-current",
+        manual_approval=ManualApproval(
+            approval_id="approval-stale",
+            approved=True,
+            approver="risk-lead",
+            opportunity_id="opp-1",
+            action_mode="gated_live",
+            venue="binance",
+            max_approved_capital_usd=500.0,
+            reason="approved under a different id",
+            reference_id="ticket-123",
+        ),
+    )
+
+    decision = guardian.evaluate(context)
+
+    assert decision.approved is False
+    assert decision.live_execution_allowed is False
+    assert decision.reason_codes == ["manual_approval_scope_mismatch"]
+
+
+def test_gated_live_allows_approval_with_matching_required_reference():
+    guardian = RiskGuardian(_policy())
+    context = _context(
+        required_approval_id="approval-123",
+        required_approval_reference_id="ticket-123",
+    )
+
+    decision = guardian.evaluate(context)
+
+    assert decision.approved is True
+    assert decision.execution_allowed is True
+    assert decision.live_execution_allowed is True
+    assert decision.reason_codes == []
 
 
 def test_gated_live_rejects_approval_that_does_not_cover_requested_capital():

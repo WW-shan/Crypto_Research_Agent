@@ -85,6 +85,8 @@ class RiskContext(BaseModel):
     daily_realized_pnl_usd: FiniteFloat = 0.0
     consecutive_failures: NonNegativeInt = 0
     permission_scope: PermissionScope
+    required_approval_id: str | None = Field(default=None, min_length=1)
+    required_approval_reference_id: str | None = Field(default=None, min_length=1)
     manual_approval: ManualApproval | None = None
 
     @field_validator("venue")
@@ -181,6 +183,15 @@ def _approval_reasons(context: RiskContext) -> list[RiskReasonCode]:
 
 
 def _approval_matches_context(approval: ManualApproval, context: RiskContext) -> bool:
+    if context.required_approval_id is None and context.required_approval_reference_id is None:
+        return False
+    if context.required_approval_id is not None and approval.approval_id != context.required_approval_id:
+        return False
+    if (
+        context.required_approval_reference_id is not None
+        and approval.reference_id != context.required_approval_reference_id
+    ):
+        return False
     return (
         approval.opportunity_id == context.opportunity_id
         and approval.action_mode == context.execution_mode
