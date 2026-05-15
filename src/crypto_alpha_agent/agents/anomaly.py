@@ -67,8 +67,7 @@ class AnomalyDetector:
             signal.liquidity_usd <= 0 or signal.capital_required_usd > signal.liquidity_usd
         )
         infrastructure_bound = signal.speed_dependency == "high" and signal.rpc_dependency == "high"
-        too_brief = signal.persistence_seconds < 30
-        return infrastructure_bound and capital_exceeds_depth and too_brief
+        return capital_exceeds_depth or infrastructure_bound
 
     @staticmethod
     def _is_one_off_noise(signal: ScannerSignal) -> bool:

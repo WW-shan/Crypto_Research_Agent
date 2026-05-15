@@ -166,3 +166,44 @@ def test_impossible_to_trade_high_speed_high_capital_rpc_signal_is_mirage():
     assert mirage_result.classification == "mirage"
     assert mirage_result.executable is False
     assert executable_results == [next(result for result in ranked if result.signal is executable)]
+
+
+def test_capital_exceeds_liquidity_without_speed_rpc_constraints_is_not_executable():
+    impossible_size = ScannerSignal(
+        category="dex",
+        source="thin_pool_monitor",
+        asset="MKR",
+        metric="pool_depth_dislocation",
+        value=38.0,
+        z_score=6.0,
+        deviation=0.65,
+        persistence_seconds=2_400,
+        liquidity_usd=100_000,
+        capital_required_usd=750_000,
+        speed_dependency="low",
+        rpc_dependency="none",
+        evidence=["pool price diverged", "visible depth cannot support required size"],
+        structural_break=True,
+        protocol="curve",
+    )
+    executable = ScannerSignal(
+        category="cex",
+        source="funding_basis_monitor",
+        asset="MKR",
+        metric="funding_basis_deviation",
+        value=12.0,
+        z_score=3.0,
+        deviation=0.22,
+        persistence_seconds=1_800,
+        liquidity_usd=5_000_000,
+        capital_required_usd=50_000,
+        evidence=["funding basis persisted", "order book supports target size"],
+        venue="binance",
+    )
+
+    ranked = AnomalyDetector().rank([impossible_size, executable])
+
+    impossible_result = next(result for result in ranked if result.signal is impossible_size)
+    assert impossible_result.classification == "mirage"
+    assert impossible_result.executable is False
+    assert ranked.index(impossible_result) > ranked.index(next(result for result in ranked if result.signal is executable))
