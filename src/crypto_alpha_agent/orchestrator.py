@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -186,6 +187,9 @@ def run_deterministic_research_loop(
     *,
     signal_fixtures: Sequence[dict[str, Any]],
     memory_path: str | Path,
+    event_log_path: str | Path | None = None,
+    event_logger: Any | None = None,
+    run_id: str = "deterministic-research-loop",
     paper_cash_usd: float = 10_000.0,
     current_capital_usd: float | None = None,
 ) -> AgentState:
@@ -194,13 +198,17 @@ def run_deterministic_research_loop(
     from crypto_alpha_agent.agents.hypothesis import HypothesisGenerator
     from crypto_alpha_agent.agents.scanner import MarketScanner
     from crypto_alpha_agent.agents.reflector import reflect_strategy
-    from crypto_alpha_agent.backtest.vectorbt_runner import BacktestResult
+    from crypto_alpha_agent.backtest.vectorbt_runner import run_vectorbt_backtest
     from crypto_alpha_agent.execution.paper import PaperAccount, PaperOrder
     from crypto_alpha_agent.memory.store import MemoryRecord, MemoryStore
+    from crypto_alpha_agent.observability.logging import EventLogger
     from crypto_alpha_agent.risk.feasibility import score_feasibility as calculate_feasibility
     from crypto_alpha_agent.risk.guardian import PermissionScope, RiskContext, RiskGuardian, RiskPolicy
 
     trace: list[str] = []
+    event_time = datetime(2026, 5, 16, 12, 0, tzinfo=UTC)
+    owned_event_logger = EventLogger(event_log_path) if event_log_path is not None and event_logger is None else None
+    logger = event_logger or owned_event_logger
     scanner = MarketScanner(providers=[lambda: signal_fixtures])
 
     trace.append("scan_market")
@@ -233,20 +241,50 @@ def run_deterministic_research_loop(
         action_mode="paper",
         max_allowed_downside_usd=max_downside_usd * 2.0,
     )
+    record_id = f"{signal.source}:{signal.asset}:{signal.metric}"
+    if logger is not None:
+        logger.record(
+            timestamp=event_time,
+            event_type="opportunity_scored",
+            run_id=run_id,
+            opportunity_id=record_id,
+            decision="approve" if feasibility.approved else "block",
+            action="continue" if feasibility.approved else "revise",
+            reason_codes=list(feasibility.reasons),
+            metrics={
+                "expected_net_pnl_usd": expected_net_pnl_usd,
+                "confidence": min(1.0, max(0.0, executable_anomaly.score / 100.0)),
+                "capital_required_usd": capital_required_usd,
+            },
+            evidence_refs=list(signal.evidence),
+        )
 
     trace.append("code_strategy")
     strategy = StrategyCoder().emit("execution_proposal")
 
     trace.append("backtest")
-    backtest_result = BacktestResult(
-        net_return=0.12,
-        max_drawdown=-0.04,
-        win_rate=0.8,
-        trade_count=5,
-        average_holding_time=2.0,
-        fee_adjusted_expectancy=0.03,
-        slippage_adjusted_expectancy=0.028,
+    backtest_result = run_vectorbt_backtest(
+        prices=[100.0, 106.0, 102.0, 108.0, 104.0, 110.0, 106.0, 112.0, 108.0, 114.0, 110.0, 116.0, 118.0],
+        entries=[True, False, True, False, True, False, True, False, True, False, True, False, False],
+        exits=[False, True, False, True, False, True, False, True, False, True, False, True, False],
+        fee_rate=0.001,
+        slippage_rate=0.0005,
     )
+    if logger is not None:
+        logger.record(
+            timestamp=event_time,
+            event_type="backtest_completed",
+            run_id=run_id,
+            opportunity_id=record_id,
+            decision="approve" if backtest_result.net_return > 0.0 else "block",
+            action="continue" if backtest_result.net_return > 0.0 else "revise",
+            metrics={
+                "backtest_trade_count": float(backtest_result.trade_count),
+                "backtest_net_return": backtest_result.net_return,
+                "backtest_max_drawdown": backtest_result.max_drawdown,
+            },
+            artifact_refs=[f"memory:{record_id}:backtest"],
+        )
 
     trace.append("critique")
     critique_decision = reflect_strategy(
@@ -255,7 +293,6 @@ def run_deterministic_research_loop(
         feasibility=feasibility,
     )
 
-    record_id = f"{signal.source}:{signal.asset}:{signal.metric}"
     store = MemoryStore(memory_path)
     memory_record = MemoryRecord(
         record_id=record_id,
@@ -276,7 +313,7 @@ def run_deterministic_research_loop(
         score=feasibility.model_dump(),
         rejected_reasons=list(critique_decision.rejection_reasons),
         backtest_artifacts={
-            "engine": "deterministic_fixture",
+            "engine": "vectorbt",
             "metrics": backtest_result.model_dump(),
         },
         tags=[signal.asset.lower(), signal.metric, critique_decision.outcome],
@@ -309,45 +346,62 @@ def run_deterministic_research_loop(
             ),
         )
     )
+    if logger is not None:
+        logger.record(
+            timestamp=event_time,
+            event_type="risk_guard",
+            run_id=run_id,
+            opportunity_id=record_id,
+            decision="approve" if risk_decision.execution_allowed else "block",
+            action="paper_trade" if risk_decision.execution_allowed else "skip",
+            reason_codes=list(risk_decision.reason_codes),
+            metrics={"capital_required_usd": capital_required_usd},
+            evidence_refs=["risk_guard:policy"],
+        )
 
     paper_trade: dict[str, Any] | None = None
-    if risk_decision.execution_allowed:
-        trace.append("paper_execute")
-        account = PaperAccount(cash=paper_cash_usd)
-        entry_price = float(signal.raw.get("entry_price", 100.0))
-        exit_price = float(signal.raw.get("exit_price", 108.0))
-        quantity = capital_required_usd / entry_price
-        buy = account.execute_order(
-            PaperOrder(
-                symbol=signal.asset,
-                side="buy",
-                quantity=quantity,
-                reference_price=entry_price,
-                fee_rate=0.001,
-                slippage_bps=5.0,
-                latency_ms=10.0,
+    try:
+        if risk_decision.execution_allowed:
+            trace.append("paper_execute")
+            account = PaperAccount(cash=paper_cash_usd)
+            entry_price = float(signal.raw.get("entry_price", 100.0))
+            exit_price = float(signal.raw.get("exit_price", 108.0))
+            quantity = capital_required_usd / entry_price
+            buy = account.execute_order(
+                PaperOrder(
+                    symbol=signal.asset,
+                    side="buy",
+                    quantity=quantity,
+                    reference_price=entry_price,
+                    fee_rate=0.001,
+                    slippage_bps=5.0,
+                    latency_ms=10.0,
+                )
             )
-        )
-        sell = account.execute_order(
-            PaperOrder(
-                symbol=signal.asset,
-                side="sell",
-                quantity=quantity,
-                reference_price=exit_price,
-                fee_rate=0.001,
-                slippage_bps=5.0,
-                latency_ms=10.0,
+            sell = account.execute_order(
+                PaperOrder(
+                    symbol=signal.asset,
+                    side="sell",
+                    quantity=quantity,
+                    reference_price=exit_price,
+                    fee_rate=0.001,
+                    slippage_bps=5.0,
+                    latency_ms=10.0,
+                )
             )
-        )
-        paper_trade = {
-            "status": "closed",
-            "risk_decision": risk_decision.model_dump(),
-            "buy": buy.model_dump(),
-            "sell": sell.model_dump(),
-        }
-        stored_record = store.upsert(stored_record.model_copy(update={"paper_trade_outcome": paper_trade}))
+            paper_trade = {
+                "status": "closed",
+                "risk_decision": risk_decision.model_dump(),
+                "buy": buy.model_dump(),
+                "sell": sell.model_dump(),
+            }
+            stored_record = store.upsert(stored_record.model_copy(update={"paper_trade_outcome": paper_trade}))
+    finally:
+        if owned_event_logger is not None:
+            owned_event_logger.close()
 
     return {
+        "run_id": run_id,
         "trace": trace,
         "signals": [signal.model_dump() for signal in signals],
         "anomalies": [anomaly.model_dump() for anomaly in anomalies],
