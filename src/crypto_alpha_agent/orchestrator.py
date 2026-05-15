@@ -9,6 +9,8 @@ from langgraph.graph import END, START, StateGraph
 
 AgentState = dict[str, Any]
 Route = Literal["generate_hypothesis", "code_strategy", "human_checkpoint", "proposal_finalize", "__end__"]
+DETERMINISTIC_EVENT_TIME = datetime(2026, 5, 16, 12, 0, tzinfo=UTC)
+DETERMINISTIC_EVENT_TIME_ISO = DETERMINISTIC_EVENT_TIME.isoformat()
 
 
 def _append_trace(state: AgentState, node_name: str) -> AgentState:
@@ -183,6 +185,15 @@ def build_graph(
     )
 
 
+def _paper_execution_reason(error: ValueError) -> str:
+    message = str(error)
+    if "insufficient paper cash" in message:
+        return "insufficient_paper_cash"
+    if "insufficient paper inventory" in message:
+        return "insufficient_paper_inventory"
+    return "paper_execution_failed"
+
+
 def run_deterministic_research_loop(
     *,
     signal_fixtures: Sequence[dict[str, Any]],
@@ -206,7 +217,7 @@ def run_deterministic_research_loop(
     from crypto_alpha_agent.risk.guardian import PermissionScope, RiskContext, RiskGuardian, RiskPolicy
 
     trace: list[str] = []
-    event_time = datetime(2026, 5, 16, 12, 0, tzinfo=UTC)
+    event_time = DETERMINISTIC_EVENT_TIME
     owned_event_logger = EventLogger(event_log_path) if event_log_path is not None and event_logger is None else None
     logger = event_logger or owned_event_logger
     scanner = MarketScanner(providers=[lambda: signal_fixtures])
@@ -259,6 +270,68 @@ def run_deterministic_research_loop(
             evidence_refs=list(signal.evidence),
         )
 
+    store = MemoryStore(memory_path)
+
+    if not feasibility.approved:
+        blocked_outcome = {
+            "status": "blocked",
+            "stage": "score_feasibility",
+            "reason_codes": list(feasibility.reasons),
+        }
+        blocked_record = MemoryRecord(
+            record_id=record_id,
+            created_at=DETERMINISTIC_EVENT_TIME_ISO,
+            updated_at=DETERMINISTIC_EVENT_TIME_ISO,
+            opportunity={
+                "source": signal.source,
+                "venue": signal.venue,
+                "asset": signal.asset,
+                "edge_type": signal.metric,
+                "evidence": list(signal.evidence),
+                "confidence": min(1.0, max(0.0, executable_anomaly.score / 100.0)),
+                "capital_required_usd": capital_required_usd,
+                "expected_net_pnl_usd": expected_net_pnl_usd,
+                "downside_usd": max_downside_usd,
+                "speed_dependency": signal.speed_dependency,
+                "rpc_dependency": signal.rpc_dependency,
+            },
+            hypothesis=hypothesis.model_dump(),
+            score=feasibility.model_dump(),
+            rejected_reasons=list(feasibility.reasons),
+            paper_trade_outcome=blocked_outcome,
+            tags=[signal.asset.lower(), signal.metric, "blocked"],
+        )
+        trace.append("update_memory")
+        stored_record = store.upsert(blocked_record)
+        if logger is not None:
+            logger.record(
+                timestamp=event_time,
+                event_type="execution_blocked",
+                run_id=run_id,
+                opportunity_id=record_id,
+                decision="block",
+                action="block",
+                reason_codes=list(feasibility.reasons),
+                metrics={"capital_required_usd": capital_required_usd},
+                evidence_refs=["feasibility:score"],
+            )
+        if owned_event_logger is not None:
+            owned_event_logger.close()
+        return {
+            "run_id": run_id,
+            "trace": trace,
+            "signals": [signal.model_dump() for signal in signals],
+            "anomalies": [anomaly.model_dump() for anomaly in anomalies],
+            "hypothesis": hypothesis.model_dump(),
+            "feasibility": feasibility.model_dump(),
+            "strategy": None,
+            "backtest": None,
+            "critique": None,
+            "memory_record_id": stored_record.record_id,
+            "risk_decision": None,
+            "paper_trade": None,
+        }
+
     trace.append("code_strategy")
     strategy = StrategyCoder().emit("execution_proposal")
 
@@ -293,9 +366,10 @@ def run_deterministic_research_loop(
         feasibility=feasibility,
     )
 
-    store = MemoryStore(memory_path)
     memory_record = MemoryRecord(
         record_id=record_id,
+        created_at=DETERMINISTIC_EVENT_TIME_ISO,
+        updated_at=DETERMINISTIC_EVENT_TIME_ISO,
         opportunity={
             "source": signal.source,
             "venue": signal.venue,
@@ -353,7 +427,7 @@ def run_deterministic_research_loop(
             run_id=run_id,
             opportunity_id=record_id,
             decision="approve" if risk_decision.execution_allowed else "block",
-            action="paper_trade" if risk_decision.execution_allowed else "skip",
+            action="risk_approved" if risk_decision.execution_allowed else "skip",
             reason_codes=list(risk_decision.reason_codes),
             metrics={"capital_required_usd": capital_required_usd},
             evidence_refs=["risk_guard:policy"],
@@ -396,6 +470,40 @@ def run_deterministic_research_loop(
                 "sell": sell.model_dump(),
             }
             stored_record = store.upsert(stored_record.model_copy(update={"paper_trade_outcome": paper_trade}))
+            if logger is not None:
+                logger.record(
+                    timestamp=event_time,
+                    event_type="paper_execution_completed",
+                    run_id=run_id,
+                    opportunity_id=record_id,
+                    decision="approve",
+                    action="paper_trade",
+                    reason_codes=[],
+                    metrics={"realized_net_pnl_usd": sell.realized_net_pnl},
+                    evidence_refs=["paper_account:round_trip"],
+                )
+    except ValueError as error:
+        reason = _paper_execution_reason(error)
+        failed_outcome = {
+            "status": "failed",
+            "stage": "paper_execute",
+            "risk_decision": risk_decision.model_dump(),
+            "reason_codes": [reason],
+            "error": str(error),
+        }
+        stored_record = store.upsert(stored_record.model_copy(update={"paper_trade_outcome": failed_outcome}))
+        if logger is not None:
+            logger.record(
+                timestamp=event_time,
+                event_type="paper_execution_failed",
+                run_id=run_id,
+                opportunity_id=record_id,
+                decision="block",
+                action="block",
+                reason_codes=[reason],
+                metrics={"capital_required_usd": capital_required_usd},
+                evidence_refs=["paper_account:execute_order"],
+            )
     finally:
         if owned_event_logger is not None:
             owned_event_logger.close()

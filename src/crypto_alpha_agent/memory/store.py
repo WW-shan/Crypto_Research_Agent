@@ -163,11 +163,12 @@ class MemoryStore:
 
     def _prepare_record(self, record: MemoryRecord) -> MemoryRecord:
         timestamp = record.created_at or _now_iso()
+        updated_at = record.updated_at or _now_iso()
         embedding = _vectorize_text(_record_text(record), self.dimensions)
         return record.model_copy(
             update={
                 "created_at": timestamp,
-                "updated_at": _now_iso(),
+                "updated_at": updated_at,
                 "embedding": embedding,
             }
         )
