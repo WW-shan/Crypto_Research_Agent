@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated, Literal
 
 from crypto_alpha_agent.backtest.vectorbt_runner import BacktestResult
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 OrderSide = Literal["buy", "sell"]
 
@@ -89,6 +89,23 @@ class PaperAccount(BaseModel):
     _entry_fees: dict[str, float] = PrivateAttr(default_factory=dict)
     _capital_used: dict[str, float] = PrivateAttr(default_factory=dict)
 
+    @field_validator("inventory")
+    @classmethod
+    def _reject_initial_inventory(
+        cls,
+        inventory: dict[str, NonNegativeFiniteFloat],
+    ) -> dict[str, NonNegativeFiniteFloat]:
+        if inventory:
+            raise ValueError("initial inventory is not supported for paper accounts")
+        return inventory
+
+    @field_validator("touched_real_capital")
+    @classmethod
+    def _reject_real_capital_flag(cls, touched_real_capital: bool) -> bool:
+        if touched_real_capital:
+            raise ValueError("paper execution cannot touch real capital")
+        return False
+
     def execute_order(self, order: PaperOrder) -> PaperTradeResult:
         fill_price = self._fill_price(order)
         gross_value = order.quantity * fill_price
@@ -117,7 +134,7 @@ class PaperAccount(BaseModel):
             capital_used=result["capital_used"],
             realized_gross_pnl=result["realized_gross_pnl"],
             realized_net_pnl=result["realized_net_pnl"],
-            touched_real_capital=self.touched_real_capital,
+            touched_real_capital=False,
         )
 
     def mark_to_market(self, reference_prices: dict[str, float]) -> PaperMarkToMarket:
@@ -129,9 +146,11 @@ class PaperAccount(BaseModel):
                 continue
             if symbol not in reference_prices:
                 raise ValueError(f"missing mark price for {symbol}")
+            if symbol not in self._average_entry_price:
+                raise ValueError(f"missing paper cost basis for {symbol}")
             mark_price = _validate_runtime_price(symbol, reference_prices[symbol])
             inventory_value += quantity * mark_price
-            entry_price = self._average_entry_price.get(symbol, 0.0)
+            entry_price = self._average_entry_price[symbol]
             unrealized_gross_pnl += (mark_price - entry_price) * quantity
 
         return PaperMarkToMarket(
@@ -141,7 +160,7 @@ class PaperAccount(BaseModel):
             realized_gross_pnl=self.realized_gross_pnl,
             realized_net_pnl=self.realized_net_pnl,
             unrealized_gross_pnl=unrealized_gross_pnl,
-            touched_real_capital=self.touched_real_capital,
+            touched_real_capital=False,
         )
 
     def _execute_buy(
@@ -181,10 +200,16 @@ class PaperAccount(BaseModel):
         current_quantity = self.inventory.get(order.symbol, 0.0)
         if order.quantity > current_quantity:
             raise ValueError("insufficient paper inventory")
+        if (
+            order.symbol not in self._average_entry_price
+            or order.symbol not in self._entry_fees
+            or order.symbol not in self._capital_used
+        ):
+            raise ValueError(f"missing paper cost basis for {order.symbol}")
 
-        average_entry = self._average_entry_price.get(order.symbol, 0.0)
-        entry_fee = self._entry_fees.get(order.symbol, 0.0)
-        capital_used = self._capital_used.get(order.symbol, 0.0)
+        average_entry = self._average_entry_price[order.symbol]
+        entry_fee = self._entry_fees[order.symbol]
+        capital_used = self._capital_used[order.symbol]
         fraction_closed = order.quantity / current_quantity
         allocated_entry_fee = entry_fee * fraction_closed
         allocated_capital_used = capital_used * fraction_closed

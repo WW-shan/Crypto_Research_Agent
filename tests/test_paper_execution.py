@@ -205,3 +205,28 @@ def test_paper_account_rejects_insufficient_cash_and_inventory():
                 reference_price=100.0,
             )
         )
+
+
+def test_paper_account_rejects_initial_inventory_without_cost_basis():
+    from crypto_alpha_agent.execution.paper import PaperAccount
+
+    with pytest.raises(ValidationError, match="initial inventory is not supported"):
+        PaperAccount(cash=0.0, inventory={"ETH-USD": 1.0})
+
+
+def test_paper_account_rejects_real_capital_flag_on_construction():
+    from crypto_alpha_agent.execution.paper import PaperAccount
+
+    with pytest.raises(ValidationError, match="paper execution cannot touch real capital"):
+        PaperAccount(cash=100.0, touched_real_capital=True)
+
+
+def test_paper_account_rejects_real_capital_flag_assignment():
+    from crypto_alpha_agent.execution.paper import PaperAccount
+
+    account = PaperAccount(cash=100.0)
+
+    with pytest.raises(ValidationError, match="paper execution cannot touch real capital"):
+        account.touched_real_capital = True
+
+    assert account.touched_real_capital is False
