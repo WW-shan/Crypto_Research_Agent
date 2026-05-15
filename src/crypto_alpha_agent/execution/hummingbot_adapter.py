@@ -30,6 +30,13 @@ class ExecutionIntent(BaseModel):
     def notional_usd(self) -> float:
         return self.quantity * self.reference_price
 
+    def assert_within_capital_limit(self) -> None:
+        if self.notional_usd > self.max_capital_usd:
+            raise ValueError(
+                "notional_usd exceeds max_capital_usd: "
+                f"{self.notional_usd} > {self.max_capital_usd}"
+            )
+
 
 class AdapterPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
@@ -68,9 +75,15 @@ class HummingbotAdapter(BaseModel):
 
 def _assert_paper_execution_allowed(intent: ExecutionIntent, risk_decision: RiskDecision) -> None:
     risk_decision.assert_can_execute()
+    if not risk_decision.approved:
+        raise PermissionError("risk guardian did not approve execution")
+    if risk_decision.reason_codes:
+        reasons = ",".join(risk_decision.reason_codes)
+        raise PermissionError(f"risk guardian returned execution reasons: {reasons}")
     if risk_decision.opportunity_id != intent.opportunity_id:
         raise PermissionError("risk decision does not match execution intent")
     if risk_decision.execution_mode != intent.execution_mode:
         raise PermissionError("risk decision mode does not match execution intent")
     if intent.execution_mode != "paper" or risk_decision.live_execution_allowed:
         raise PermissionError("live execution is not implemented by this adapter boundary")
+    intent.assert_within_capital_limit()

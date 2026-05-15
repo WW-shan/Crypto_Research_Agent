@@ -81,6 +81,22 @@ def test_freqtrade_adapter_builds_deterministic_dry_run_plan():
     }
 
 
+def test_hummingbot_adapter_rejects_notional_above_intent_capital_limit():
+    adapter = HummingbotAdapter()
+    intent = _paper_intent(quantity=1.26)
+
+    with pytest.raises(ValueError, match="notional_usd exceeds max_capital_usd"):
+        adapter.build_plan(intent, _paper_decision())
+
+
+def test_freqtrade_adapter_rejects_notional_above_intent_capital_limit():
+    adapter = FreqtradeAdapter()
+    intent = _paper_intent(symbol="ETH/USDT", quantity=1.26)
+
+    with pytest.raises(ValueError, match="notional_usd exceeds max_capital_usd"):
+        adapter.build_plan(intent, _paper_decision())
+
+
 @pytest.mark.parametrize("adapter", [HummingbotAdapter(), FreqtradeAdapter()])
 def test_adapters_reject_blocked_risk_decisions(adapter):
     decision = _paper_decision(
@@ -90,6 +106,25 @@ def test_adapters_reject_blocked_risk_decisions(adapter):
     )
 
     with pytest.raises(PermissionError, match="capital_above_opportunity_limit"):
+        adapter.build_plan(_paper_intent(), decision)
+
+
+@pytest.mark.parametrize("adapter", [HummingbotAdapter(), FreqtradeAdapter()])
+def test_adapters_reject_unapproved_risk_decisions_even_when_execution_allowed(adapter):
+    decision = _paper_decision(approved=False, execution_allowed=True)
+
+    with pytest.raises(PermissionError, match="risk guardian did not approve execution"):
+        adapter.build_plan(_paper_intent(), decision)
+
+
+@pytest.mark.parametrize("adapter", [HummingbotAdapter(), FreqtradeAdapter()])
+def test_adapters_reject_risk_decisions_with_reason_codes_even_when_execution_allowed(adapter):
+    decision = _paper_decision(
+        execution_allowed=True,
+        reason_codes=["manual_approval_required"],
+    )
+
+    with pytest.raises(PermissionError, match="manual_approval_required"):
         adapter.build_plan(_paper_intent(), decision)
 
 
