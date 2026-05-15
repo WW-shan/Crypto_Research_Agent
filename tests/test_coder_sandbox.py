@@ -88,3 +88,44 @@ def test_generated_templates_contain_no_network_shell_or_wallet_calls():
         lower_source = strategy_code.source.lower()
         assert not any(fragment in lower_source for fragment in forbidden_fragments)
         validate_python_code(strategy_code.source)
+
+
+def test_generated_backtest_template_executes_with_toy_inputs():
+    from crypto_alpha_agent.agents.coder import StrategyCoder
+    from crypto_alpha_agent.tools.sandbox import run_sandboxed_code
+
+    strategy_code = StrategyCoder().emit("backtest_script")
+    result = run_sandboxed_code(strategy_code.source)
+
+    assert result.success is True
+    assert result.error is None
+    assert "run_backtest" in result.namespace
+
+    output = result.namespace["run_backtest"]([100.0, 103.0, 105.0], threshold=0.02)
+
+    assert output["trades"] == [{"index": 1, "return": pytest.approx(0.03)}]
+    assert output["net_return"] == pytest.approx(0.03)
+
+
+def test_generated_data_transform_template_executes_with_toy_inputs():
+    from crypto_alpha_agent.agents.coder import StrategyCoder
+    from crypto_alpha_agent.tools.sandbox import run_sandboxed_code
+
+    strategy_code = StrategyCoder().emit("data_transform")
+    result = run_sandboxed_code(strategy_code.source)
+
+    assert result.success is True
+    assert result.error is None
+    assert "normalize_prices" in result.namespace
+
+    output = result.namespace["normalize_prices"](
+        [
+            {"timestamp": "2026-05-15T00:00:00Z", "price": "100.5"},
+            {"timestamp": "2026-05-15T01:00:00Z", "price": 101},
+        ]
+    )
+
+    assert output == [
+        {"timestamp": "2026-05-15T00:00:00Z", "price": 100.5},
+        {"timestamp": "2026-05-15T01:00:00Z", "price": 101.0},
+    ]
