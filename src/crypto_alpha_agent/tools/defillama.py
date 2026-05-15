@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 import requests
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class DefiLlamaProtocolSnapshot(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
-    source: str = "defillama"
+    source: Literal["defillama"] = "defillama"
     protocol: str
     slug: str
     chain_tvls: dict[str, float] = Field(default_factory=dict)
@@ -17,9 +17,20 @@ class DefiLlamaProtocolSnapshot(BaseModel):
 
 
 def normalize_defillama_protocol_snapshot(raw: dict[str, Any]) -> DefiLlamaProtocolSnapshot:
+    if not raw.get("name"):
+        raise ValueError("DefiLlama protocol snapshot must contain name")
+    if not raw.get("slug"):
+        raise ValueError("DefiLlama protocol snapshot must contain slug")
+
+    raw_chain_tvls = raw.get("chainTvls", {})
+    if not isinstance(raw_chain_tvls, dict):
+        raise ValueError("DefiLlama chainTvls must be an object")
+
     chain_tvls: dict[str, float] = {}
-    for chain, payload in raw.get("chainTvls", {}).items():
+    for chain, payload in raw_chain_tvls.items():
         if isinstance(payload, dict) and payload.get("tvl") is not None:
+            if not isinstance(payload["tvl"], int | float) or isinstance(payload["tvl"], bool):
+                raise ValueError(f"DefiLlama TVL for {chain} must be numeric")
             chain_tvls[str(chain)] = float(payload["tvl"])
 
     return DefiLlamaProtocolSnapshot(

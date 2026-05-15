@@ -1,23 +1,29 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 import requests
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class TheGraphQueryResult(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
-    source: str = "thegraph"
+    source: Literal["thegraph"] = "thegraph"
     subgraph_url: str
     data: dict[str, Any] = Field(default_factory=dict)
     raw: dict[str, Any]
 
 
 def normalize_thegraph_query_result(raw: dict[str, Any], *, subgraph_url: str) -> TheGraphQueryResult:
-    data = raw.get("data", {})
-    return TheGraphQueryResult(subgraph_url=subgraph_url, data=dict(data), raw=raw)
+    if "data" not in raw:
+        raise ValueError("The Graph result must contain data")
+
+    data = raw["data"]
+    if not isinstance(data, dict):
+        raise ValueError("The Graph result data must be an object")
+
+    return TheGraphQueryResult(subgraph_url=subgraph_url, data=data, raw=raw)
 
 
 class TheGraphClient:
@@ -38,4 +44,3 @@ class TheGraphClient:
         response = self.session.post(subgraph_url, json=payload)
         response.raise_for_status()
         return normalize_thegraph_query_result(response.json(), subgraph_url=subgraph_url)
-

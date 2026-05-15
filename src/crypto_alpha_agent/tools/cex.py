@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 import ccxt
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class CexMarketSnapshot(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
-    source: str = "cex"
+    source: Literal["cex"] = "cex"
     venue: str
     symbol: str
     asset: str
@@ -29,14 +29,21 @@ def fetch_cex_snapshot(
     return {exchange_id: tickers}
 
 
+def _is_number(value: Any) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
 def normalize_cex_snapshot(raw: dict[str, Any]) -> CexMarketSnapshot:
     candidates: list[tuple[str, str, dict[str, Any]]] = []
     for venue, markets in raw.items():
         if not isinstance(markets, dict):
-            continue
+            raise ValueError("CEX snapshot must contain venues with market quote objects")
         for symbol, ticker in markets.items():
-            if isinstance(ticker, dict) and ticker.get("bid") is not None and ticker.get("ask") is not None:
-                candidates.append((str(venue), str(symbol), ticker))
+            if not isinstance(ticker, dict):
+                raise ValueError("CEX snapshot must contain venues with market quote objects")
+            if not _is_number(ticker.get("bid")) or not _is_number(ticker.get("ask")):
+                raise ValueError(f"CEX quote for {venue} {symbol} must contain numeric bid and ask")
+            candidates.append((str(venue), str(symbol), ticker))
 
     if not candidates:
         raise ValueError("CEX snapshot does not contain a market with bid and ask")
@@ -51,4 +58,3 @@ def normalize_cex_snapshot(raw: dict[str, Any]) -> CexMarketSnapshot:
         best_ask=float(ticker["ask"]),
         raw=raw,
     )
-

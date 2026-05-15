@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 
 class FakeResponse:
     def __init__(self, payload: dict) -> None:
@@ -116,3 +119,97 @@ def test_thin_clients_accept_injected_sessions():
 
     assert llama_result.protocol == "Uniswap"
     assert llama_session.calls[0][0] == "GET"
+
+
+def test_normalized_models_reject_wrong_source_identity():
+    from crypto_alpha_agent.tools.cex import CexMarketSnapshot
+    from crypto_alpha_agent.tools.defillama import DefiLlamaProtocolSnapshot
+    from crypto_alpha_agent.tools.dune import DuneQueryResult
+    from crypto_alpha_agent.tools.thegraph import TheGraphQueryResult
+
+    with pytest.raises(ValidationError):
+        DuneQueryResult(source="not-dune", query_id=1, rows=[], raw={"result": {"rows": []}})
+
+    with pytest.raises(ValidationError):
+        TheGraphQueryResult(source="not-thegraph", subgraph_url="https://example.test", data={}, raw={"data": {}})
+
+    with pytest.raises(ValidationError):
+        DefiLlamaProtocolSnapshot(source="not-defillama", protocol="Aave", slug="aave", raw={"name": "Aave"})
+
+    with pytest.raises(ValidationError):
+        CexMarketSnapshot(
+            source="",
+            venue="binance",
+            symbol="BTC/USDT",
+            asset="BTC",
+            best_bid=65000.0,
+            best_ask=65010.0,
+            raw={"binance": {"BTC/USDT": {"bid": 65000, "ask": 65010}}},
+        )
+
+
+def test_normalized_models_reject_string_numeric_coercion():
+    from crypto_alpha_agent.tools.cex import CexMarketSnapshot
+    from crypto_alpha_agent.tools.defillama import DefiLlamaProtocolSnapshot
+    from crypto_alpha_agent.tools.dune import DuneQueryResult
+
+    with pytest.raises(ValidationError):
+        CexMarketSnapshot(
+            venue="binance",
+            symbol="BTC/USDT",
+            asset="BTC",
+            best_bid="65000",
+            best_ask=65010.0,
+            raw={"binance": {"BTC/USDT": {"bid": 65000, "ask": 65010}}},
+        )
+
+    with pytest.raises(ValidationError):
+        DuneQueryResult(query_id="123", rows=[], raw={"result": {"rows": []}})
+
+    with pytest.raises(ValidationError):
+        DefiLlamaProtocolSnapshot(
+            protocol="Aave",
+            slug="aave",
+            chain_tvls={"Ethereum": "1000"},
+            raw={"name": "Aave", "slug": "aave"},
+        )
+
+
+def test_dune_rejects_missing_or_malformed_rows():
+    from crypto_alpha_agent.tools.dune import normalize_dune_query_result
+
+    with pytest.raises(ValueError, match="Dune result must contain result.rows"):
+        normalize_dune_query_result({}, query_id=123)
+
+    with pytest.raises(ValueError, match="Dune result rows must be a list"):
+        normalize_dune_query_result({"result": {"rows": {"asset": "BTC"}}}, query_id=123)
+
+
+def test_thegraph_rejects_missing_or_malformed_data():
+    from crypto_alpha_agent.tools.thegraph import normalize_thegraph_query_result
+
+    with pytest.raises(ValueError, match="The Graph result data must be an object"):
+        normalize_thegraph_query_result({"data": None}, subgraph_url="https://example.test/subgraph")
+
+    with pytest.raises(ValueError, match="The Graph result must contain data"):
+        normalize_thegraph_query_result({}, subgraph_url="https://example.test/subgraph")
+
+
+def test_defillama_rejects_missing_required_fields():
+    from crypto_alpha_agent.tools.defillama import normalize_defillama_protocol_snapshot
+
+    with pytest.raises(ValueError, match="DefiLlama protocol snapshot must contain name"):
+        normalize_defillama_protocol_snapshot({"slug": "aave"})
+
+    with pytest.raises(ValueError, match="DefiLlama chainTvls must be an object"):
+        normalize_defillama_protocol_snapshot({"name": "Aave", "slug": "aave", "chainTvls": []})
+
+
+def test_cex_rejects_malformed_quotes():
+    from crypto_alpha_agent.tools.cex import normalize_cex_snapshot
+
+    with pytest.raises(ValueError, match="CEX quote for binance BTC/USDT must contain numeric bid and ask"):
+        normalize_cex_snapshot({"binance": {"BTC/USDT": {"bid": "65000", "ask": 65010}}})
+
+    with pytest.raises(ValueError, match="CEX snapshot must contain venues with market quote objects"):
+        normalize_cex_snapshot({"binance": []})

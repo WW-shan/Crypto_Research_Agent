@@ -1,22 +1,31 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 import requests
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class DuneQueryResult(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
-    source: str = "dune"
+    source: Literal["dune"] = "dune"
     query_id: int
     rows: list[dict[str, Any]] = Field(default_factory=list)
     raw: dict[str, Any]
 
 
 def normalize_dune_query_result(raw: dict[str, Any], *, query_id: int) -> DuneQueryResult:
-    rows = raw.get("result", {}).get("rows", [])
+    result = raw.get("result")
+    if not isinstance(result, dict) or "rows" not in result:
+        raise ValueError("Dune result must contain result.rows")
+
+    rows = result["rows"]
+    if not isinstance(rows, list):
+        raise ValueError("Dune result rows must be a list")
+    if not all(isinstance(row, dict) for row in rows):
+        raise ValueError("Dune result rows must contain objects")
+
     return DuneQueryResult(query_id=query_id, rows=list(rows), raw=raw)
 
 
@@ -40,4 +49,3 @@ class DuneClient:
         )
         response.raise_for_status()
         return normalize_dune_query_result(response.json(), query_id=query_id)
-
