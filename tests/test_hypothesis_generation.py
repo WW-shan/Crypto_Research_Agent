@@ -36,6 +36,11 @@ def test_structural_anomaly_generates_falsifiable_hypothesis_with_required_field
     assert hypothesis.evidence
     assert hypothesis.expected_persistence_seconds == pytest.approx(1_800)
     assert hypothesis.disconfirmation_tests
+    assert hypothesis.disconfirmation_criteria
+    assert hypothesis.disconfirmation_criteria[0].metric == "deviation"
+    assert hypothesis.disconfirmation_criteria[0].operator == "abs_lte"
+    assert hypothesis.disconfirmation_criteria[0].threshold == pytest.approx(0.135)
+    assert hypothesis.disconfirmation_criteria[0].window_seconds == pytest.approx(1_800)
     assert hypothesis.action_mode == "research_only"
     assert hypothesis.actionability == "executable"
 
@@ -67,6 +72,29 @@ def test_evidence_bundle_preserves_source_category_and_raw_evidence():
     assert bundle.raw == {"query": "holders", "sample_size": 120}
     assert bundle.signal_evidence == ["top wallets accumulated"]
     assert bundle.anomaly_classification == anomaly.classification
+
+
+def test_evidence_bundle_deep_copies_nested_raw_evidence():
+    from crypto_alpha_agent.agents.hypothesis import HypothesisGenerator
+
+    signal = ScannerSignal(
+        category="chain",
+        source="thegraph",
+        asset="OP",
+        metric="bridge_inflow",
+        value=8_000_000,
+        evidence=["bridge inflow spike"],
+        raw={"response": {"rows": [{"amount": 8_000_000}]}},
+        chain="optimism",
+        z_score=3.4,
+        persistence_seconds=1_200,
+    )
+
+    [hypothesis] = HypothesisGenerator().generate([signal])
+
+    signal.raw["response"]["rows"][0]["amount"] = 1
+
+    assert hypothesis.evidence[0].raw == {"response": {"rows": [{"amount": 8_000_000}]}}
 
 
 def test_mirage_anomaly_produces_research_only_hypothesis_and_marks_actionability():
@@ -101,7 +129,11 @@ def test_mirage_anomaly_produces_research_only_hypothesis_and_marks_actionabilit
 
 
 def test_alpha_hypothesis_requires_evidence_and_disconfirmation_criteria():
-    from crypto_alpha_agent.agents.hypothesis import AlphaHypothesis, EvidenceBundle
+    from crypto_alpha_agent.agents.hypothesis import (
+        AlphaHypothesis,
+        DisconfirmationCriterion,
+        EvidenceBundle,
+    )
 
     with pytest.raises(ValidationError):
         AlphaHypothesis(
@@ -113,6 +145,15 @@ def test_alpha_hypothesis_requires_evidence_and_disconfirmation_criteria():
             evidence=[],
             expected_persistence_seconds=1_800,
             disconfirmation_tests=["if concentration normalizes on the next snapshot, invalidate"],
+            disconfirmation_criteria=[
+                DisconfirmationCriterion(
+                    metric="holder_concentration",
+                    operator="lte",
+                    threshold=0.5,
+                    window_seconds=1_800,
+                    reason="invalidate if concentration normalizes",
+                )
+            ],
             action_mode="research_only",
             actionability="executable",
         )
@@ -141,6 +182,44 @@ def test_alpha_hypothesis_requires_evidence_and_disconfirmation_criteria():
             ],
             expected_persistence_seconds=1_800,
             disconfirmation_tests=[],
+            disconfirmation_criteria=[
+                DisconfirmationCriterion(
+                    metric="holder_concentration",
+                    operator="lte",
+                    threshold=0.5,
+                    window_seconds=1_800,
+                    reason="invalidate if concentration normalizes",
+                )
+            ],
+            action_mode="research_only",
+            actionability="executable",
+        )
+
+    with pytest.raises(ValidationError):
+        AlphaHypothesis(
+            source="thegraph",
+            category="chain",
+            asset="ARB",
+            what_changed="holder concentration increased",
+            why_it_might_be_edge="large holders can front-run passive flows",
+            evidence=[
+                EvidenceBundle(
+                    source="thegraph",
+                    category="chain",
+                    asset="ARB",
+                    metric="holder_concentration",
+                    value=0.84,
+                    signal_evidence=["top wallets accumulated"],
+                    raw={"query": "holders"},
+                    anomaly_classification="statistical_outlier",
+                    anomaly_score=18.0,
+                    executable=True,
+                    persistence_seconds=1_800,
+                )
+            ],
+            expected_persistence_seconds=1_800,
+            disconfirmation_tests=["if concentration normalizes on the next snapshot, invalidate"],
+            disconfirmation_criteria=[],
             action_mode="research_only",
             actionability="executable",
         )

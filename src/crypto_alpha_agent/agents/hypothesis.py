@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from collections.abc import Iterable
 from typing import Any, Literal
 
@@ -10,6 +11,17 @@ from crypto_alpha_agent.agents.scanner import ScannerSignal, SignalCategory
 from crypto_alpha_agent.config import ActionMode
 
 Actionability = Literal["executable", "blocked"]
+DisconfirmationOperator = Literal["lt", "lte", "gt", "gte", "abs_lte"]
+
+
+class DisconfirmationCriterion(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    metric: str = Field(min_length=1)
+    operator: DisconfirmationOperator
+    threshold: float
+    window_seconds: float = Field(ge=0)
+    reason: str = Field(min_length=1)
 
 
 class EvidenceBundle(BaseModel):
@@ -43,7 +55,7 @@ class EvidenceBundle(BaseModel):
             metric=signal.metric,
             value=signal.value,
             signal_evidence=list(signal.evidence),
-            raw=dict(signal.raw),
+            raw=copy.deepcopy(signal.raw),
             anomaly_classification=anomaly.classification,
             anomaly_score=anomaly.score,
             executable=anomaly.executable,
@@ -68,6 +80,7 @@ class AlphaHypothesis(BaseModel):
     evidence: list[EvidenceBundle] = Field(min_length=1)
     expected_persistence_seconds: float = Field(ge=0)
     disconfirmation_tests: list[str] = Field(min_length=1)
+    disconfirmation_criteria: list[DisconfirmationCriterion] = Field(min_length=1)
     action_mode: ActionMode = "research_only"
     actionability: Actionability
     venue: str | None = None
@@ -105,6 +118,7 @@ class HypothesisGenerator:
             evidence=[evidence],
             expected_persistence_seconds=signal.persistence_seconds,
             disconfirmation_tests=self._disconfirmation_tests(anomaly),
+            disconfirmation_criteria=self._disconfirmation_criteria(anomaly),
             action_mode="research_only",
             actionability="executable" if anomaly.executable else "blocked",
             venue=signal.venue,
@@ -168,3 +182,63 @@ class HypothesisGenerator:
         else:
             tests.append("Invalidate if independent evidence cannot reproduce the observation.")
         return tests
+
+    @staticmethod
+    def _disconfirmation_criteria(anomaly: RankedAnomaly) -> list[DisconfirmationCriterion]:
+        signal = anomaly.signal
+        window_seconds = signal.persistence_seconds
+        criteria: list[DisconfirmationCriterion] = [
+            DisconfirmationCriterion(
+                metric="persistence_seconds",
+                operator="lt",
+                threshold=window_seconds,
+                window_seconds=window_seconds,
+                reason="Signal stopped persisting for the expected horizon.",
+            )
+        ]
+
+        if signal.deviation is not None:
+            criteria.insert(
+                0,
+                DisconfirmationCriterion(
+                    metric="deviation",
+                    operator="abs_lte",
+                    threshold=abs(signal.deviation) / 2.0,
+                    window_seconds=window_seconds,
+                    reason="Deviation mean-reverted below half of the observed anomaly.",
+                ),
+            )
+        elif signal.z_score is not None:
+            criteria.insert(
+                0,
+                DisconfirmationCriterion(
+                    metric="z_score",
+                    operator="abs_lte",
+                    threshold=2.0,
+                    window_seconds=window_seconds,
+                    reason="Observation no longer qualifies as a statistical outlier.",
+                ),
+            )
+        else:
+            criteria.insert(
+                0,
+                DisconfirmationCriterion(
+                    metric=signal.metric,
+                    operator="lte",
+                    threshold=signal.value,
+                    window_seconds=window_seconds,
+                    reason="Metric failed to stay above the observed candidate value.",
+                ),
+            )
+
+        if anomaly.classification == "mirage":
+            criteria.append(
+                DisconfirmationCriterion(
+                    metric="capital_required_usd",
+                    operator="gt",
+                    threshold=signal.liquidity_usd,
+                    window_seconds=window_seconds,
+                    reason="Required capital remains above visible liquidity.",
+                )
+            )
+        return criteria
