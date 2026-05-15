@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crypto-alpha-agent"
+version = "0.1.0"
+description = "Autonomous crypto alpha research agent."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "backtrader",
+    "ccxt",
+    "langchain",
+    "langgraph",
+    "pydantic",
+    "requests",
+    "vectorbt",
+    "web3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
