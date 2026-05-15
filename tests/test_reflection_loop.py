@@ -151,6 +151,149 @@ def test_underestimated_costs_are_detected():
     assert "costs_underestimated" in decision.rejection_reasons
 
 
+def test_multi_trade_positive_strategy_does_not_compare_cumulative_return_to_expectancy_for_costs():
+    from crypto_alpha_agent.agents.reflector import reflect_strategy
+    from crypto_alpha_agent.backtest.vectorbt_runner import BacktestResult
+
+    decision = reflect_strategy(
+        hypothesis=_hypothesis(),
+        backtest=BacktestResult(
+            net_return=0.28,
+            max_drawdown=-0.05,
+            win_rate=0.58,
+            trade_count=18,
+            average_holding_time=3.0,
+            fee_adjusted_expectancy=0.018,
+            slippage_adjusted_expectancy=0.016,
+        ),
+    )
+
+    assert decision.costs_underestimated is False
+    assert "costs_underestimated" not in decision.rejection_reasons
+
+
+def test_slippage_expectancy_materially_below_fee_expectancy_flags_underestimated_costs():
+    from crypto_alpha_agent.agents.reflector import reflect_strategy
+    from crypto_alpha_agent.backtest.vectorbt_runner import BacktestResult
+
+    decision = reflect_strategy(
+        hypothesis=_hypothesis(),
+        backtest=BacktestResult(
+            net_return=0.08,
+            max_drawdown=-0.03,
+            win_rate=0.55,
+            trade_count=12,
+            average_holding_time=2.0,
+            fee_adjusted_expectancy=0.071,
+            slippage_adjusted_expectancy=0.015,
+        ),
+    )
+
+    assert decision.costs_underestimated is True
+    assert "costs_underestimated" in decision.rejection_reasons
+
+
+def test_rejected_feasibility_routes_to_strategy_revision_with_machine_readable_reasons():
+    from crypto_alpha_agent.agents.reflector import reflect_strategy
+    from crypto_alpha_agent.backtest.vectorbt_runner import BacktestResult
+    from crypto_alpha_agent.risk.feasibility import FeasibilityScore
+
+    decision = reflect_strategy(
+        hypothesis=_hypothesis(),
+        backtest=BacktestResult(
+            net_return=0.14,
+            max_drawdown=-0.06,
+            win_rate=0.62,
+            trade_count=14,
+            average_holding_time=2.5,
+            fee_adjusted_expectancy=0.03,
+            slippage_adjusted_expectancy=0.028,
+        ),
+        feasibility=FeasibilityScore(
+            approved=False,
+            score=15,
+            reasons=["capital_above_budget", "speed_dependency_too_high", "rpc_dependency_too_high"],
+            capital_required_usd=700.0,
+            current_capital_usd=300.0,
+            expected_net_pnl_usd=25.0,
+            max_downside_usd=70.0,
+            repeatable=True,
+            speed_dependency="high",
+            rpc_dependency="high",
+        ),
+    )
+
+    assert decision.outcome == "revise_strategy"
+    assert decision.next_route == "code_strategy"
+    assert "capital_above_budget" in decision.rejection_reasons
+    assert "speed_dependency_too_high" in decision.rejection_reasons
+    assert "rpc_dependency_too_high" in decision.rejection_reasons
+
+
+def test_downside_feasibility_rejection_revises_strategy_even_when_backtest_is_positive():
+    from crypto_alpha_agent.agents.reflector import reflect_strategy
+    from crypto_alpha_agent.backtest.vectorbt_runner import BacktestResult
+    from crypto_alpha_agent.risk.feasibility import FeasibilityScore
+
+    decision = reflect_strategy(
+        hypothesis=_hypothesis(),
+        backtest=BacktestResult(
+            net_return=0.11,
+            max_drawdown=-0.08,
+            win_rate=0.57,
+            trade_count=10,
+            average_holding_time=2.0,
+            fee_adjusted_expectancy=0.024,
+            slippage_adjusted_expectancy=0.023,
+        ),
+        feasibility=FeasibilityScore(
+            approved=False,
+            score=45,
+            reasons=["downside_above_limit"],
+            capital_required_usd=120.0,
+            current_capital_usd=300.0,
+            expected_net_pnl_usd=20.0,
+            max_downside_usd=150.0,
+            repeatable=True,
+            speed_dependency="low",
+            rpc_dependency="low",
+        ),
+    )
+
+    assert decision.outcome == "revise_strategy"
+    assert "excessive_drawdown" in decision.rejection_reasons
+
+
+def test_blocked_repeatable_opportunity_is_not_marked_non_repeatable_from_actionability():
+    from crypto_alpha_agent.agents.reflector import reflect_strategy
+    from crypto_alpha_agent.agents.hypothesis import AlphaHypothesis
+    from crypto_alpha_agent.backtest.vectorbt_runner import BacktestResult
+
+    hypothesis = _hypothesis().model_copy(
+        update={
+            "actionability": "blocked",
+            "action_mode": "research_only",
+        }
+    )
+
+    decision = reflect_strategy(
+        hypothesis=hypothesis,
+        backtest=BacktestResult(
+            net_return=0.09,
+            max_drawdown=-0.04,
+            win_rate=0.6,
+            trade_count=9,
+            average_holding_time=2.0,
+            fee_adjusted_expectancy=0.022,
+            slippage_adjusted_expectancy=0.021,
+        ),
+    )
+
+    assert isinstance(hypothesis, AlphaHypothesis)
+    assert decision.repeatable is True
+    assert "opportunity_not_repeatable" not in decision.rejection_reasons
+
+
 def test_non_repeatable_opportunity_is_detected_from_feasibility():
     from crypto_alpha_agent.agents.reflector import reflect_strategy
     from crypto_alpha_agent.backtest.vectorbt_runner import BacktestResult

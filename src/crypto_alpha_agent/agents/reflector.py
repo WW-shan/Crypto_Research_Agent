@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from crypto_alpha_agent.agents.hypothesis import AlphaHypothesis
 from crypto_alpha_agent.backtest.vectorbt_runner import BacktestResult
-from crypto_alpha_agent.risk.feasibility import FeasibilityScore
+from crypto_alpha_agent.risk.feasibility import FeasibilityScore, RejectReason
 
 ReflectionOutcome = Literal["accept", "revise_strategy", "revise_hypothesis", "reject"]
 ReflectionRoute = Literal["generate_hypothesis", "code_strategy", "update_memory", "__end__"]
@@ -17,6 +17,9 @@ ReflectionReasonCode = Literal[
     "costs_underestimated",
     "opportunity_not_repeatable",
     "missing_evidence",
+    "capital_above_budget",
+    "speed_dependency_too_high",
+    "rpc_dependency_too_high",
 ]
 
 
@@ -58,12 +61,15 @@ def reflect_strategy(
     costs_underestimated = _are_costs_underestimated(backtest)
     insufficient_expectancy = _is_insufficient_expectancy(backtest, feasibility)
     excessive_drawdown = _is_excessive_drawdown(backtest)
+    feasibility_strategy_reasons = _strategy_feasibility_reasons(feasibility)
+    feasibility_hypothesis_reasons = _hypothesis_feasibility_reasons(feasibility)
 
     rejection_reasons: list[ReflectionReasonCode] = []
     if missing_evidence:
         rejection_reasons.append("missing_evidence")
     if not repeatable:
         rejection_reasons.append("opportunity_not_repeatable")
+    rejection_reasons.extend(feasibility_hypothesis_reasons)
     if overfit:
         rejection_reasons.append("overfit")
     if costs_underestimated:
@@ -72,13 +78,21 @@ def reflect_strategy(
         rejection_reasons.append("insufficient_expectancy")
     if excessive_drawdown:
         rejection_reasons.append("excessive_drawdown")
+    rejection_reasons.extend(feasibility_strategy_reasons)
+    rejection_reasons = list(dict.fromkeys(rejection_reasons))
 
     if missing_evidence or not repeatable:
         outcome = "revise_hypothesis"
         assumption_failed = _hypothesis_assumption_failed(missing_evidence, repeatable)
-    elif overfit or costs_underestimated or insufficient_expectancy or excessive_drawdown:
+    elif overfit or costs_underestimated or insufficient_expectancy or excessive_drawdown or feasibility_strategy_reasons:
         outcome = "revise_strategy"
-        assumption_failed = _strategy_assumption_failed(overfit, costs_underestimated, insufficient_expectancy, excessive_drawdown)
+        assumption_failed = _strategy_assumption_failed(
+            overfit,
+            costs_underestimated,
+            insufficient_expectancy,
+            excessive_drawdown,
+            feasibility_strategy_reasons,
+        )
     else:
         outcome = "accept"
         assumption_failed = "The strategy assumptions held up in backtest."
@@ -121,7 +135,9 @@ def _is_repeatable(*, hypothesis: AlphaHypothesis, feasibility: FeasibilityScore
             return False
         if "opportunity_not_repeatable" in feasibility.reasons:
             return False
-    return hypothesis.actionability == "executable"
+        return True
+    has_persistent_evidence = any(evidence.persistence_seconds > 0 for evidence in hypothesis.evidence)
+    return hypothesis.expected_persistence_seconds > 0 and has_persistent_evidence and bool(hypothesis.disconfirmation_criteria)
 
 
 def _is_overfit(backtest: BacktestResult) -> bool:
@@ -133,9 +149,8 @@ def _is_overfit(backtest: BacktestResult) -> bool:
 
 
 def _are_costs_underestimated(backtest: BacktestResult) -> bool:
-    fee_gap = backtest.net_return - backtest.fee_adjusted_expectancy
-    slippage_gap = backtest.net_return - backtest.slippage_adjusted_expectancy
-    return fee_gap >= 0.05 or slippage_gap >= 0.05
+    expectancy_gap = backtest.fee_adjusted_expectancy - backtest.slippage_adjusted_expectancy
+    return expectancy_gap >= 0.02
 
 
 def _is_insufficient_expectancy(backtest: BacktestResult, feasibility: FeasibilityScore | None) -> bool:
@@ -152,6 +167,36 @@ def _is_excessive_drawdown(backtest: BacktestResult) -> bool:
     return backtest.max_drawdown <= -0.2
 
 
+def _strategy_feasibility_reasons(feasibility: FeasibilityScore | None) -> list[ReflectionReasonCode]:
+    if feasibility is None or feasibility.approved:
+        return []
+
+    mapped_reasons: list[ReflectionReasonCode] = []
+    for reason in feasibility.reasons:
+        mapped = _map_strategy_feasibility_reason(reason)
+        if mapped is not None:
+            mapped_reasons.append(mapped)
+    return mapped_reasons
+
+
+def _hypothesis_feasibility_reasons(feasibility: FeasibilityScore | None) -> list[ReflectionReasonCode]:
+    if feasibility is None or feasibility.approved:
+        return []
+    if "opportunity_not_repeatable" in feasibility.reasons:
+        return ["opportunity_not_repeatable"]
+    return []
+
+
+def _map_strategy_feasibility_reason(reason: RejectReason) -> ReflectionReasonCode | None:
+    if reason == "net_pnl_below_minimum":
+        return "insufficient_expectancy"
+    if reason in {"downside_unbounded", "downside_above_limit"}:
+        return "excessive_drawdown"
+    if reason in {"capital_above_budget", "speed_dependency_too_high", "rpc_dependency_too_high"}:
+        return reason
+    return None
+
+
 def _hypothesis_assumption_failed(missing_evidence: list[str], repeatable: bool) -> str:
     if missing_evidence and not repeatable:
         return "The hypothesis lacked evidence and the opportunity does not appear repeatable."
@@ -165,7 +210,9 @@ def _strategy_assumption_failed(
     costs_underestimated: bool,
     insufficient_expectancy: bool,
     excessive_drawdown: bool,
+    feasibility_strategy_reasons: list[ReflectionReasonCode] | None = None,
 ) -> str:
+    feasibility_strategy_reasons = feasibility_strategy_reasons or []
     if overfit:
         return "The strategy appears overfit to too few trades."
     if costs_underestimated:
@@ -174,4 +221,10 @@ def _strategy_assumption_failed(
         return "The strategy drawdown was too large."
     if insufficient_expectancy:
         return "The strategy did not produce enough expectancy after costs."
+    if "capital_above_budget" in feasibility_strategy_reasons:
+        return "The strategy requires more capital than the available budget."
+    if "speed_dependency_too_high" in feasibility_strategy_reasons:
+        return "The strategy depends on execution speed that is too high."
+    if "rpc_dependency_too_high" in feasibility_strategy_reasons:
+        return "The strategy depends on RPC reliability that is too high."
     return "The strategy assumptions did not hold."
