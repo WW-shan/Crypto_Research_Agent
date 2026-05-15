@@ -221,6 +221,48 @@ def test_paper_account_rejects_real_capital_flag_on_construction():
         PaperAccount(cash=100.0, touched_real_capital=True)
 
 
+def test_paper_trade_result_rejects_real_capital_flag_on_construction():
+    from crypto_alpha_agent.execution.paper import PaperFill, PaperTradeResult
+
+    fill = PaperFill(
+        symbol="ETH-USD",
+        side="buy",
+        quantity=1.0,
+        reference_price=100.0,
+        fill_price=100.0,
+        gross_value=100.0,
+        fee=0.0,
+        slippage_rate=0.0,
+        latency_ms=0.0,
+    )
+
+    with pytest.raises(ValidationError, match="paper execution cannot touch real capital"):
+        PaperTradeResult(
+            fill=fill,
+            cash=900.0,
+            inventory={"ETH-USD": 1.0},
+            capital_used=100.0,
+            realized_gross_pnl=0.0,
+            realized_net_pnl=0.0,
+            touched_real_capital=True,
+        )
+
+
+def test_paper_mark_to_market_rejects_real_capital_flag_on_construction():
+    from crypto_alpha_agent.execution.paper import PaperMarkToMarket
+
+    with pytest.raises(ValidationError, match="paper execution cannot touch real capital"):
+        PaperMarkToMarket(
+            cash=900.0,
+            inventory_value=100.0,
+            equity=1_000.0,
+            realized_gross_pnl=0.0,
+            realized_net_pnl=0.0,
+            unrealized_gross_pnl=0.0,
+            touched_real_capital=True,
+        )
+
+
 def test_paper_account_rejects_real_capital_flag_assignment():
     from crypto_alpha_agent.execution.paper import PaperAccount
 

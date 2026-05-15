@@ -64,6 +64,13 @@ class PaperTradeResult(BaseModel):
     realized_net_pnl: float = Field(strict=True, allow_inf_nan=False)
     touched_real_capital: bool = False
 
+    @field_validator("touched_real_capital")
+    @classmethod
+    def _reject_real_capital_flag(cls, touched_real_capital: bool) -> bool:
+        if touched_real_capital:
+            raise ValueError("paper execution cannot touch real capital")
+        return False
+
 
 class PaperMarkToMarket(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -75,6 +82,13 @@ class PaperMarkToMarket(BaseModel):
     realized_net_pnl: float = Field(strict=True, allow_inf_nan=False)
     unrealized_gross_pnl: float = Field(strict=True, allow_inf_nan=False)
     touched_real_capital: bool = False
+
+    @field_validator("touched_real_capital")
+    @classmethod
+    def _reject_real_capital_flag(cls, touched_real_capital: bool) -> bool:
+        if touched_real_capital:
+            raise ValueError("paper execution cannot touch real capital")
+        return False
 
 
 class PaperAccount(BaseModel):
