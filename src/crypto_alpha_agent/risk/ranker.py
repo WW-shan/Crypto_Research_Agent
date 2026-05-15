@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -7,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class RankingCandidate(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     idea_id: str = Field(min_length=1)
     expected_net_value_usd: float
@@ -23,7 +24,7 @@ class RankingCandidate(BaseModel):
 
 
 class RankedCandidate(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     idea_id: str
     score: float
@@ -48,6 +49,14 @@ def rank_candidate_ideas(
     top_n: int = 5,
     max_drawdown_to_value: float = 2.0,
 ) -> list[RankedCandidate]:
+    if (
+        not isinstance(max_drawdown_to_value, int | float)
+        or isinstance(max_drawdown_to_value, bool)
+        or not math.isfinite(max_drawdown_to_value)
+        or max_drawdown_to_value < 0
+    ):
+        raise ValueError("max_drawdown_to_value must be finite and non-negative")
+
     if top_n <= 0:
         return []
 

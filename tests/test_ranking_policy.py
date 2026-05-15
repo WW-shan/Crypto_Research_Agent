@@ -152,3 +152,48 @@ def test_ranking_candidate_rejects_coerced_inputs_and_unknown_fields():
             max_drawdown_usd=5.0,
             unsupported=True,
         )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    [
+        ("expected_net_value_usd", float("nan")),
+        ("expected_net_value_usd", float("inf")),
+        ("confidence", float("nan")),
+        ("confidence", float("inf")),
+        ("repeatability", float("nan")),
+        ("repeatability", float("inf")),
+        ("capital_required_usd", float("nan")),
+        ("capital_required_usd", float("inf")),
+        ("max_drawdown_usd", float("nan")),
+        ("max_drawdown_usd", float("inf")),
+    ],
+)
+def test_ranking_candidate_rejects_non_finite_numeric_fields(field_name, invalid_value):
+    candidate_data = {
+        "idea_id": "non-finite",
+        "expected_net_value_usd": 25.0,
+        "confidence": 0.90,
+        "repeatability": 0.90,
+        "capital_required_usd": 100.0,
+        "max_drawdown_usd": 5.0,
+    }
+    candidate_data[field_name] = invalid_value
+
+    with pytest.raises(ValidationError):
+        RankingCandidate(**candidate_data)
+
+
+@pytest.mark.parametrize("invalid_value", [float("nan"), float("inf"), -0.1])
+def test_rank_candidate_ideas_rejects_invalid_max_drawdown_to_value(invalid_value):
+    candidate = RankingCandidate(
+        idea_id="valid",
+        expected_net_value_usd=25.0,
+        confidence=0.90,
+        repeatability=0.90,
+        capital_required_usd=100.0,
+        max_drawdown_usd=5.0,
+    )
+
+    with pytest.raises(ValueError, match="max_drawdown_to_value"):
+        rank_candidate_ideas([candidate], max_drawdown_to_value=invalid_value)
