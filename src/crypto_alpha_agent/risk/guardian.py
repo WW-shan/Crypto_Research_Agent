@@ -6,8 +6,9 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from crypto_alpha_agent.agents.approvals import ManualApproval
+from crypto_alpha_agent.config import ActionMode
 
-ExecutionMode = Literal["research", "paper", "gated_live"]
+ExecutionMode = ActionMode
 RiskReasonCode = Literal[
     "capital_above_opportunity_limit",
     "daily_loss_limit_reached",
@@ -19,6 +20,7 @@ RiskReasonCode = Literal[
     "wallet_permission_scope_too_broad",
     "manual_approval_required",
     "manual_approval_denied",
+    "manual_approval_scope_mismatch",
 ]
 
 NonNegativeFiniteFloat = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
@@ -28,13 +30,13 @@ NonNegativeInt = Annotated[int, Field(strict=True, ge=0)]
 UNBOUNDED_PERMISSIONS = {"*", "all", "unbounded"}
 FORBIDDEN_API_PERMISSIONS = {"admin", "withdraw"}
 FORBIDDEN_WALLET_PERMISSIONS = {"admin", "withdraw"}
-MODE_API_PERMISSIONS: dict[ExecutionMode, set[str]] = {
-    "research": {"read"},
+MODE_API_PERMISSIONS: dict[ActionMode, set[str]] = {
+    "research_only": {"read"},
     "paper": {"read", "paper"},
     "gated_live": {"trade"},
 }
-MODE_WALLET_PERMISSIONS: dict[ExecutionMode, set[str]] = {
-    "research": set(),
+MODE_WALLET_PERMISSIONS: dict[ActionMode, set[str]] = {
+    "research_only": set(),
     "paper": {"paper-only"},
     "gated_live": {"no-withdraw"},
 }
@@ -77,7 +79,7 @@ class RiskContext(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     opportunity_id: str = Field(min_length=1)
-    execution_mode: ExecutionMode = "research"
+    execution_mode: ExecutionMode = "research_only"
     venue: str = Field(min_length=1)
     capital_required_usd: NonNegativeFiniteFloat
     daily_realized_pnl_usd: FiniteFloat = 0.0
@@ -115,20 +117,22 @@ class RiskGuardian:
         reasons: list[RiskReasonCode] = []
 
         if context.capital_required_usd > self.policy.max_capital_per_opportunity_usd:
-            reasons.append("capital_above_opportunity_limit")
+            _append_reason(reasons, "capital_above_opportunity_limit")
 
         daily_loss_usd = max(0.0, -context.daily_realized_pnl_usd)
         if daily_loss_usd >= self.policy.max_daily_loss_usd:
-            reasons.append("daily_loss_limit_reached")
+            _append_reason(reasons, "daily_loss_limit_reached")
 
         if context.consecutive_failures >= self.policy.max_consecutive_failures:
-            reasons.append("consecutive_failure_limit_reached")
+            _append_reason(reasons, "consecutive_failure_limit_reached")
 
-        if context.execution_mode != "research" and context.venue not in self.policy.allowed_venues:
-            reasons.append("venue_not_allowed")
+        if context.execution_mode != "research_only" and context.venue not in self.policy.allowed_venues:
+            _append_reason(reasons, "venue_not_allowed")
 
-        reasons.extend(_permission_reasons(context))
-        reasons.extend(_approval_reasons(context))
+        for reason in _permission_reasons(context):
+            _append_reason(reasons, reason)
+        for reason in _approval_reasons(context):
+            _append_reason(reasons, reason)
 
         approved = not reasons
         execution_allowed = approved and context.execution_mode in {"paper", "gated_live"}
@@ -148,7 +152,7 @@ def _permission_reasons(context: RiskContext) -> list[RiskReasonCode]:
     reasons: list[RiskReasonCode] = []
     scope = context.permission_scope
 
-    if context.execution_mode != "research" and _normalize_venue(scope.venue) != context.venue:
+    if context.execution_mode != "research_only" and _normalize_venue(scope.venue) != context.venue:
         reasons.append("venue_not_allowed")
 
     if any(permission in FORBIDDEN_API_PERMISSIONS for permission in scope.api_permissions):
@@ -171,7 +175,23 @@ def _approval_reasons(context: RiskContext) -> list[RiskReasonCode]:
         return ["manual_approval_required"]
     if not context.manual_approval.approved:
         return ["manual_approval_denied"]
+    if not _approval_matches_context(context.manual_approval, context):
+        return ["manual_approval_scope_mismatch"]
     return []
+
+
+def _approval_matches_context(approval: ManualApproval, context: RiskContext) -> bool:
+    return (
+        approval.opportunity_id == context.opportunity_id
+        and approval.action_mode == context.execution_mode
+        and approval.venue == context.venue
+        and approval.max_approved_capital_usd >= context.capital_required_usd
+    )
+
+
+def _append_reason(reasons: list[RiskReasonCode], reason: RiskReasonCode) -> None:
+    if reason not in reasons:
+        reasons.append(reason)
 
 
 def _is_subset(values: Sequence[str], allowed_values: set[str]) -> bool:
