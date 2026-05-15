@@ -36,7 +36,7 @@ Generate a daily report from persisted observability events:
 uv run crypto-alpha-agent report --events var/events.jsonl --date 2026-05-16
 ```
 
-The report is regenerated from JSONL events, skips malformed lines, and includes event counts, decision counts, approval/block totals, reason-code counts, metric summaries, and event details.
+The report is regenerated from JSONL events, skips malformed lines, and includes event counts, decision counts, approval/block totals, reason-code counts, metric summaries, and event details. The event file must exist, and `--date` must be a UTC calendar date in `YYYY-MM-DD` format. Events with offset timestamps are grouped by their UTC date.
 
 ## Replay Recovery
 
@@ -47,7 +47,7 @@ uv run crypto-alpha-agent replay --events var/events.jsonl
 uv run crypto-alpha-agent replay --events var/events.jsonl --date 2026-05-16
 ```
 
-Without `--date`, replay reports loaded event counts, skipped malformed lines, and counts by event type. With `--date`, it also regenerates the daily report for that UTC date.
+Without `--date`, replay reports loaded event counts, skipped malformed lines, and counts by event type. With `--date`, it also regenerates the daily report for that UTC date. Replay requires an existing event file and rejects invalid date values before loading events.
 
 If `skipped_event_lines` is greater than zero, inspect the JSONL file around the interrupted write. Preserve the original file before manual cleanup so the recovery trail remains auditable.
 

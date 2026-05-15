@@ -35,7 +35,7 @@ class ObservabilityEvent(BaseModel):
     def normalize_event(self) -> Self:
         if self.timestamp.tzinfo is None:
             self.timestamp = self.timestamp.replace(tzinfo=UTC)
-        self.date = self.timestamp.date()
+        self.date = self.timestamp.astimezone(UTC).date()
         for metric_name, value in self.metrics.items():
             if not math.isfinite(value):
                 raise ValueError(f"Metric {metric_name!r} must be finite")

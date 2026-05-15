@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections import Counter
+from datetime import date
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -54,19 +55,35 @@ def build_parser() -> argparse.ArgumentParser:
         "report",
         help="Generate a daily report from an event JSONL file.",
     )
-    report_parser.add_argument("--events", required=True, type=Path, help="Path to persisted event JSONL.")
-    report_parser.add_argument("--date", required=True, help="UTC report date in YYYY-MM-DD format.")
+    report_parser.add_argument("--events", required=True, type=_existing_event_path, help="Path to persisted event JSONL.")
+    report_parser.add_argument("--date", required=True, type=_utc_date, help="UTC report date in YYYY-MM-DD format.")
     report_parser.set_defaults(handler=_handle_report)
 
     replay_parser = subparsers.add_parser(
         "replay",
         help="Load persisted events, count them, and optionally regenerate a daily report.",
     )
-    replay_parser.add_argument("--events", required=True, type=Path, help="Path to persisted event JSONL.")
-    replay_parser.add_argument("--date", help="Optional UTC report date in YYYY-MM-DD format.")
+    replay_parser.add_argument("--events", required=True, type=_existing_event_path, help="Path to persisted event JSONL.")
+    replay_parser.add_argument("--date", type=_utc_date, help="Optional UTC report date in YYYY-MM-DD format.")
     replay_parser.set_defaults(handler=_handle_replay)
 
     return parser
+
+
+def _existing_event_path(raw_path: str) -> Path:
+    path = Path(raw_path)
+    if not path.exists():
+        raise argparse.ArgumentTypeError(f"event file does not exist: {raw_path}")
+    if not path.is_file():
+        raise argparse.ArgumentTypeError(f"event path is not a file: {raw_path}")
+    return path
+
+
+def _utc_date(raw_date: str) -> date:
+    try:
+        return date.fromisoformat(raw_date)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid UTC date {raw_date!r}; expected YYYY-MM-DD") from exc
 
 
 def _add_dry_run_command(

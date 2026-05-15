@@ -116,3 +116,99 @@ def test_cli_replay_counts_events_and_can_regenerate_report(tmp_path):
     assert replayed["loaded_events"] == 3
     assert replayed["report"]["total_events"] == 2
     assert replayed["report"]["skipped_event_lines"] == 1
+
+
+def test_cli_report_groups_offset_timestamps_by_utc_calendar_date(tmp_path):
+    event_path = tmp_path / "events.jsonl"
+    event_path.write_text(
+        json.dumps(
+            {
+                "timestamp": "2026-05-16T23:30:00-05:00",
+                "event_type": "opportunity_scored",
+                "run_id": "cli-offset",
+                "decision": "approve",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    utc_day = _json_from_cli("report", "--events", str(event_path), "--date", "2026-05-17")
+    local_day = _json_from_cli("report", "--events", str(event_path), "--date", "2026-05-16")
+
+    assert utc_day["report"]["total_events"] == 1
+    assert utc_day["report"]["event_type_counts"] == {"opportunity_scored": 1}
+    assert local_day["report"]["total_events"] == 0
+
+
+def test_cli_replay_report_groups_offset_timestamps_by_utc_calendar_date(tmp_path):
+    event_path = tmp_path / "events.jsonl"
+    event_path.write_text(
+        json.dumps(
+            {
+                "timestamp": "2026-05-16T23:30:00-05:00",
+                "event_type": "risk_guard",
+                "run_id": "cli-offset-replay",
+                "decision": "block",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    utc_day = _json_from_cli("replay", "--events", str(event_path), "--date", "2026-05-17")
+    local_day = _json_from_cli("replay", "--events", str(event_path), "--date", "2026-05-16")
+
+    assert utc_day["report"]["total_events"] == 1
+    assert utc_day["report"]["event_type_counts"] == {"risk_guard": 1}
+    assert local_day["report"]["total_events"] == 0
+
+
+def test_cli_report_rejects_missing_event_file(tmp_path):
+    missing_path = tmp_path / "missing-events.jsonl"
+
+    result = _run_cli("report", "--events", str(missing_path), "--date", "2026-05-16")
+
+    assert result.returncode != 0
+    assert "event file does not exist" in result.stderr
+    assert str(missing_path) in result.stderr
+    assert "Traceback" not in result.stderr
+    assert result.stdout == ""
+
+
+def test_cli_replay_rejects_missing_event_file(tmp_path):
+    missing_path = tmp_path / "missing-events.jsonl"
+
+    result = _run_cli("replay", "--events", str(missing_path))
+
+    assert result.returncode != 0
+    assert "event file does not exist" in result.stderr
+    assert str(missing_path) in result.stderr
+    assert "Traceback" not in result.stderr
+    assert result.stdout == ""
+
+
+def test_cli_report_rejects_invalid_date_without_traceback(tmp_path):
+    event_path = tmp_path / "events.jsonl"
+    _write_event_log(event_path)
+
+    result = _run_cli("report", "--events", str(event_path), "--date", "not-a-date")
+
+    assert result.returncode != 0
+    assert "invalid UTC date" in result.stderr
+    assert "not-a-date" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert result.stdout == ""
+
+
+def test_cli_replay_rejects_invalid_date_without_traceback(tmp_path):
+    event_path = tmp_path / "events.jsonl"
+    _write_event_log(event_path)
+
+    result = _run_cli("replay", "--events", str(event_path), "--date", "2026-02-30")
+
+    assert result.returncode != 0
+    assert "invalid UTC date" in result.stderr
+    assert "2026-02-30" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert result.stdout == ""

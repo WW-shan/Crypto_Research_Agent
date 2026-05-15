@@ -136,3 +136,15 @@ def test_observability_event_derives_date_from_timestamp_when_supplied_date_disa
     )
 
     assert event.date == date(2026, 5, 16)
+
+
+def test_observability_event_derives_date_from_utc_timestamp_date():
+    event = ObservabilityEvent.model_validate(
+        {
+            "timestamp": "2026-05-16T23:30:00-05:00",
+            "event_type": "opportunity_scored",
+            "run_id": "run-offset",
+        }
+    )
+
+    assert event.date == date(2026, 5, 17)
