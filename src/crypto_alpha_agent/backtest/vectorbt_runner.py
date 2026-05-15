@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import Sequence
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+
+vbt = None
 
 
 class BacktestResult(BaseModel):
@@ -16,6 +18,21 @@ class BacktestResult(BaseModel):
     average_holding_time: float
     fee_adjusted_expectancy: float
     slippage_adjusted_expectancy: float
+
+    @field_validator(
+        "net_return",
+        "max_drawdown",
+        "win_rate",
+        "average_holding_time",
+        "fee_adjusted_expectancy",
+        "slippage_adjusted_expectancy",
+        mode="before",
+    )
+    @classmethod
+    def _require_float(cls, value: object) -> object:
+        if type(value) is not float:
+            raise ValueError("metric must be a float")
+        return value
 
 
 class _Trade:
@@ -33,9 +50,21 @@ class _Trade:
         return (self.exit_price - self.entry_price) / self.entry_price
 
 
-def _validate_signals(prices: Sequence[float], entries: Sequence[bool], exits: Sequence[bool]) -> None:
+def _validate_signals(
+    prices: Sequence[float],
+    entries: Sequence[bool],
+    exits: Sequence[bool],
+    fee_rate: float = 0.0,
+    slippage_rate: float = 0.0,
+) -> None:
+    if len(prices) < 2:
+        raise ValueError("backtest requires at least two prices")
     if not (len(prices) == len(entries) == len(exits)):
         raise ValueError("prices, entries, and exits must have the same length")
+    if fee_rate < 0:
+        raise ValueError("fee_rate must be non-negative")
+    if slippage_rate < 0:
+        raise ValueError("slippage_rate must be non-negative")
 
 
 def _extract_trades(prices: Sequence[float], entries: Sequence[bool], exits: Sequence[bool]) -> list[_Trade]:
@@ -77,12 +106,21 @@ def _max_drawdown(equity_curve: np.ndarray) -> float:
     return float(drawdowns.min())
 
 
-def _summarize(trades: list[_Trade], equity_curve: np.ndarray, fee_rate: float, slippage_rate: float) -> BacktestResult:
+def _summarize(
+    trades: list[_Trade],
+    equity_curve: np.ndarray,
+    fee_rate: float,
+    slippage_rate: float,
+    net_return: float | None = None,
+    max_drawdown: float | None = None,
+) -> BacktestResult:
+    normalized_net_return = float(equity_curve[-1] - 1.0) if net_return is None else float(net_return)
+    normalized_max_drawdown = _max_drawdown(equity_curve) if max_drawdown is None else float(max_drawdown)
     trade_count = len(trades)
     if trade_count == 0:
         return BacktestResult(
-            net_return=0.0,
-            max_drawdown=0.0,
+            net_return=normalized_net_return,
+            max_drawdown=normalized_max_drawdown,
             win_rate=0.0,
             trade_count=0,
             average_holding_time=0.0,
@@ -93,21 +131,28 @@ def _summarize(trades: list[_Trade], equity_curve: np.ndarray, fee_rate: float, 
     gross_returns = np.array([trade.gross_return() for trade in trades], dtype=float)
     average_holding_time = float(np.mean([trade.holding_time for trade in trades]))
     win_rate = float(np.mean(gross_returns > 0))
-    net_return = float(equity_curve[-1] - 1.0)
-    max_drawdown = _max_drawdown(equity_curve)
     fee_penalty = fee_rate * 2.0
     slippage_penalty = slippage_rate * 2.0
     expectancy = float(np.mean(gross_returns))
 
     return BacktestResult(
-        net_return=net_return,
-        max_drawdown=max_drawdown,
+        net_return=normalized_net_return,
+        max_drawdown=normalized_max_drawdown,
         win_rate=win_rate,
         trade_count=trade_count,
         average_holding_time=average_holding_time,
         fee_adjusted_expectancy=expectancy - fee_penalty,
         slippage_adjusted_expectancy=expectancy - slippage_penalty,
     )
+
+
+def _load_vectorbt():
+    global vbt
+    if vbt is None:
+        import vectorbt as vectorbt_module
+
+        vbt = vectorbt_module
+    return vbt
 
 
 def run_vectorbt_backtest(
@@ -117,26 +162,22 @@ def run_vectorbt_backtest(
     fee_rate: float = 0.0,
     slippage_rate: float = 0.0,
 ) -> BacktestResult:
-    _validate_signals(prices, entries, exits)
+    _validate_signals(prices, entries, exits, fee_rate, slippage_rate)
     trades = _extract_trades(prices, entries, exits)
+    vectorbt_module = _load_vectorbt()
 
-    try:
-        import vectorbt as vbt
-
-        close = np.asarray(prices, dtype=float)
-        entries_arr = np.asarray(entries, dtype=bool)
-        exits_arr = np.asarray(exits, dtype=bool)
-        portfolio = vbt.Portfolio.from_signals(
-            close,
-            entries_arr,
-            exits_arr,
-            fees=fee_rate,
-            slippage=slippage_rate,
-            init_cash=1.0,
-            freq="1D",
-        )
-        equity_curve = np.asarray(portfolio.value().to_numpy(), dtype=float)
-    except Exception:
-        equity_curve = _equity_curve(prices, entries, exits, fee_rate, slippage_rate)
+    close = np.asarray(prices, dtype=float)
+    entries_arr = np.asarray(entries, dtype=bool)
+    exits_arr = np.asarray(exits, dtype=bool)
+    portfolio = vectorbt_module.Portfolio.from_signals(
+        close,
+        entries_arr,
+        exits_arr,
+        fees=fee_rate,
+        slippage=slippage_rate,
+        init_cash=1.0,
+        freq="1D",
+    )
+    equity_curve = np.asarray(portfolio.value().to_numpy(), dtype=float)
 
     return _summarize(trades, equity_curve, fee_rate, slippage_rate)

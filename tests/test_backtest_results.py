@@ -46,11 +46,22 @@ def test_backtest_result_requires_all_metrics_and_rejects_type_coercion():
             slippage_adjusted_expectancy=0.01,
         )
 
+    with pytest.raises(ValidationError):
+        BacktestResult(
+            net_return=1,
+            max_drawdown=-0.05,
+            win_rate=0.5,
+            trade_count=2,
+            average_holding_time=2.0,
+            fee_adjusted_expectancy=0.01,
+            slippage_adjusted_expectancy=0.01,
+        )
+
 
 def test_vectorbt_adapter_returns_normalized_result_for_toy_strategy():
     from crypto_alpha_agent.backtest.vectorbt_runner import BacktestResult, run_vectorbt_backtest
 
-    result = run_vectorbt_backtest(**_toy_prices_and_signals(), fee_rate=0.001, slippage_rate=0.002)
+    result = run_vectorbt_backtest(**_toy_prices_and_signals())
 
     assert isinstance(result, BacktestResult)
     dumped = result.model_dump()
@@ -60,13 +71,15 @@ def test_vectorbt_adapter_returns_normalized_result_for_toy_strategy():
     assert result.trade_count == 2
     assert result.average_holding_time == pytest.approx(2.0)
     assert result.win_rate == pytest.approx(0.5)
+    assert result.net_return == pytest.approx(-0.0139130435)
+    assert result.max_drawdown == pytest.approx(-0.1035573123)
 
 
 def test_backtrader_adapter_returns_normalized_result_for_toy_strategy():
     from crypto_alpha_agent.backtest.backtrader_runner import run_backtrader_backtest
     from crypto_alpha_agent.backtest.vectorbt_runner import BacktestResult
 
-    result = run_backtrader_backtest(**_toy_prices_and_signals(), fee_rate=0.001, slippage_rate=0.002)
+    result = run_backtrader_backtest(**_toy_prices_and_signals())
 
     assert isinstance(result, BacktestResult)
     dumped = result.model_dump()
@@ -76,6 +89,8 @@ def test_backtrader_adapter_returns_normalized_result_for_toy_strategy():
     assert result.trade_count == 2
     assert result.average_holding_time == pytest.approx(2.0)
     assert result.win_rate == pytest.approx(0.5)
+    assert result.net_return == pytest.approx(-0.0139130435)
+    assert result.max_drawdown == pytest.approx(-0.1035573123)
 
 
 def test_adapters_normalize_to_comparable_keys_and_types():
@@ -114,3 +129,46 @@ def test_fee_and_slippage_adjust_expectancy_deterministically():
     assert backtrader_costs.slippage_adjusted_expectancy == pytest.approx(
         vectorbt_costs.slippage_adjusted_expectancy
     )
+
+
+@pytest.mark.parametrize("runner_path", [
+    "crypto_alpha_agent.backtest.vectorbt_runner.run_vectorbt_backtest",
+    "crypto_alpha_agent.backtest.backtrader_runner.run_backtrader_backtest",
+])
+def test_adapters_reject_invalid_inputs(runner_path):
+    import importlib
+
+    module_name, function_name = runner_path.rsplit(".", 1)
+    runner = getattr(importlib.import_module(module_name), function_name)
+
+    with pytest.raises(ValueError, match="at least two prices"):
+        runner(prices=[], entries=[], exits=[])
+
+    with pytest.raises(ValueError, match="at least two prices"):
+        runner(prices=[100.0], entries=[True], exits=[False])
+
+    with pytest.raises(ValueError, match="same length"):
+        runner(prices=[100.0, 101.0], entries=[True], exits=[False, True])
+
+    with pytest.raises(ValueError, match="fee_rate must be non-negative"):
+        runner(prices=[100.0, 101.0], entries=[True, False], exits=[False, True], fee_rate=-0.001)
+
+    with pytest.raises(ValueError, match="slippage_rate must be non-negative"):
+        runner(prices=[100.0, 101.0], entries=[True, False], exits=[False, True], slippage_rate=-0.001)
+
+
+def test_vectorbt_adapter_surfaces_vectorbt_failures(monkeypatch):
+    from crypto_alpha_agent.backtest import vectorbt_runner
+
+    class BrokenPortfolio:
+        @staticmethod
+        def from_signals(*args, **kwargs):
+            raise RuntimeError("vectorbt failed")
+
+    class BrokenVectorbt:
+        Portfolio = BrokenPortfolio
+
+    monkeypatch.setattr(vectorbt_runner, "vbt", BrokenVectorbt(), raising=False)
+
+    with pytest.raises(RuntimeError, match="vectorbt failed"):
+        vectorbt_runner.run_vectorbt_backtest(**_toy_prices_and_signals())
