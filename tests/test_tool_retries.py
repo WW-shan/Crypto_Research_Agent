@@ -133,3 +133,73 @@ def test_adapter_exposes_source_health_after_successful_fake_request():
     assert client.last_health.source == "dune"
     assert client.last_health.attempts == 1
     assert client.last_health.success is True
+
+
+class SequenceExchange:
+    def __init__(self, outcomes: list[dict | Exception]) -> None:
+        self.outcomes = outcomes
+        self.calls: list[str] = []
+        self.timeout = 0
+
+    def fetch_ticker(self, symbol: str):
+        self.calls.append(symbol)
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def test_cex_fetch_retries_once_then_returns_health_without_real_sleep():
+    from crypto_alpha_agent.tools.cex import fetch_cex_snapshot_with_health
+
+    sleeps: list[float] = []
+    exchange = SequenceExchange(
+        [
+            TimeoutError("temporary exchange timeout"),
+            {"bid": 65000, "ask": 65010},
+        ]
+    )
+
+    snapshot, health = fetch_cex_snapshot_with_health(
+        "binance",
+        ["BTC/USDT"],
+        exchange=exchange,
+        max_attempts=3,
+        timeout_seconds=9,
+        backoff_seconds=0.25,
+        sleep=sleeps.append,
+    )
+
+    assert snapshot == {"binance": {"BTC/USDT": {"bid": 65000, "ask": 65010}}}
+    assert health.source == "cex"
+    assert health.attempts == 2
+    assert health.success is True
+    assert health.failure is None
+    assert exchange.calls == ["BTC/USDT", "BTC/USDT"]
+    assert exchange.timeout == 9000
+    assert sleeps == [0.25]
+
+
+def test_cex_fetch_exhausts_attempts_with_clear_health_details():
+    from crypto_alpha_agent.tools.cex import fetch_cex_snapshot_with_health
+
+    exchange = SequenceExchange(
+        [
+            TimeoutError("first exchange timeout"),
+            TimeoutError("second exchange timeout"),
+        ]
+    )
+
+    with pytest.raises(RuntimeError, match="cex request failed after 2 attempts.*second exchange timeout"):
+        fetch_cex_snapshot_with_health(
+            "binance",
+            ["ETH/USDT"],
+            exchange=exchange,
+            max_attempts=2,
+            timeout_seconds=4,
+            backoff_seconds=0,
+            sleep=lambda _: None,
+        )
+
+    assert exchange.calls == ["ETH/USDT", "ETH/USDT"]
+    assert exchange.timeout == 4000
