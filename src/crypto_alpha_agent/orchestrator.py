@@ -117,7 +117,15 @@ def _route_human_checkpoint(state: AgentState) -> Route:
 
 
 def thread_config(thread_id: str) -> dict[str, dict[str, str]]:
-    return {"configurable": {"thread_id": thread_id}}
+    from crypto_alpha_agent.checkpointing import create_thread_config
+
+    return create_thread_config(thread_id)
+
+
+def build_checkpointed_graph(**kwargs: Any):
+    from crypto_alpha_agent.checkpointing import build_checkpointed_graph as _build_checkpointed_graph
+
+    return _build_checkpointed_graph(**kwargs)
 
 
 def build_graph(
