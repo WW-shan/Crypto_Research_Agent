@@ -149,9 +149,10 @@ def ingest_ccxt_funding_rate_history(
 
 
 def _funding_rate_to_source_record(record: FundingRateRecord) -> SourceRecord:
+    safe_venue = _ccxt_safe_component(record.venue)
     safe_symbol = _ccxt_safe_symbol(record.symbol)
     return SourceRecord(
-        record_id=f"ccxt:{safe_symbol}:funding:{record.timestamp.isoformat()}",
+        record_id=f"{record.source}:{safe_venue}:{safe_symbol}:funding:{record.timestamp.isoformat()}",
         source=record.source,
         record_type="funding_rate",
         observed_at=record.timestamp,
@@ -159,6 +160,9 @@ def _funding_rate_to_source_record(record: FundingRateRecord) -> SourceRecord:
     )
 
 
+def _ccxt_safe_component(value: str) -> str:
+    return value.strip().lower().replace("/", "-").replace(":", "-")
+
+
 def _ccxt_safe_symbol(symbol: str) -> str:
-    base_symbol = symbol.split(":", 1)[0]
-    return base_symbol.replace("/", "").upper()
+    return symbol.strip().replace("/", "").replace(":", "-").upper()

@@ -452,6 +452,8 @@ def _validate_binance_research_loop_ingestion_args(args: argparse.Namespace) -> 
 
 def _handle_ingest(args: argparse.Namespace) -> dict[str, Any]:
     ingestion = None
+    if args.offline_check and args.source:
+        args.parser.error("--offline-check cannot be combined with --source")
     if _has_ccxt_ingestion_intent(args):
         _validate_ccxt_ingest_args(args)
         ingestion = _run_ccxt_ingestion(args)
@@ -520,6 +522,8 @@ def _validate_ccxt_ingest_args(args: argparse.Namespace) -> None:
         missing.append("--timeframe")
     if missing:
         args.parser.error(f"{', '.join(missing)} required when --source ccxt is provided")
+    if args.ccxt_feed == "funding-rate-history" and args.timeframe is not None:
+        args.parser.error("--timeframe cannot be combined with --ccxt-feed funding-rate-history")
 
 
 def _run_ccxt_ingestion(args: argparse.Namespace):
