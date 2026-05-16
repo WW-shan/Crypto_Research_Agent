@@ -8,7 +8,11 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Sequence
 
-from crypto_alpha_agent.data.ingestion import ingest_binance_public_month
+from crypto_alpha_agent.data.ingestion import (
+    ingest_binance_public_month,
+    ingest_ccxt_funding_rate_history,
+    ingest_ccxt_ohlcv,
+)
 from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.observability.logging import load_events
 from crypto_alpha_agent.observability.reports import generate_daily_report
@@ -145,6 +149,20 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Required explicit gate before declaring any network-backed source.",
     )
+    ingest_parser.add_argument(
+        "--ccxt-feed",
+        choices=("ohlcv", "funding-rate-history"),
+        help="CCXT feed to ingest when --source ccxt is provided.",
+    )
+    ingest_parser.add_argument(
+        "--exchange",
+        default="binance",
+        help="CCXT exchange id for research data ingestion.",
+    )
+    ingest_parser.add_argument("--symbol", help="CCXT market symbol to ingest.")
+    ingest_parser.add_argument("--timeframe", help="CCXT OHLCV timeframe, required for --ccxt-feed ohlcv.")
+    ingest_parser.add_argument("--since", type=int, help="Optional CCXT since timestamp in milliseconds.")
+    ingest_parser.add_argument("--limit", type=_positive_int, help="Optional positive CCXT record limit.")
     ingest_parser.set_defaults(handler=_handle_ingest, parser=ingest_parser)
 
     schedule_parser = subparsers.add_parser(
@@ -433,6 +451,11 @@ def _validate_binance_research_loop_ingestion_args(args: argparse.Namespace) -> 
 
 
 def _handle_ingest(args: argparse.Namespace) -> dict[str, Any]:
+    ingestion = None
+    if _has_ccxt_ingestion_intent(args):
+        _validate_ccxt_ingest_args(args)
+        ingestion = _run_ccxt_ingestion(args)
+
     if args.source and not args.allow_network:
         args.parser.error("--allow-network is required when --source is provided")
     if not args.offline_check and not args.source:
@@ -443,7 +466,7 @@ def _handle_ingest(args: argparse.Namespace) -> dict[str, Any]:
         ResearchDataStore(args.db)
         mode = "offline_check"
 
-    return {
+    payload = {
         "command": "ingest",
         "mode": mode,
         "db_path": str(args.db),
@@ -462,6 +485,62 @@ def _handle_ingest(args: argparse.Namespace) -> dict[str, Any]:
             "no wallet keys are read",
         ],
     }
+    if ingestion is not None:
+        payload["ingestion"] = ingestion.model_dump(mode="json")
+    return payload
+
+
+def _has_ccxt_ingestion_intent(args: argparse.Namespace) -> bool:
+    ccxt_sources = [source for source in args.source if source == "ccxt"]
+    return bool(
+        ccxt_sources
+        or args.ccxt_feed is not None
+        or args.symbol is not None
+        or args.timeframe is not None
+        or args.since is not None
+        or args.limit is not None
+    )
+
+
+def _validate_ccxt_ingest_args(args: argparse.Namespace) -> None:
+    if set(args.source) != {"ccxt"}:
+        args.parser.error("CCXT ingestion flags require --source ccxt and cannot be combined with other sources")
+    if not args.allow_network:
+        args.parser.error("--allow-network is required when --source ccxt is provided")
+
+    missing = [
+        option
+        for option, value in (
+            ("--ccxt-feed", args.ccxt_feed),
+            ("--symbol", args.symbol),
+        )
+        if value is None
+    ]
+    if args.ccxt_feed == "ohlcv" and args.timeframe is None:
+        missing.append("--timeframe")
+    if missing:
+        args.parser.error(f"{', '.join(missing)} required when --source ccxt is provided")
+
+
+def _run_ccxt_ingestion(args: argparse.Namespace):
+    if args.ccxt_feed == "ohlcv":
+        return ingest_ccxt_ohlcv(
+            args.db,
+            symbol=args.symbol,
+            timeframe=args.timeframe,
+            since=args.since,
+            limit=args.limit,
+            allow_network=True,
+            exchange_id=args.exchange,
+        )
+    return ingest_ccxt_funding_rate_history(
+        args.db,
+        symbol=args.symbol,
+        since=args.since,
+        limit=args.limit,
+        allow_network=True,
+        exchange_id=args.exchange,
+    )
 
 
 def _handle_schedule(args: argparse.Namespace) -> dict[str, Any]:
