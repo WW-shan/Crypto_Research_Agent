@@ -14,6 +14,7 @@ from crypto_alpha_agent.observability.logging import load_events
 from crypto_alpha_agent.observability.reports import generate_daily_report
 from crypto_alpha_agent.pipeline.markdown import render_research_loop_markdown
 from crypto_alpha_agent.pipeline.research_loop import run_stored_research_loop
+from crypto_alpha_agent.scheduler import build_daily_schedule_plan
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -145,6 +146,48 @@ def build_parser() -> argparse.ArgumentParser:
         help="Required explicit gate before declaring any network-backed source.",
     )
     ingest_parser.set_defaults(handler=_handle_ingest, parser=ingest_parser)
+
+    schedule_parser = subparsers.add_parser(
+        "schedule",
+        help="Build a local dry-run daily job plan without sleeping or running commands.",
+    )
+    schedule_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        required=True,
+        help="Required safety flag; emits a plan only.",
+    )
+    schedule_parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite research data store.")
+    schedule_parser.add_argument("--report-out", required=True, type=Path, help="Planned Markdown report output path.")
+    schedule_parser.add_argument("--memory", type=Path, help="Optional memory artifact path to include in the plan.")
+    schedule_parser.add_argument(
+        "--current-capital-usd",
+        type=_positive_finite_float,
+        default=300.0,
+        help="Operator capital profile used for research constraints.",
+    )
+    schedule_parser.add_argument("--run-id", help="Optional research loop run identifier.")
+    schedule_parser.add_argument(
+        "--include-validation",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Plan historical validation summaries from stored market candles.",
+    )
+    schedule_parser.add_argument(
+        "--allow-network",
+        action="store_true",
+        help="Required explicit gate before planning Binance Public Data ingestion.",
+    )
+    schedule_parser.add_argument("--source", choices=("binance-public",), help="Optional ingestion source.")
+    schedule_parser.add_argument("--symbol", help="Binance spot symbol for public data ingestion.")
+    schedule_parser.add_argument(
+        "--timeframe",
+        default="1h",
+        help="Binance public klines interval for ingestion.",
+    )
+    schedule_parser.add_argument("--year", type=_positive_int, help="Positive UTC year for ingestion.")
+    schedule_parser.add_argument("--month", type=_month_number, help="UTC month for ingestion, 1-12.")
+    schedule_parser.set_defaults(handler=_handle_schedule, parser=schedule_parser)
 
     return parser
 
@@ -419,6 +462,27 @@ def _handle_ingest(args: argparse.Namespace) -> dict[str, Any]:
             "no wallet keys are read",
         ],
     }
+
+
+def _handle_schedule(args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        plan = build_daily_schedule_plan(
+            db_path=args.db,
+            report_out=args.report_out,
+            memory_path=args.memory,
+            current_capital_usd=args.current_capital_usd,
+            run_id=args.run_id,
+            include_validation=args.include_validation,
+            allow_network=args.allow_network,
+            source=args.source,
+            symbol=args.symbol,
+            timeframe=args.timeframe,
+            year=args.year,
+            month=args.month,
+        )
+    except ValueError as exc:
+        args.parser.error(str(exc))
+    return plan.model_dump(mode="json")
 
 
 if __name__ == "__main__":
