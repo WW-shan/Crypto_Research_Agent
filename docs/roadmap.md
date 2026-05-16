@@ -28,11 +28,16 @@ Implemented:
     records, and JSON payloads.
   - Safe `ingest` CLI that defaults to offline initialization and requires
     `--allow-network` for source declarations.
+- Stored-data research loop:
+  - `research-loop` command that loads stored records, scans signals, runs
+    anomaly detection, generates research-only hypotheses, and records loop
+    artifacts.
+  - Gated Binance Public Data historical candle ingestion through
+    `research-loop` with explicit `--allow-network`.
+  - Optional Markdown report artifact written with `--report-out`.
 
 Known limits:
 
-- Real data sources are available as library clients, but there is no full
-  ingestion pipeline command that pulls, stores, scans, and reports in one run.
 - Backtests are still mostly synthetic or toy-path validations rather than
   strategy tests over persisted real market history.
 - Agent behavior is mostly deterministic and template-driven, not a live
@@ -41,27 +46,27 @@ Known limits:
   configuration.
 - There is no live trading path, by design.
 
-## Phase 1: Real Data Closed-Loop MVP
+## Phase 1: Real Data Closed-Loop MVP - Complete
 
 Goal: Run a full local research loop from real data to a daily report without
 live trading.
 
-Scope:
+Delivered:
 
-- Add an ingestion pipeline that can explicitly pull selected P0 sources with
-  `--allow-network`.
-- Persist normalized records into SQLite.
-- Load stored records and convert them to scanner signals.
-- Run anomaly detection and hypothesis generation.
-- Generate a daily report from the run.
+- `research-loop` can explicitly pull Binance Public Data historical candles
+  with `--allow-network`.
+- Normalized records and loop artifacts are persisted into SQLite.
+- Stored records are loaded and converted into scanner signals.
+- Anomaly detection and hypothesis generation run over stored data.
+- A Markdown daily report can be generated from the run.
 
-Completion standard:
+Completion evidence:
 
 - One command can run a safe local pipeline for a limited source/symbol set.
 - The command writes durable data and a reproducible report.
 - No wallet keys, exchange order routing, or live capital are touched.
 
-Recommended first command shape:
+Example command:
 
 ```bash
 uv run crypto-alpha-agent research-loop \
@@ -69,8 +74,11 @@ uv run crypto-alpha-agent research-loop \
   --source binance-public \
   --symbol BTCUSDT \
   --timeframe 1h \
+  --year 2026 \
+  --month 5 \
   --current-capital-usd 300 \
-  --allow-network
+  --allow-network \
+  --report-out var/reports/daily.md
 ```
 
 ## Phase 2: Real Historical Strategy Validation
@@ -152,18 +160,21 @@ Completion standard:
 
 ## Active Next Step
 
-The next implementation should be Phase 1: Real Data Closed-Loop MVP.
+The next implementation should be Phase 2: Real Historical Strategy Validation.
 
-Recommended first slice:
+Recommended next slice:
 
-1. Add a pipeline module that loads stored records and runs scanner/anomaly/
-   hypothesis/report steps.
-2. Add a CLI command that can run the pipeline offline from existing SQLite
-   records.
-3. Add a narrow network-enabled ingestion path for one source, preferably
-   Binance Public Data historical candles, because it is free and reproducible.
-4. Generate a daily report that lists signals, weak-signal reasons, hypotheses,
-   and blocked opportunities.
+1. Add a persisted candle history loader that reads normalized Binance Public
+   Data candles from SQLite for a symbol/timeframe/date range.
+2. Add a conservative validator/backtest over stored data, including fees,
+   slippage assumptions, trade count, drawdown, and expectancy.
+3. Add a funding extremity validator for funding-rate strategy families.
+4. Add walk-forward checks so candidate strategies must survive out-of-sample
+   periods before any paper-trading proposal.
+
+The constraints remain unchanged: low capital, no speed arbitrage, no MEV or
+premium infrastructure dependency, no wallet-key access, no order routing, and
+no live capital.
 
 ## Roadmap Update Rule
 
