@@ -28,7 +28,13 @@ CAPITAL_METADATA_KEYS = {
 
 _TOKEN_BOUNDARY_START = r"(?<![A-Za-z0-9])"
 _TOKEN_BOUNDARY_END = r"(?![A-Za-z0-9])"
-_TERM_SEPARATOR_PATTERN = r"[\s_-]+"
+_TERM_SEPARATOR_PATTERN = r"[\s_-]*"
+
+UNSAFE_METADATA_KEYS: dict[str, CharterRejectReason] = {
+    "private_key_required": "wallet_key_required",
+    "premium_rpc_required": "premium_rpc_required",
+    "live_orders_required": "live_trading_required",
+}
 
 
 class CharterGuardDecision(BaseModel):
@@ -123,8 +129,11 @@ def _collect_idea_fields(
     if isinstance(value, Mapping):
         for key, item in value.items():
             key_text = str(key)
-            strings.append(key_text)
             normalized_key = _normalize_key(key_text)
+            if normalized_key in UNSAFE_METADATA_KEYS and _metadata_value_implies_required(
+                item
+            ):
+                _append_unique(metadata_reasons, UNSAFE_METADATA_KEYS[normalized_key])
             if normalized_key == "speed_dependency" and str(item).strip().lower() == "high":
                 _append_unique(metadata_reasons, "sub_second_arbitrage")
             if normalized_key == "rpc_dependency" and str(item).strip().lower() == "high":
@@ -250,6 +259,30 @@ def _normalize_key(key: str) -> str:
 
 def _is_capital_key(key: str | None) -> bool:
     return key is not None and _normalize_key(key) in CAPITAL_METADATA_KEYS
+
+
+def _metadata_value_implies_required(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, int | float):
+        return value > 0
+    if isinstance(value, str):
+        return value.strip().lower() in {
+            "1",
+            "enabled",
+            "gated_live",
+            "high",
+            "live",
+            "need",
+            "needed",
+            "required",
+            "requires",
+            "true",
+            "yes",
+        }
+    return False
 
 
 def _coerce_capital(value: Any) -> float | None:

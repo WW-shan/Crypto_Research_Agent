@@ -98,6 +98,47 @@ def test_blocks_live_orders_and_wallet_key_references():
     assert "private key" in decision.matched_terms
 
 
+def test_blocks_joined_and_camelcase_unsafe_terms():
+    from crypto_alpha_agent.risk.charter_guard import guard_generated_idea
+
+    decision = guard_generated_idea(
+        "Use flashLoan liquidity with premiumRPC and privateRPC, "
+        "walletKeys, liveOrders, and a bridgeRace"
+    )
+
+    assert decision.approved is False
+    assert decision.reason_codes == [
+        "premium_rpc_required",
+        "bridge_race",
+        "flash_loan_race",
+        "live_trading_required",
+        "wallet_key_required",
+    ]
+    assert "premium rpc" in decision.matched_terms
+    assert "private rpc" in decision.matched_terms
+    assert "bridge race" in decision.matched_terms
+    assert "flash loan" in decision.matched_terms
+    assert "live orders" in decision.matched_terms
+    assert "wallet keys" in decision.matched_terms
+
+
+def test_allows_explicit_negative_unsafe_metadata_flags():
+    from crypto_alpha_agent.risk.charter_guard import guard_generated_idea
+
+    decision = guard_generated_idea(
+        {
+            "thesis": "Funding basis research using public APIs",
+            "private_key_required": False,
+            "premium_rpc_required": False,
+            "live_orders_required": False,
+        }
+    )
+
+    assert decision.approved is True
+    assert decision.reason_codes == []
+    assert decision.matched_terms == []
+
+
 def test_blocks_high_capital_metadata_above_budget():
     from crypto_alpha_agent.risk.charter_guard import guard_generated_idea
 
