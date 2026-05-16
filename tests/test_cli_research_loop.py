@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 import pytest
 
 from crypto_alpha_agent.cli import main
+from crypto_alpha_agent.data.ingestion import IngestionSummary
 from crypto_alpha_agent.data.models import MarketCandle
 from crypto_alpha_agent.data.store import ResearchDataStore
 
@@ -37,6 +38,32 @@ def test_research_loop_cli_rejects_missing_db_without_creating_it(tmp_path):
     with pytest.raises(SystemExit):
         main(["research-loop", "--db", str(db_path)])
 
+    assert not db_path.exists()
+
+
+def test_research_loop_cli_rejects_binance_public_without_network_gate(capsys, tmp_path):
+    db_path = tmp_path / "missing.sqlite"
+
+    with pytest.raises(SystemExit):
+        main(
+            [
+                "research-loop",
+                "--db",
+                str(db_path),
+                "--source",
+                "binance-public",
+                "--symbol",
+                "BTCUSDT",
+                "--year",
+                "2026",
+                "--month",
+                "5",
+            ]
+        )
+
+    captured = capsys.readouterr()
+    assert "--allow-network is required" in captured.err
+    assert "Traceback" not in captured.err
     assert not db_path.exists()
 
 
@@ -91,3 +118,73 @@ def test_research_loop_cli_reads_existing_sqlite_records(capsys, tmp_path):
     assert captured["report"]["signal_count"] == 1
     assert captured["report"]["anomaly_count"] == 1
     assert captured["report"]["hypothesis_count"] == 1
+
+
+def test_research_loop_cli_can_ingest_binance_before_loop(capsys, monkeypatch, tmp_path):
+    db_path = tmp_path / "research.sqlite"
+
+    def fake_ingest_binance_public_month(*args, **kwargs):
+        assert args == ()
+        assert kwargs["allow_network"] is True
+        candle = MarketCandle(
+            source="binance_public",
+            venue="binance",
+            symbol="BTCUSDT",
+            timestamp=datetime(2026, 5, 1, tzinfo=UTC),
+            timeframe="1h",
+            open=100.0,
+            high=110.0,
+            low=99.0,
+            close=108.0,
+            volume=1000.0,
+        )
+        records_written = ResearchDataStore(kwargs["db_path"]).upsert_records(
+            [candle.to_source_record()]
+        )
+        return IngestionSummary(
+            source="binance_public",
+            db_path=str(kwargs["db_path"]),
+            symbols=[kwargs["symbol"]],
+            timeframe=kwargs["interval"],
+            year=kwargs["year"],
+            month=kwargs["month"],
+            records_fetched=1,
+            records_written=records_written,
+            network_allowed=True,
+            uses_real_capital=False,
+            live_order_routing=False,
+            notes=["fake_ingestion"],
+        )
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.ingest_binance_public_month",
+        fake_ingest_binance_public_month,
+    )
+
+    exit_code = main(
+        [
+            "research-loop",
+            "--db",
+            str(db_path),
+            "--source",
+            "binance-public",
+            "--symbol",
+            "BTCUSDT",
+            "--timeframe",
+            "1h",
+            "--year",
+            "2026",
+            "--month",
+            "5",
+            "--allow-network",
+        ]
+    )
+
+    captured = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert captured["ingestion"]["records_written"] == 1
+    assert captured["report"]["loaded_records"] == 1
+    assert captured["uses_real_capital"] is False
+    assert captured["live_order_routing"] is False
+    assert captured["ingestion"]["uses_real_capital"] is False
+    assert captured["ingestion"]["live_order_routing"] is False

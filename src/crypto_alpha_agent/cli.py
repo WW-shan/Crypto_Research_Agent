@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Sequence
 
+from crypto_alpha_agent.data.ingestion import ingest_binance_public_month
 from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.observability.logging import load_events
 from crypto_alpha_agent.observability.reports import generate_daily_report
@@ -77,7 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
     research_loop_parser.add_argument(
         "--db",
         required=True,
-        type=_existing_sqlite_db_path,
+        type=Path,
         help="Path to the SQLite research data store.",
     )
     research_loop_parser.add_argument(
@@ -88,13 +89,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     research_loop_parser.add_argument("--source", help="Optional source filter.")
     research_loop_parser.add_argument(
+        "--allow-network",
+        action="store_true",
+        help="Required explicit gate before Binance Public Data ingestion.",
+    )
+    research_loop_parser.add_argument("--symbol", help="Binance spot symbol for public data ingestion.")
+    research_loop_parser.add_argument(
+        "--timeframe",
+        default="1h",
+        help="Binance public klines interval for ingestion.",
+    )
+    research_loop_parser.add_argument("--year", type=_positive_int, help="Positive UTC year for ingestion.")
+    research_loop_parser.add_argument("--month", type=_positive_int, help="Positive UTC month for ingestion.")
+    research_loop_parser.add_argument(
         "--record-type",
         choices=("market_candle", "funding_rate", "dex_pair", "defi_yield", "source_health"),
         help="Optional record type filter.",
     )
     research_loop_parser.add_argument("--limit", type=_positive_int, help="Optional positive record limit.")
     research_loop_parser.add_argument("--run-id", help="Optional research loop run identifier.")
-    research_loop_parser.set_defaults(handler=_handle_research_loop)
+    research_loop_parser.set_defaults(handler=_handle_research_loop, parser=research_loop_parser)
 
     ingest_parser = subparsers.add_parser(
         "ingest",
@@ -280,21 +294,63 @@ def _handle_replay(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _handle_research_loop(args: argparse.Namespace) -> dict[str, Any]:
+    ingestion = None
+    source = args.source
+    if args.source == "binance-public":
+        _validate_binance_research_loop_ingestion_args(args)
+        ingestion = ingest_binance_public_month(
+            db_path=args.db,
+            symbol=args.symbol,
+            interval=args.timeframe,
+            year=args.year,
+            month=args.month,
+            allow_network=True,
+        )
+        source = "binance_public"
+    else:
+        _require_existing_sqlite_db(args.parser, args.db)
+
     report = run_stored_research_loop(
         args.db,
         current_capital_usd=args.current_capital_usd,
-        source=args.source,
+        source=source,
         record_type=args.record_type,
         limit=args.limit,
         run_id=args.run_id,
     )
-    return {
+    payload = {
         "command": "research-loop",
         "mode": "research_only",
         "uses_real_capital": False,
         "live_order_routing": False,
         "report": report.model_dump(mode="json"),
     }
+    if ingestion is not None:
+        payload["ingestion"] = ingestion.model_dump(mode="json")
+    return payload
+
+
+def _require_existing_sqlite_db(parser: argparse.ArgumentParser, db_path: Path) -> None:
+    try:
+        _existing_sqlite_db_path(str(db_path))
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
+
+
+def _validate_binance_research_loop_ingestion_args(args: argparse.Namespace) -> None:
+    if not args.allow_network:
+        args.parser.error("--allow-network is required when --source binance-public is provided")
+    missing = [
+        option
+        for option, value in (
+            ("--symbol", args.symbol),
+            ("--year", args.year),
+            ("--month", args.month),
+        )
+        if value is None
+    ]
+    if missing:
+        args.parser.error(f"{', '.join(missing)} required when --source binance-public is provided")
 
 
 def _handle_ingest(args: argparse.Namespace) -> dict[str, Any]:
