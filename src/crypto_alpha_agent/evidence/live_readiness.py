@@ -9,20 +9,28 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 ReadinessReasonCode = Literal[
     "rollout_gates_not_passed",
+    "rollout_evidence_inconsistent",
     "paper_evidence_failed",
     "insufficient_paper_sample",
     "human_approval_missing",
     "strategy_family_mismatch",
+    "risk_limits_above_charter",
 ]
 ReadinessChecklistStatus = Literal["pass", "fail"]
 RequiredActionMode = Literal["gated_live_review_only"]
 NonNegativeFiniteFloat = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
+_CHARTER_MAX_NOTIONAL_USD = 25.0
+_CHARTER_MAX_DAILY_LOSS_USD = 10.0
+_MIN_ROLLOUT_OBSERVATIONS = 30
+_MIN_WALK_FORWARD_SPLITS = 3
 _REQUIRED_READINESS_CHECKLIST_CODES = (
     "rollout_gates_passed",
+    "rollout_evidence_consistent",
     "paper_evidence_positive_clean",
     "paper_sample_covers_rollout",
     "human_approval_recorded",
     "strategy_family_matches",
+    "risk_limits_within_charter",
 )
 
 
@@ -47,6 +55,13 @@ class _TinyLiveReadinessRequest(BaseModel):
         if not normalized:
             raise ValueError("strategy_family must not be blank")
         return normalized
+
+
+class _TinyLiveReadinessRiskLimits(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+
+    max_notional_usd: NonNegativeFiniteFloat
+    max_daily_loss_usd: NonNegativeFiniteFloat
 
 
 class TinyLiveReadinessArtifact(BaseModel):
@@ -97,6 +112,11 @@ class TinyLiveReadinessArtifact(BaseModel):
             raise ValueError("ready_for_human_review cannot be true when paper_failure_reasons is non-empty")
         if self.human_approval_reference is None or not self.human_approval_reference.strip():
             raise ValueError("ready_for_human_review requires a nonblank human_approval_reference")
+        if (
+            self.max_notional_usd > _CHARTER_MAX_NOTIONAL_USD
+            or self.max_daily_loss_usd > _CHARTER_MAX_DAILY_LOSS_USD
+        ):
+            raise ValueError("ready_for_human_review requires risk limits within charter caps")
         if any(item.status == "fail" for item in self.checklist_items):
             raise ValueError("ready_for_human_review cannot be true when checklist_items contains a fail item")
         passing_checklist_codes = {
@@ -126,6 +146,10 @@ def generate_tiny_live_readiness_artifact(
     max_daily_loss_usd: float = 10.0,
 ) -> TinyLiveReadinessArtifact:
     request = _TinyLiveReadinessRequest(strategy_family=strategy_family)
+    risk_limits = _TinyLiveReadinessRiskLimits(
+        max_notional_usd=max_notional_usd,
+        max_daily_loss_usd=max_daily_loss_usd,
+    )
     rollout = (
         rollout_evaluation
         if isinstance(rollout_evaluation, RolloutEvaluation)
@@ -138,6 +162,11 @@ def generate_tiny_live_readiness_artifact(
     )
 
     rollout_passed = rollout.eligible_for_tiny_live
+    rollout_evidence_consistent = (
+        rollout.observation_count >= _MIN_ROLLOUT_OBSERVATIONS
+        and rollout.walk_forward_split_count >= _MIN_WALK_FORWARD_SPLITS
+        and rollout.cost_adjusted_expectancy_usd > 0
+    )
     paper_positive_clean = (
         paper.failed_count == 0
         and not paper.failure_reasons
@@ -156,10 +185,16 @@ def generate_tiny_live_readiness_artifact(
     )
     human_approval_recorded = human_approved is True and approval_reference is not None
     strategy_matches = paper.strategy_family == request.strategy_family
+    risk_limits_within_charter = (
+        risk_limits.max_notional_usd <= _CHARTER_MAX_NOTIONAL_USD
+        and risk_limits.max_daily_loss_usd <= _CHARTER_MAX_DAILY_LOSS_USD
+    )
 
     reason_codes: list[ReadinessReasonCode] = []
     if not rollout_passed:
         reason_codes.append("rollout_gates_not_passed")
+    if not rollout_evidence_consistent:
+        reason_codes.append("rollout_evidence_inconsistent")
     if not paper_positive_clean:
         reason_codes.append("paper_evidence_failed")
     if not sample_covers_rollout:
@@ -168,6 +203,8 @@ def generate_tiny_live_readiness_artifact(
         reason_codes.append("human_approval_missing")
     if not strategy_matches:
         reason_codes.append("strategy_family_mismatch")
+    if not risk_limits_within_charter:
+        reason_codes.append("risk_limits_above_charter")
 
     checklist_items = [
         TinyLiveReadinessChecklistItem(
@@ -178,6 +215,25 @@ def generate_tiny_live_readiness_artifact(
                 "Rollout gates passed."
                 if rollout_passed
                 else f"Rollout gates failed: {', '.join(rollout.reason_codes)}."
+            ),
+        ),
+        TinyLiveReadinessChecklistItem(
+            code="rollout_evidence_consistent",
+            name="Rollout evidence consistent",
+            status="pass" if rollout_evidence_consistent else "fail",
+            detail=(
+                "Rollout evidence meets default tiny-live expectations."
+                if rollout_evidence_consistent
+                else (
+                    "Rollout evidence is inconsistent with default tiny-live "
+                    "expectations: "
+                    f"observation_count={rollout.observation_count} "
+                    f"(minimum {_MIN_ROLLOUT_OBSERVATIONS}), "
+                    f"walk_forward_split_count={rollout.walk_forward_split_count} "
+                    f"(minimum {_MIN_WALK_FORWARD_SPLITS}), "
+                    f"cost_adjusted_expectancy_usd={rollout.cost_adjusted_expectancy_usd} "
+                    "(must be greater than 0)."
+                )
             ),
         ),
         TinyLiveReadinessChecklistItem(
@@ -233,6 +289,22 @@ def generate_tiny_live_readiness_artifact(
                 )
             ),
         ),
+        TinyLiveReadinessChecklistItem(
+            code="risk_limits_within_charter",
+            name="Risk limits within charter",
+            status="pass" if risk_limits_within_charter else "fail",
+            detail=(
+                "Risk limits are within charter tiny-live caps."
+                if risk_limits_within_charter
+                else (
+                    "Risk limits exceed charter tiny-live caps: "
+                    f"max_notional_usd={risk_limits.max_notional_usd} "
+                    f"(cap {_CHARTER_MAX_NOTIONAL_USD}), "
+                    f"max_daily_loss_usd={risk_limits.max_daily_loss_usd} "
+                    f"(cap {_CHARTER_MAX_DAILY_LOSS_USD})."
+                )
+            ),
+        ),
     ]
 
     return TinyLiveReadinessArtifact(
@@ -244,7 +316,7 @@ def generate_tiny_live_readiness_artifact(
         checklist_items=tuple(checklist_items),
         rollout_reason_codes=tuple(rollout.reason_codes),
         paper_failure_reasons=tuple(paper.failure_reasons),
-        max_notional_usd=max_notional_usd,
-        max_daily_loss_usd=max_daily_loss_usd,
+        max_notional_usd=risk_limits.max_notional_usd,
+        max_daily_loss_usd=risk_limits.max_daily_loss_usd,
         human_approval_reference=approval_reference,
     )

@@ -49,6 +49,12 @@ def _passing_checklist_items():
             detail="Rollout gates passed.",
         ),
         TinyLiveReadinessChecklistItem(
+            code="rollout_evidence_consistent",
+            name="Rollout evidence consistent",
+            status="pass",
+            detail="Rollout evidence meets default tiny-live expectations.",
+        ),
+        TinyLiveReadinessChecklistItem(
             code="paper_evidence_positive_clean",
             name="Paper evidence positive and clean",
             status="pass",
@@ -71,6 +77,12 @@ def _passing_checklist_items():
             name="Strategy family matches",
             status="pass",
             detail="Evidence strategy family matches requested family funding_basis.",
+        ),
+        TinyLiveReadinessChecklistItem(
+            code="risk_limits_within_charter",
+            name="Risk limits within charter",
+            status="pass",
+            detail="Risk limits are within charter tiny-live caps.",
         ),
     )
 
@@ -116,6 +128,7 @@ def test_generates_review_ready_artifact_without_enabling_live_execution():
     assert artifact.human_approval_reference == "approval-2026-05-16"
 
     checklist_by_code = {item.code: item for item in artifact.checklist_items}
+    assert checklist_by_code["rollout_evidence_consistent"].status == "pass"
     assert checklist_by_code["paper_evidence_positive_clean"].status == "pass"
     assert checklist_by_code["human_approval_recorded"].status == "pass"
 
@@ -226,6 +239,63 @@ def test_accepts_mapping_inputs_for_artifact_generation():
     assert artifact.live_execution_enabled is False
     assert artifact.max_notional_usd == 15.0
     assert artifact.max_daily_loss_usd == 5.0
+
+
+def test_blocks_inconsistent_rollout_mapping_even_when_eligible_flag_is_true():
+    from crypto_alpha_agent.evidence.live_readiness import generate_tiny_live_readiness_artifact
+
+    artifact = generate_tiny_live_readiness_artifact(
+        strategy_family="funding_basis",
+        rollout_evaluation={
+            "eligible_for_tiny_live": True,
+            "reason_codes": [],
+            "observation_count": 0,
+            "walk_forward_split_count": 0,
+            "cost_adjusted_expectancy_usd": 1.0,
+            "failure_rate": 0.0,
+            "max_observed_loss_usd": 0.0,
+        },
+        paper_evidence=_clean_paper(),
+        human_approved=True,
+        human_approval_reference="approval-2026-05-16",
+    )
+
+    assert artifact.ready_for_human_review is False
+    assert artifact.live_execution_enabled is False
+    assert artifact.reason_codes == ("rollout_evidence_inconsistent",)
+
+    checklist_by_code = {item.code: item for item in artifact.checklist_items}
+    assert checklist_by_code["rollout_gates_passed"].status == "pass"
+    assert checklist_by_code["rollout_evidence_consistent"].status == "fail"
+    assert "observation_count=0" in checklist_by_code["rollout_evidence_consistent"].detail
+    assert "walk_forward_split_count=0" in checklist_by_code["rollout_evidence_consistent"].detail
+
+
+@pytest.mark.parametrize(
+    "limit_overrides",
+    [
+        {"max_notional_usd": 25.01},
+        {"max_daily_loss_usd": 10.01},
+    ],
+)
+def test_blocks_readiness_when_risk_limits_exceed_charter_caps(limit_overrides):
+    from crypto_alpha_agent.evidence.live_readiness import generate_tiny_live_readiness_artifact
+
+    artifact = generate_tiny_live_readiness_artifact(
+        strategy_family="funding_basis",
+        rollout_evaluation=_passing_rollout(),
+        paper_evidence=_clean_paper(),
+        human_approved=True,
+        human_approval_reference="approval-2026-05-16",
+        **limit_overrides,
+    )
+
+    assert artifact.ready_for_human_review is False
+    assert artifact.live_execution_enabled is False
+    assert artifact.reason_codes == ("risk_limits_above_charter",)
+
+    checklist_by_code = {item.code: item for item in artifact.checklist_items}
+    assert checklist_by_code["risk_limits_within_charter"].status == "fail"
 
 
 def test_human_approval_requires_boolean_true_and_nonblank_reference():
@@ -365,6 +435,22 @@ def test_readiness_artifact_rejects_ready_without_required_pass_checklist_codes(
         TinyLiveReadinessArtifact(
             **_ready_artifact_kwargs(checklist_items=missing_human_approval)
         )
+
+
+@pytest.mark.parametrize(
+    "limit_overrides",
+    [
+        {"max_notional_usd": 25.01},
+        {"max_daily_loss_usd": 10.01},
+    ],
+)
+def test_readiness_artifact_rejects_ready_with_risk_limits_above_charter(
+    limit_overrides,
+):
+    from crypto_alpha_agent.evidence.live_readiness import TinyLiveReadinessArtifact
+
+    with pytest.raises(ValidationError):
+        TinyLiveReadinessArtifact(**_ready_artifact_kwargs(**limit_overrides))
 
 
 def test_readiness_models_are_frozen_and_collections_are_immutable():

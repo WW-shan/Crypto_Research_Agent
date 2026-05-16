@@ -139,6 +139,48 @@ def test_blocks_charter_violation_and_returns_charter_reason_codes():
     assert decision.charter_reason_codes == ["mev_or_mempool", "capital_above_budget"]
 
 
+def test_blocks_explicitly_unapproved_validation_even_when_other_metrics_pass():
+    from crypto_alpha_agent.risk.paper_gate import evaluate_paper_eligibility
+
+    decision = evaluate_paper_eligibility(
+        _candidate(),
+        validation=_validation(approved=False),
+    )
+
+    assert decision.allowed is False
+    assert decision.reason_codes == ["historical_validation_blocked"]
+    assert decision.validation_blocked_reasons == []
+
+
+def test_blocks_validation_with_blocked_reasons_and_preserves_them_on_decision():
+    from crypto_alpha_agent.risk.paper_gate import evaluate_paper_eligibility
+
+    decision = evaluate_paper_eligibility(
+        _candidate(),
+        validation=_validation(blocked_reasons=["insufficient_samples", "untrusted_source"]),
+    )
+
+    assert decision.allowed is False
+    assert decision.reason_codes == ["historical_validation_blocked"]
+    assert decision.validation_blocked_reasons == [
+        "insufficient_samples",
+        "untrusted_source",
+    ]
+
+
+def test_blocks_validation_with_non_passing_status():
+    from crypto_alpha_agent.risk.paper_gate import evaluate_paper_eligibility
+
+    decision = evaluate_paper_eligibility(
+        _candidate(),
+        validation=_validation(status="blocked"),
+    )
+
+    assert decision.allowed is False
+    assert decision.reason_codes == ["historical_validation_blocked"]
+    assert decision.validation_blocked_reasons == []
+
+
 def test_blocks_failed_or_negative_paper_evidence_when_provided():
     from crypto_alpha_agent.evidence.paper import PaperEvidencePackage
     from crypto_alpha_agent.risk.paper_gate import evaluate_paper_eligibility

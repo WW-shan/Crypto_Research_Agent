@@ -15,6 +15,7 @@ NonNegativeFiniteFloat = Annotated[float, Field(strict=True, ge=0, allow_inf_nan
 NonNegativeInt = Annotated[int, Field(strict=True, ge=0)]
 
 PaperEligibilityReasonCode = Literal[
+    "historical_validation_blocked",
     "insufficient_historical_trades",
     "non_positive_fee_adjusted_expectancy",
     "drawdown_unbounded",
@@ -45,15 +46,31 @@ class PaperEligibilityDecision(BaseModel):
     max_drawdown: FiniteFloat | None
     charter_reason_codes: list[str]
     paper_failure_reasons: list[str]
+    validation_blocked_reasons: list[str]
 
 
 class _ValidationEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     strategy_family: str = Field(min_length=1)
+    status: str | None = None
+    approved: bool | None = None
+    blocked_reasons: list[str] = Field(default_factory=list)
     trade_count: NonNegativeInt
     fee_adjusted_expectancy: FiniteFloat | None = None
     max_drawdown: FiniteFloat | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _normalize_status(cls, status: str | None) -> str | None:
+        if status is None:
+            return None
+        return status.strip().lower()
+
+    @field_validator("blocked_reasons")
+    @classmethod
+    def _dedupe_blocked_reasons(cls, reasons: list[str]) -> list[str]:
+        return _dedupe(reason.strip() for reason in reasons if reason.strip())
 
     @field_validator("max_drawdown")
     @classmethod
@@ -95,6 +112,9 @@ def evaluate_paper_eligibility(
 
     reason_codes: list[PaperEligibilityReasonCode] = []
 
+    if _historical_validation_blocked(validation_model):
+        reason_codes.append("historical_validation_blocked")
+
     if validation_model.trade_count < policy_model.min_historical_trades:
         reason_codes.append("insufficient_historical_trades")
 
@@ -132,6 +152,7 @@ def evaluate_paper_eligibility(
         max_drawdown=validation_model.max_drawdown,
         charter_reason_codes=charter_reason_codes,
         paper_failure_reasons=paper_failure_reasons,
+        validation_blocked_reasons=validation_model.blocked_reasons,
     )
 
 
@@ -150,6 +171,9 @@ def _coerce_validation(validation: Any) -> _ValidationEvidence:
         validation,
         (
             "strategy_family",
+            "status",
+            "approved",
+            "blocked_reasons",
             "trade_count",
             "fee_adjusted_expectancy",
             "max_drawdown",
@@ -202,6 +226,17 @@ def _paper_failure_reasons(paper_evidence: _PaperEvidence | None) -> list[str]:
     if paper_evidence.net_pnl_usd <= 0:
         reasons.append("negative_net_pnl")
     return _dedupe(reasons)
+
+
+_PASSING_VALIDATION_STATUSES = {"passed", "pass", "approved"}
+
+
+def _historical_validation_blocked(validation: _ValidationEvidence) -> bool:
+    if validation.approved is False:
+        return True
+    if validation.blocked_reasons:
+        return True
+    return validation.status is not None and validation.status not in _PASSING_VALIDATION_STATUSES
 
 
 def _dedupe(values: Iterable[str]) -> list[str]:
