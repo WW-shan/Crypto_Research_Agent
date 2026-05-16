@@ -45,6 +45,7 @@ class _FrozenJSONDict(dict[str, Any]):
     popitem = _reject_mutation
     setdefault = _reject_mutation
     update = _reject_mutation
+    __ior__ = _reject_mutation
 
 
 class _StrictEvidenceModel(BaseModel):
@@ -371,7 +372,7 @@ def _is_string_iterable(value: Any) -> bool:
 
 
 def _dedupe_nonempty_strings(values: Iterable[str]) -> StringTuple:
-    if isinstance(values, str | bytes):
+    if values is None or isinstance(values, str | bytes) or not isinstance(values, Iterable):
         raise ValueError("value must be a collection of strings")
     deduped: list[str] = []
     seen: set[str] = set()

@@ -269,6 +269,25 @@ def test_strategy_candidate_parameters_are_recursively_immutable():
         candidate.parameters["limits"]["bad"] = object()
 
 
+def test_strategy_candidate_parameters_reject_in_place_union_mutation():
+    candidate = StrategyCandidate(
+        **_strategy_candidate_kwargs(
+            parameters={
+                "funding_threshold_abs": 0.0005,
+                "limits": {"hold_bars": 3},
+            }
+        )
+    )
+
+    with pytest.raises(Exception):
+        candidate.parameters |= {"bad": object()}
+    with pytest.raises(Exception):
+        candidate.parameters["limits"] |= {"bad": object()}
+
+    assert "bad" not in candidate.parameters
+    assert "bad" not in candidate.parameters["limits"]
+
+
 def test_paper_simulation_failure_reasons_are_immutable():
     outcome = PaperSimulationOutcome(
         **_paper_simulation_outcome_kwargs(failure_reasons=["exchange_unavailable"])
@@ -301,6 +320,28 @@ def test_evidence_model_default_dumps_are_json_serializable():
     for model in models:
         json.dumps(model.model_dump())
         json.dumps(model.model_dump(mode="json"))
+
+
+def test_required_string_collections_reject_none_with_validation_error():
+    with pytest.raises(ValidationError):
+        StrategyCandidate(**_strategy_candidate_kwargs(data_sources=None))
+
+    with pytest.raises(ValidationError):
+        ExperimentRun(**_experiment_run_kwargs(data_sources=None))
+
+
+def test_optional_string_collections_reject_none_with_validation_error():
+    with pytest.raises(ValidationError):
+        StrategyCandidate(**_strategy_candidate_kwargs(blocked_reasons=None))
+
+    with pytest.raises(ValidationError):
+        ValidationEvidence(**_validation_evidence_kwargs(blocked_reasons=None))
+
+    with pytest.raises(ValidationError):
+        PaperSimulationOutcome(**_paper_simulation_outcome_kwargs(failure_reasons=None))
+
+    with pytest.raises(ValidationError):
+        ExperimentRun(**_experiment_run_kwargs(validation_evidence_ids=None))
 
 
 @pytest.mark.parametrize("source_name", ["private_rpc", "premium_rpc", "eth_mempool", "mev_stream"])
