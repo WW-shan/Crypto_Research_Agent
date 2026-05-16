@@ -96,11 +96,10 @@ def build_parser() -> argparse.ArgumentParser:
     research_loop_parser.add_argument("--symbol", help="Binance spot symbol for public data ingestion.")
     research_loop_parser.add_argument(
         "--timeframe",
-        default="1h",
         help="Binance public klines interval for ingestion.",
     )
     research_loop_parser.add_argument("--year", type=_positive_int, help="Positive UTC year for ingestion.")
-    research_loop_parser.add_argument("--month", type=_positive_int, help="Positive UTC month for ingestion.")
+    research_loop_parser.add_argument("--month", type=_month_number, help="UTC month for ingestion, 1-12.")
     research_loop_parser.add_argument(
         "--record-type",
         choices=("market_candle", "funding_rate", "dex_pair", "defi_yield", "source_health"),
@@ -175,6 +174,16 @@ def _positive_int(raw_value: str) -> int:
         raise argparse.ArgumentTypeError(f"invalid positive integer: {raw_value!r}") from exc
     if value <= 0:
         raise argparse.ArgumentTypeError(f"invalid positive integer: {raw_value!r}")
+    return value
+
+
+def _month_number(raw_value: str) -> int:
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid month: {raw_value!r}; expected 1-12") from exc
+    if value < 1 or value > 12:
+        raise argparse.ArgumentTypeError(f"invalid month: {raw_value!r}; expected 1-12")
     return value
 
 
@@ -295,18 +304,17 @@ def _handle_replay(args: argparse.Namespace) -> dict[str, Any]:
 
 def _handle_research_loop(args: argparse.Namespace) -> dict[str, Any]:
     ingestion = None
-    source = args.source
-    if args.source == "binance-public":
+    source = _normalize_research_loop_source(args.source)
+    if source == "binance_public" and _has_binance_ingestion_intent(args):
         _validate_binance_research_loop_ingestion_args(args)
         ingestion = ingest_binance_public_month(
             db_path=args.db,
             symbol=args.symbol,
-            interval=args.timeframe,
+            interval=args.timeframe or "1h",
             year=args.year,
             month=args.month,
             allow_network=True,
         )
-        source = "binance_public"
     else:
         _require_existing_sqlite_db(args.parser, args.db)
 
@@ -328,6 +336,22 @@ def _handle_research_loop(args: argparse.Namespace) -> dict[str, Any]:
     if ingestion is not None:
         payload["ingestion"] = ingestion.model_dump(mode="json")
     return payload
+
+
+def _normalize_research_loop_source(source: str | None) -> str | None:
+    if source == "binance-public":
+        return "binance_public"
+    return source
+
+
+def _has_binance_ingestion_intent(args: argparse.Namespace) -> bool:
+    return bool(
+        args.allow_network
+        or args.symbol is not None
+        or args.year is not None
+        or args.month is not None
+        or args.timeframe is not None
+    )
 
 
 def _require_existing_sqlite_db(parser: argparse.ArgumentParser, db_path: Path) -> None:

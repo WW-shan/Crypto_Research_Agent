@@ -67,6 +67,74 @@ def test_research_loop_cli_rejects_binance_public_without_network_gate(capsys, t
     assert not db_path.exists()
 
 
+def test_research_loop_cli_filters_binance_public_offline_with_cli_source_spelling(capsys, tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    candle = MarketCandle(
+        source="binance_public",
+        venue="binance",
+        symbol="BTCUSDT",
+        timestamp=datetime(2026, 5, 16, tzinfo=UTC),
+        timeframe="1h",
+        open=100.0,
+        high=110.0,
+        low=99.0,
+        close=108.0,
+        volume=1000.0,
+    )
+    ResearchDataStore(db_path).upsert_records([candle.to_source_record()])
+
+    exit_code = main(
+        [
+            "research-loop",
+            "--db",
+            str(db_path),
+            "--source",
+            "binance-public",
+        ]
+    )
+
+    captured = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert captured["report"]["loaded_records"] == 1
+    assert captured["report"]["source_filter"] == "binance_public"
+    assert "ingestion" not in captured
+
+
+def test_research_loop_cli_rejects_invalid_ingestion_month_before_call(capsys, monkeypatch, tmp_path):
+    db_path = tmp_path / "research.sqlite"
+
+    def fail_ingest_binance_public_month(*args, **kwargs):
+        raise AssertionError("ingestion should not be called")
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.ingest_binance_public_month",
+        fail_ingest_binance_public_month,
+    )
+
+    with pytest.raises(SystemExit):
+        main(
+            [
+                "research-loop",
+                "--db",
+                str(db_path),
+                "--source",
+                "binance-public",
+                "--symbol",
+                "BTCUSDT",
+                "--year",
+                "2026",
+                "--month",
+                "13",
+                "--allow-network",
+            ]
+        )
+
+    captured = capsys.readouterr()
+    assert "invalid month" in captured.err or "1-12" in captured.err
+    assert "Traceback" not in captured.err
+    assert not db_path.exists()
+
+
 def test_research_loop_cli_rejects_directory_db_path(capsys, tmp_path):
     db_path = tmp_path / "research-dir"
     db_path.mkdir()
