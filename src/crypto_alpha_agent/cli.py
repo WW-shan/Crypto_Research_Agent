@@ -139,13 +139,13 @@ def build_parser() -> argparse.ArgumentParser:
     paper_sim_loop_parser.add_argument("--run-id", help="Optional paper simulation run identifier.")
     paper_sim_loop_parser.add_argument(
         "--current-capital-usd",
-        type=_positive_finite_float,
+        type=_non_negative_finite_float,
         default=300.0,
         help="Operator capital profile used to cap paper notional.",
     )
     paper_sim_loop_parser.add_argument(
         "--notional-usd",
-        type=_positive_finite_float,
+        type=_non_negative_finite_float,
         default=25.0,
         help="Requested per-trade paper notional before low-capital caps.",
     )

@@ -99,6 +99,39 @@ def test_funding_price_validator_measures_extreme_reversion_edge(tmp_path):
     assert result.blocked_reasons == []
 
 
+def test_extract_funding_price_trades_returns_canonical_trade_fields(tmp_path):
+    from crypto_alpha_agent.validation.funding_price import (
+        extract_funding_price_trades,
+    )
+    from crypto_alpha_agent.validation.market_history import load_candle_history
+
+    db_path = _write_happy_path_fixture(tmp_path)
+    bars = load_candle_history(db_path, symbol="BTC/USDT", timeframe="1h")
+    funding_rates = [_funding(1, 0.0008), _funding(4, -0.0009), _funding(6, 0.0007)]
+
+    trades = extract_funding_price_trades(
+        bars,
+        funding_rates,
+        threshold_abs=0.0005,
+        hold_bars=2,
+    )
+
+    assert len(trades) == 3
+    assert trades[0].funding_symbol == "BTC/USDT:USDT"
+    assert trades[0].funding_timestamp == datetime(2026, 5, 17, 1, tzinfo=UTC)
+    assert trades[0].funding_rate == pytest.approx(0.0008)
+    assert trades[0].entry_index == 1
+    assert trades[0].exit_index == 3
+    assert trades[0].entry_timestamp == datetime(2026, 5, 17, 1, tzinfo=UTC)
+    assert trades[0].exit_timestamp == datetime(2026, 5, 17, 3, tzinfo=UTC)
+    assert trades[0].entry_price == 103.0
+    assert trades[0].exit_price == 99.0
+    assert trades[0].direction == "short_price"
+    assert trades[0].raw_return == pytest.approx(4.0 / 103.0)
+    assert trades[1].direction == "long_price"
+    assert trades[1].raw_return == pytest.approx(-1.0 / 102.0)
+
+
 def test_funding_price_validator_fails_closed_when_walk_forward_required(tmp_path):
     db_path = _write_happy_path_fixture(tmp_path)
 

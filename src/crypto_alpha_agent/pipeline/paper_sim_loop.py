@@ -3,9 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from bisect import bisect_left
 from collections.abc import Iterable
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -17,10 +15,12 @@ from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
 from crypto_alpha_agent.evidence.models import PaperSimulationOutcome
 from crypto_alpha_agent.evidence.paper import PaperEvidencePackage, aggregate_paper_evidence
 from crypto_alpha_agent.validation.funding_price import (
+    FundingPriceTrade,
     FundingPriceValidationResult,
     _has_duplicate_timestamps,
     _has_non_positive_trade_price,
     _load_funding_history,
+    extract_funding_price_trades,
     validate_funding_price_confirmation,
 )
 from crypto_alpha_agent.validation.market_history import CandleBar, load_candle_history
@@ -47,15 +47,6 @@ class PaperSimLoopReport(BaseModel):
     uses_real_capital: Literal[False] = False
     live_order_routing: Literal[False] = False
     notes: list[str] = Field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class _PaperTradeCandidate:
-    index: int
-    funding: FundingRateRecord
-    entry_bar: CandleBar
-    exit_bar: CandleBar
-    gross_return: float
 
 
 def run_paper_sim_loop(
@@ -132,15 +123,16 @@ def run_paper_sim_loop(
             hold_bars=hold_bars,
         )
 
-    candidates: list[_PaperTradeCandidate] = []
+    trades: list[FundingPriceTrade] = []
     if (
         not duplicate_price_timestamp
         and not duplicate_funding_timestamp
         and not non_positive_price
     ):
-        candidates = _extract_trade_candidates(
+        trades = extract_funding_price_trades(
             bars,
-            extremes,
+            funding_rates,
+            threshold_abs=threshold_abs,
             hold_bars=hold_bars,
         )
 
@@ -148,8 +140,10 @@ def run_paper_sim_loop(
         run_id=resolved_run_id,
         strategy_family=strategy_family,
         symbol=price_symbol,
-        candidates=candidates,
+        trades=trades,
         notional_usd=capped_notional,
+        threshold_abs=threshold_abs,
+        hold_bars=hold_bars,
         fee_rate=fee_rate,
         slippage_rate=slippage_rate,
     )
@@ -192,71 +186,45 @@ def run_paper_sim_loop(
     )
 
 
-def _extract_trade_candidates(
-    bars: list[CandleBar],
-    extremes: list[FundingRateRecord],
-    *,
-    hold_bars: int,
-) -> list[_PaperTradeCandidate]:
-    timestamps = [bar.timestamp for bar in bars]
-    candidates: list[_PaperTradeCandidate] = []
-    for funding in extremes:
-        entry_index = bisect_left(timestamps, funding.timestamp)
-        exit_index = entry_index + hold_bars
-        if entry_index >= len(bars) or exit_index >= len(bars):
-            continue
-
-        entry_bar = bars[entry_index]
-        exit_bar = bars[exit_index]
-        entry_price = float(entry_bar.close)
-        exit_price = float(exit_bar.close)
-        if entry_price <= 0 or exit_price <= 0:
-            continue
-
-        price_return = (exit_price / entry_price) - 1.0
-        gross_return = -price_return if funding.funding_rate >= 0 else price_return
-        candidates.append(
-            _PaperTradeCandidate(
-                index=len(candidates),
-                funding=funding,
-                entry_bar=entry_bar,
-                exit_bar=exit_bar,
-                gross_return=gross_return,
-            )
-        )
-
-    return candidates
-
-
 def _closed_outcomes(
     *,
     run_id: str,
     strategy_family: str,
     symbol: str,
-    candidates: list[_PaperTradeCandidate],
+    trades: list[FundingPriceTrade],
     notional_usd: float,
+    threshold_abs: float,
+    hold_bars: int,
     fee_rate: float,
     slippage_rate: float,
 ) -> list[PaperSimulationOutcome]:
     outcomes: list[PaperSimulationOutcome] = []
-    for candidate in candidates:
-        entry_price = float(candidate.entry_bar.close)
-        exit_price = float(candidate.exit_bar.close)
-        candidate_id = _stable_candidate_id(strategy_family, symbol, candidate)
-        gross_pnl = notional_usd * candidate.gross_return
+    for trade in trades:
+        entry_price = trade.entry_price
+        exit_price = trade.exit_price
+        candidate_id = _stable_candidate_id(
+            strategy_family,
+            symbol,
+            trade,
+            threshold_abs=threshold_abs,
+            hold_bars=hold_bars,
+            fee_rate=fee_rate,
+            slippage_rate=slippage_rate,
+        )
+        gross_pnl = notional_usd * trade.raw_return
         fees = notional_usd * float(fee_rate) * 2.0
         slippage = notional_usd * float(slippage_rate) * 2.0
         net_pnl = gross_pnl - fees - slippage
         outcomes.append(
             PaperSimulationOutcome(
-                outcome_id=f"{run_id}:{candidate_id}:{candidate.index}",
+                outcome_id=f"{run_id}:{candidate_id}",
                 run_id=run_id,
                 candidate_id=candidate_id,
                 strategy_family=strategy_family,
                 symbol=symbol,
-                observed_at=candidate.exit_bar.timestamp,
+                observed_at=trade.exit_timestamp,
                 status="closed",
-                signal_timestamp=candidate.funding.timestamp,
+                signal_timestamp=trade.funding_timestamp,
                 entry_price=entry_price,
                 exit_price=exit_price,
                 quantity=notional_usd / entry_price if entry_price > 0 else 0.0,
@@ -321,19 +289,30 @@ def _stable_run_id(**values: object) -> str:
 def _stable_candidate_id(
     strategy_family: str,
     symbol: str,
-    candidate: _PaperTradeCandidate,
+    trade: FundingPriceTrade,
+    *,
+    threshold_abs: float,
+    hold_bars: int,
+    fee_rate: float,
+    slippage_rate: float,
 ) -> str:
     digest = _stable_digest(
         {
             "strategy_family": strategy_family,
-            "symbol": symbol,
-            "funding_symbol": candidate.funding.symbol,
-            "funding_timestamp": candidate.funding.timestamp.isoformat(),
-            "funding_rate": candidate.funding.funding_rate,
-            "entry_timestamp": candidate.entry_bar.timestamp.isoformat(),
-            "exit_timestamp": candidate.exit_bar.timestamp.isoformat(),
-            "gross_return": candidate.gross_return,
-            "index": candidate.index,
+            "price_symbol": symbol,
+            "funding_symbol": trade.funding_symbol,
+            "funding_timestamp": trade.funding_timestamp.isoformat(),
+            "funding_rate": trade.funding_rate,
+            "entry_timestamp": trade.entry_timestamp.isoformat(),
+            "entry_price": trade.entry_price,
+            "exit_timestamp": trade.exit_timestamp.isoformat(),
+            "exit_price": trade.exit_price,
+            "direction": trade.direction,
+            "raw_return": trade.raw_return,
+            "hold_bars": hold_bars,
+            "threshold_abs": float(threshold_abs),
+            "fee_rate": float(fee_rate),
+            "slippage_rate": float(slippage_rate),
         }
     )
     return f"candidate-{digest}"

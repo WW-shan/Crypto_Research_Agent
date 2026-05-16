@@ -4,7 +4,10 @@ import json
 import math
 from bisect import bisect_left
 from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -35,6 +38,100 @@ class FundingPriceValidationResult(BaseModel):
     walk_forward_pass_rate: float
     approved: bool
     blocked_reasons: list[str]
+
+
+@dataclass(frozen=True, slots=True)
+class FundingPriceTrade:
+    funding: FundingRateRecord
+    entry_bar: CandleBar
+    exit_bar: CandleBar
+    entry_index: int
+    exit_index: int
+    direction: Literal["short_price", "long_price"]
+    raw_return: float
+
+    @property
+    def funding_symbol(self) -> str:
+        return self.funding.symbol
+
+    @property
+    def funding_timestamp(self) -> datetime:
+        return self.funding.timestamp
+
+    @property
+    def funding_rate(self) -> float:
+        return float(self.funding.funding_rate)
+
+    @property
+    def entry_timestamp(self) -> datetime:
+        return self.entry_bar.timestamp
+
+    @property
+    def exit_timestamp(self) -> datetime:
+        return self.exit_bar.timestamp
+
+    @property
+    def entry_price(self) -> float:
+        return float(self.entry_bar.close)
+
+    @property
+    def exit_price(self) -> float:
+        return float(self.exit_bar.close)
+
+
+def extract_funding_price_trades(
+    bars: Sequence[CandleBar],
+    funding_rates: Sequence[FundingRateRecord],
+    *,
+    threshold_abs: float = 0.0005,
+    hold_bars: int = 1,
+) -> list[FundingPriceTrade]:
+    if not math.isfinite(threshold_abs) or threshold_abs <= 0:
+        raise ValueError("threshold_abs must be finite and greater than 0")
+    _require_positive_int("hold_bars", hold_bars)
+
+    timestamps = [bar.timestamp for bar in bars]
+    trades: list[FundingPriceTrade] = []
+    for funding in funding_rates:
+        funding_rate = float(funding.funding_rate)
+        if not math.isfinite(funding_rate):
+            raise ValueError("funding_rate must be finite")
+        if abs(funding_rate) < threshold_abs:
+            continue
+
+        entry_index = bisect_left(timestamps, funding.timestamp)
+        exit_index = entry_index + hold_bars
+        if entry_index >= len(bars) or exit_index >= len(bars):
+            continue
+
+        entry_bar = bars[entry_index]
+        exit_bar = bars[exit_index]
+        entry_price = float(entry_bar.close)
+        exit_price = float(exit_bar.close)
+        if entry_price <= 0 or exit_price <= 0:
+            continue
+
+        price_return = (exit_price / entry_price) - 1.0
+        direction: Literal["short_price", "long_price"]
+        if funding_rate >= 0:
+            direction = "short_price"
+            raw_return = -price_return
+        else:
+            direction = "long_price"
+            raw_return = price_return
+        trades.append(
+            FundingPriceTrade(
+                funding=funding,
+                entry_bar=entry_bar,
+                exit_bar=exit_bar,
+                entry_index=entry_index,
+                exit_index=exit_index,
+                direction=direction,
+                raw_return=raw_return,
+            )
+        )
+
+    return trades
 
 
 def validate_funding_price_confirmation(
@@ -80,18 +177,22 @@ def validate_funding_price_confirmation(
             hold_bars=hold_bars,
         )
 
-    indexed_trades: list[tuple[int, int, float]] = []
+    trades: list[FundingPriceTrade] = []
     if (
         not duplicate_price_timestamp
         and not duplicate_funding_timestamp
         and not non_positive_price
     ):
-        indexed_trades = _extreme_reversion_trades(
+        trades = extract_funding_price_trades(
             bars,
-            extremes,
+            funding_rates,
+            threshold_abs=threshold_abs,
             hold_bars=hold_bars,
         )
-    raw_returns = [trade_return for _, _, trade_return in indexed_trades]
+    indexed_trades = [
+        (trade.entry_index, trade.exit_index, trade.raw_return) for trade in trades
+    ]
+    raw_returns = [trade.raw_return for trade in trades]
     cost_per_trade = (float(fee_rate) + float(slippage_rate)) * 2.0
     fee_cost_per_trade = float(fee_rate) * 2.0
     adjusted_returns = [trade_return - cost_per_trade for trade_return in raw_returns]
@@ -229,35 +330,6 @@ def _has_non_positive_trade_price(
             return True
 
     return False
-
-
-def _extreme_reversion_trades(
-    bars: list[CandleBar],
-    extremes: list[FundingRateRecord],
-    *,
-    hold_bars: int,
-) -> list[tuple[int, int, float]]:
-    timestamps = [bar.timestamp for bar in bars]
-    trades: list[tuple[int, int, float]] = []
-
-    for funding in extremes:
-        entry_index = bisect_left(timestamps, funding.timestamp)
-        exit_index = entry_index + hold_bars
-        if entry_index >= len(bars) or exit_index >= len(bars):
-            continue
-
-        entry_price = float(bars[entry_index].close)
-        exit_price = float(bars[exit_index].close)
-        if entry_price <= 0 or exit_price <= 0:
-            continue
-
-        price_return = (exit_price / entry_price) - 1.0
-        if funding.funding_rate >= 0:
-            trades.append((entry_index, exit_index, -price_return))
-        else:
-            trades.append((entry_index, exit_index, price_return))
-
-    return trades
 
 
 def _walk_forward_adjusted_expectancies(

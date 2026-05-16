@@ -127,6 +127,70 @@ def test_run_paper_sim_loop_writes_outcomes_without_live_capital(tmp_path):
     assert evidence.net_pnl_usd == pytest.approx(sum(item.net_pnl_usd for item in loaded))
 
 
+def test_paper_sim_loop_keeps_existing_outcome_ids_stable_after_backfill(tmp_path):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+
+    db_path = tmp_path / "research.sqlite"
+    store = ResearchDataStore(db_path)
+    candles = [
+        _candle(i, close)
+        for i, close in enumerate([100, 103, 101, 99, 102, 104, 101, 100])
+    ]
+    initial_fundings = [_funding(3, -0.0009), _funding(5, 0.0008)]
+    store.upsert_records([item.to_source_record() for item in candles])
+    store.upsert_records([_funding_record(item) for item in initial_fundings])
+
+    first_report = run_paper_sim_loop(
+        db_path,
+        run_id="paper-backfill",
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        current_capital_usd=100.0,
+        notional_usd=10.0,
+        threshold_abs=0.0005,
+        hold_bars=1,
+        min_trades=2,
+        require_walk_forward=False,
+    )
+    first_ids_by_signal = {
+        outcome.signal_timestamp: outcome.outcome_id for outcome in first_report.outcomes
+    }
+
+    store.upsert_records([_funding_record(_funding(1, 0.0007))])
+    second_report = run_paper_sim_loop(
+        db_path,
+        run_id="paper-backfill",
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        current_capital_usd=100.0,
+        notional_usd=10.0,
+        threshold_abs=0.0005,
+        hold_bars=1,
+        min_trades=2,
+        require_walk_forward=False,
+    )
+
+    loaded = PaperOutcomeLedger(db_path).load_outcomes(run_id="paper-backfill")
+    second_ids_by_signal = {
+        outcome.signal_timestamp: outcome.outcome_id for outcome in second_report.outcomes
+    }
+
+    assert second_report.outcome_count == 3
+    assert len(loaded) == 3
+    assert set(first_ids_by_signal).issubset(second_ids_by_signal)
+    for signal_timestamp, outcome_id in first_ids_by_signal.items():
+        assert second_ids_by_signal[signal_timestamp] == outcome_id
+    assert {outcome.outcome_id for outcome in loaded} == {
+        outcome.outcome_id for outcome in second_report.outcomes
+    }
+    assert second_report.paper_evidence_packages[0].sample_size == 3
+    assert second_report.paper_evidence_packages[0].closed_count == 3
+
+
 def test_empty_store_records_one_blocked_no_signal_outcome(tmp_path):
     from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
 
@@ -235,3 +299,53 @@ def test_cli_paper_sim_loop_outputs_json_and_persists_ledger(tmp_path):
     assert payload["report"]["notional_usd"] == 25.0
     assert len(loaded) == payload["report"]["outcome_count"]
     assert report_payload == payload
+
+
+def test_cli_paper_sim_loop_accepts_zero_capital_and_notional(tmp_path):
+    db_path = _write_happy_path_fixture(tmp_path)
+
+    result = _run_cli(
+        "paper-sim-loop",
+        "--db",
+        str(db_path),
+        "--strategy-family",
+        "funding_extremity_price_confirmation",
+        "--price-symbol",
+        "BTC/USDT",
+        "--funding-symbol",
+        "BTC/USDT:USDT",
+        "--timeframe",
+        "1h",
+        "--run-id",
+        "cli-paper-zero",
+        "--current-capital-usd",
+        "0",
+        "--notional-usd",
+        "0",
+        "--threshold-abs",
+        "0.0005",
+        "--hold-bars",
+        "2",
+        "--min-trades",
+        "2",
+        "--no-require-walk-forward",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+
+    assert payload["report"]["run_id"] == "cli-paper-zero"
+    assert payload["report"]["notional_usd"] == 0.0
+    assert payload["report"]["outcome_count"] == 3
+    assert {
+        outcome["status"] for outcome in payload["report"]["outcomes"]
+    } == {"closed"}
+    assert all(
+        outcome["quantity"] == 0.0
+        and outcome["notional_usd"] == 0.0
+        and outcome["gross_pnl_usd"] == 0.0
+        and outcome["fees_usd"] == 0.0
+        and outcome["slippage_usd"] == 0.0
+        and outcome["net_pnl_usd"] == 0.0
+        for outcome in payload["report"]["outcomes"]
+    )
