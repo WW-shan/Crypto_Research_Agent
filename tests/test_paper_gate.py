@@ -80,6 +80,25 @@ def test_blocks_non_positive_fee_adjusted_expectancy(expectancy: float):
     assert decision.fee_adjusted_expectancy == expectancy
 
 
+def test_negative_min_fee_adjusted_expectancy_policy_is_invalid():
+    from crypto_alpha_agent.risk.paper_gate import PaperEligibilityPolicy
+
+    with pytest.raises(ValidationError):
+        PaperEligibilityPolicy(min_fee_adjusted_expectancy=-0.001)
+
+
+def test_default_policy_blocks_zero_fee_adjusted_expectancy():
+    from crypto_alpha_agent.risk.paper_gate import evaluate_paper_eligibility
+
+    decision = evaluate_paper_eligibility(
+        _candidate(),
+        validation=_validation(fee_adjusted_expectancy=0.0),
+    )
+
+    assert decision.allowed is False
+    assert decision.reason_codes == ["non_positive_fee_adjusted_expectancy"]
+
+
 @pytest.mark.parametrize("drawdown", [0.21, -0.21])
 def test_blocks_drawdown_above_policy_limit_using_absolute_value(drawdown: float):
     from crypto_alpha_agent.risk.paper_gate import evaluate_paper_eligibility
@@ -194,6 +213,31 @@ def test_blocks_zero_paper_evidence_net_pnl():
     assert decision.allowed is False
     assert decision.reason_codes == ["paper_evidence_failed"]
     assert decision.paper_failure_reasons == ["negative_net_pnl"]
+
+
+def test_blocks_mismatched_paper_evidence_strategy_family():
+    from crypto_alpha_agent.evidence.paper import PaperEvidencePackage
+    from crypto_alpha_agent.risk.paper_gate import evaluate_paper_eligibility
+
+    evidence = PaperEvidencePackage(
+        strategy_family="stat_arb",
+        sample_size=1,
+        closed_count=1,
+        failed_count=0,
+        net_pnl_usd=1.0,
+        hit_rate=1.0,
+        max_drawdown_usd=0.1,
+    )
+
+    decision = evaluate_paper_eligibility(
+        _candidate(),
+        validation=_validation(strategy_family="funding_basis"),
+        paper_evidence=evidence,
+    )
+
+    assert decision.allowed is False
+    assert decision.reason_codes == ["paper_evidence_strategy_mismatch"]
+    assert decision.paper_failure_reasons == []
 
 
 @pytest.mark.parametrize(

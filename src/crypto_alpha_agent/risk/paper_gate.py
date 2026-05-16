@@ -21,6 +21,7 @@ PaperEligibilityReasonCode = Literal[
     "drawdown_above_limit",
     "charter_violation",
     "paper_evidence_failed",
+    "paper_evidence_strategy_mismatch",
 ]
 ActionMode = Literal["paper"]
 
@@ -29,7 +30,7 @@ class PaperEligibilityPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     min_historical_trades: NonNegativeInt = 5
-    min_fee_adjusted_expectancy: FiniteFloat = 0.0
+    min_fee_adjusted_expectancy: NonNegativeFiniteFloat = 0.0
     max_drawdown: NonNegativeFiniteFloat = 0.20
 
 
@@ -65,6 +66,7 @@ class _ValidationEvidence(BaseModel):
 class _PaperEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
+    strategy_family: str = Field(min_length=1)
     failed_count: NonNegativeInt
     net_pnl_usd: FiniteFloat
     failure_reasons: list[str] = Field(default_factory=list)
@@ -115,6 +117,11 @@ def evaluate_paper_eligibility(
     paper_failure_reasons = _paper_failure_reasons(paper_model)
     if paper_model is not None and (paper_model.failed_count > 0 or paper_failure_reasons):
         reason_codes.append("paper_evidence_failed")
+    if (
+        paper_model is not None
+        and paper_model.strategy_family != validation_model.strategy_family
+    ):
+        reason_codes.append("paper_evidence_strategy_mismatch")
 
     return PaperEligibilityDecision(
         allowed=not reason_codes,
@@ -169,6 +176,7 @@ def _coerce_paper_evidence(paper_evidence: Any | None) -> _PaperEvidence | None:
     data = _field_mapping(
         paper_evidence,
         (
+            "strategy_family",
             "failed_count",
             "net_pnl_usd",
             "failure_reasons",
