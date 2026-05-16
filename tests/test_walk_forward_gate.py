@@ -47,13 +47,16 @@ def _funding_record(funding: FundingRateRecord) -> SourceRecord:
     )
 
 
-def test_walk_forward_gate_blocks_missing_splits():
+def test_walk_forward_gate_blocks_missing_splits_and_low_pass_rate():
     result = evaluate_walk_forward_gate([], min_splits=3, min_pass_rate=0.67)
 
     assert result.passed is False
     assert result.split_count == 0
     assert result.pass_rate == 0.0
-    assert result.blocked_reasons == ["insufficient_walk_forward_splits"]
+    assert result.blocked_reasons == [
+        "insufficient_walk_forward_splits",
+        "unstable_walk_forward_performance",
+    ]
 
 
 def test_walk_forward_gate_blocks_low_pass_rate_and_unstable_expectancy():

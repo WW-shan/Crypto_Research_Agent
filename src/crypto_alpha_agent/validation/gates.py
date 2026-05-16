@@ -40,7 +40,7 @@ def evaluate_walk_forward_gate(
 
     if split_count < min_splits:
         blocked_reasons.append("insufficient_walk_forward_splits")
-    if expectancies and (
+    if (
         any(expectancy <= expectancy_floor for expectancy in expectancies)
         or pass_rate < min_pass_rate
     ):
