@@ -35,11 +35,18 @@ Implemented:
   - Gated Binance Public Data historical candle ingestion through
     `research-loop` with explicit `--allow-network`.
   - Optional Markdown report artifact written with `--report-out`.
+- Historical validation foundations:
+  - Persisted candle history loader for stored market candles.
+  - Conservative close-momentum validator over stored candle bars.
+  - Funding-rate extremity validator for stored funding records.
+  - Walk-forward train/test window utility.
+  - Optional `--include-validation` research-loop summaries in JSON and
+    Markdown reports.
 
 Known limits:
 
-- Backtests are still mostly synthetic or toy-path validations rather than
-  strategy tests over persisted real market history.
+- Historical validation currently covers only simple baseline validators, not a
+  broad strategy library or full paper-trading evidence package.
 - Agent behavior is mostly deterministic and template-driven, not a live
   multi-agent LLM research process.
 - There is no scheduler, daily report job, dashboard, alerting, or deployment
@@ -81,10 +88,22 @@ uv run crypto-alpha-agent research-loop \
   --report-out var/reports/daily.md
 ```
 
-## Phase 2: Real Historical Strategy Validation
+## Phase 2: Real Historical Strategy Validation - Partly Complete
 
 Goal: Validate simple low-capital strategy families against real historical
 data before any paper proposal.
+
+Delivered:
+
+- Stored Binance Public Data candles can be loaded as typed chronological bars.
+- A conservative close-momentum validator produces trade count, net return, max
+  drawdown, and fee/slippage-adjusted expectancy.
+- Stored funding-rate records can be summarized for positive and negative
+  funding extremes.
+- Walk-forward train/test windows are available for future out-of-sample
+  validation.
+- `research-loop --include-validation` can attach historical validation
+  summaries to JSON and Markdown reports.
 
 Initial strategy families:
 
@@ -96,11 +115,20 @@ Initial strategy families:
 
 Completion standard:
 
-- Each strategy family has a deterministic backtest adapter.
+- Each initial strategy family has a deterministic validation adapter.
 - Results include fees, slippage assumptions, trade count, max drawdown, and
-  expectancy.
-- Walk-forward or out-of-sample splits are included before paper approval.
+  expectancy where applicable.
+- Walk-forward or out-of-sample splits are applied before paper approval.
 - Strategies that fail are persisted with rejection reasons.
+
+Remaining Phase 2 gaps:
+
+- Apply walk-forward checks to validators rather than only exposing window
+  generation.
+- Add a funding-plus-price combined validator instead of separate summaries.
+- Persist validation failures and lessons into memory.
+- Add enough strategy-family evidence before any paper-trading gate is
+  considered.
 
 ## Phase 3: LLM Research Agent Loop
 
@@ -160,17 +188,18 @@ Completion standard:
 
 ## Active Next Step
 
-The next implementation should be Phase 2: Real Historical Strategy Validation.
+The next implementation should be Phase 3: LLM Research Agent Loop, while
+keeping Phase 2 validators conservative and evidence-only.
 
 Recommended next slice:
 
-1. Add a persisted candle history loader that reads normalized Binance Public
-   Data candles from SQLite for a symbol/timeframe/date range.
-2. Add a conservative validator/backtest over stored data, including fees,
-   slippage assumptions, trade count, drawdown, and expectancy.
-3. Add a funding extremity validator for funding-rate strategy families.
-4. Add walk-forward checks so candidate strategies must survive out-of-sample
-   periods before any paper-trading proposal.
+1. Add charter-constrained prompt templates for supervisor, scanner,
+   hypothesis generator, coder, and reflexion roles.
+2. Add strict LLM research contract models that reject live-order and
+   private-key instructions.
+3. Add a deterministic charter guard that blocks MEV, premium RPC, bridge race,
+   flash-loan, and high-capital ideas.
+4. Add a fake-LLM-tested research adapter before connecting any real model.
 
 The constraints remain unchanged: low capital, no speed arbitrage, no MEV or
 premium infrastructure dependency, no wallet-key access, no order routing, and
