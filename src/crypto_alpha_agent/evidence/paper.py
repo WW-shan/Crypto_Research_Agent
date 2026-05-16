@@ -39,6 +39,7 @@ class PaperEvidencePackage(BaseModel):
     sample_size: int = Field(ge=0)
     closed_count: int = Field(ge=0)
     failed_count: int = Field(ge=0)
+    blocked_count: int = Field(default=0, ge=0)
     net_pnl_usd: FiniteFloat
     hit_rate: FiniteFloat
     max_drawdown_usd: NonNegativeFiniteFloat
@@ -62,6 +63,7 @@ def aggregate_paper_evidence(
         family_items = [item for item in evidence_inputs if item.strategy_family == family]
         closed_items = [item for item in family_items if item.status in _CLOSED_STATUSES]
         failed_items = [item for item in family_items if item.status in _FAILED_STATUSES]
+        blocked_items = [item for item in family_items if item.status == "blocked"]
         pnl_values = [item.realized_net_pnl for item in family_items if item.realized_net_pnl is not None]
         failure_reasons: list[str] = []
         max_drawdown = 0.0
@@ -79,6 +81,7 @@ def aggregate_paper_evidence(
                 sample_size=len(family_items),
                 closed_count=len(closed_items),
                 failed_count=len(failed_items),
+                blocked_count=len(blocked_items),
                 net_pnl_usd=sum(pnl_values),
                 hit_rate=_hit_rate(closed_items),
                 max_drawdown_usd=max_drawdown,

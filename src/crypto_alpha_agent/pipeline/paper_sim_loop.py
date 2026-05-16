@@ -139,20 +139,7 @@ def run_paper_sim_loop(
             hold_bars=hold_bars,
         )
 
-    outcomes = _closed_outcomes(
-        run_id=resolved_run_id,
-        strategy_family=strategy_family,
-        symbol=price_symbol,
-        funding_symbol=funding_symbol,
-        timeframe=timeframe,
-        trades=trades,
-        notional_usd=capped_notional,
-        threshold_abs=threshold_abs,
-        hold_bars=hold_bars,
-        fee_rate=fee_rate,
-        slippage_rate=slippage_rate,
-    )
-    if not outcomes:
+    if not trades:
         outcomes = [
             _blocked_no_signal_outcome(
                 run_id=resolved_run_id,
@@ -162,6 +149,30 @@ def run_paper_sim_loop(
                 failure_reasons=("no_signal", *validation.blocked_reasons),
             )
         ]
+    elif not validation.approved:
+        outcomes = [
+            _blocked_validation_outcome(
+                run_id=resolved_run_id,
+                strategy_family=strategy_family,
+                symbol=price_symbol,
+                observed_at=_latest_observed_at(bars, funding_rates),
+                failure_reasons=validation.blocked_reasons,
+            )
+        ]
+    else:
+        outcomes = _closed_outcomes(
+            run_id=resolved_run_id,
+            strategy_family=strategy_family,
+            symbol=price_symbol,
+            funding_symbol=funding_symbol,
+            timeframe=timeframe,
+            trades=trades,
+            notional_usd=capped_notional,
+            threshold_abs=threshold_abs,
+            hold_bars=hold_bars,
+            fee_rate=fee_rate,
+            slippage_rate=slippage_rate,
+        )
 
     PaperOutcomeLedger(db_path).upsert_outcomes(outcomes)
     evidence_packages = aggregate_paper_evidence(
@@ -246,6 +257,37 @@ def _closed_outcomes(
             )
         )
     return outcomes
+
+
+def _blocked_validation_outcome(
+    *,
+    run_id: str,
+    strategy_family: str,
+    symbol: str,
+    observed_at: datetime,
+    failure_reasons: Iterable[str],
+) -> PaperSimulationOutcome:
+    reasons = _dedupe_strings(failure_reasons) or ["validation_not_approved"]
+    return PaperSimulationOutcome(
+        outcome_id=f"{run_id}:blocked:validation",
+        run_id=run_id,
+        candidate_id="validation_blocked",
+        strategy_family=strategy_family,
+        symbol=symbol,
+        observed_at=observed_at,
+        status="blocked",
+        signal_timestamp=observed_at,
+        entry_price=0.0,
+        exit_price=0.0,
+        quantity=0.0,
+        notional_usd=0.0,
+        gross_pnl_usd=0.0,
+        fees_usd=0.0,
+        slippage_usd=0.0,
+        net_pnl_usd=0.0,
+        max_drawdown_usd=0.0,
+        failure_reasons=reasons,
+    )
 
 
 def _blocked_no_signal_outcome(
@@ -375,6 +417,15 @@ def _report_notes(
         notes.append("notional_capped")
     if not validation.approved:
         notes.append("validation_not_approved")
-    if any(outcome.status == "blocked" for outcome in outcomes):
+        notes.extend(validation.blocked_reasons)
+    if any(
+        outcome.status == "blocked" and "no_signal" in outcome.failure_reasons
+        for outcome in outcomes
+    ):
         notes.append("blocked_no_signal")
-    return notes
+    if any(
+        outcome.status == "blocked" and "no_signal" not in outcome.failure_reasons
+        for outcome in outcomes
+    ):
+        notes.append("blocked_validation")
+    return _dedupe_strings(notes)

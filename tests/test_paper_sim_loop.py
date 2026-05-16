@@ -128,6 +128,51 @@ def test_run_paper_sim_loop_writes_outcomes_without_live_capital(tmp_path):
     assert evidence.net_pnl_usd == pytest.approx(sum(item.net_pnl_usd for item in loaded))
 
 
+def test_run_paper_sim_loop_blocks_outcomes_when_validation_not_approved(tmp_path):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+
+    db_path = _write_happy_path_fixture(tmp_path)
+
+    report = run_paper_sim_loop(
+        db_path,
+        run_id="paper-validation-blocked",
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        current_capital_usd=100.0,
+        notional_usd=1_000.0,
+        threshold_abs=0.0005,
+        hold_bars=2,
+        fee_rate=0.001,
+        slippage_rate=0.0005,
+        min_trades=2,
+    )
+
+    loaded = PaperOutcomeLedger(db_path).load_outcomes(run_id="paper-validation-blocked")
+
+    assert report.validation.approved is False
+    assert "insufficient_walk_forward_splits" in report.validation.blocked_reasons
+    assert report.outcome_count == 1
+    assert len(loaded) == 1
+    assert {outcome.status for outcome in report.outcomes} == {"blocked"}
+    assert {outcome.status for outcome in loaded} == {"blocked"}
+    outcome = loaded[0]
+    assert outcome.notional_usd == 0.0
+    assert outcome.net_pnl_usd == 0.0
+    assert outcome.failure_reasons == tuple(report.validation.blocked_reasons)
+    assert "insufficient_walk_forward_splits" in outcome.failure_reasons
+    assert "insufficient_walk_forward_splits" in report.notes
+    assert outcome.touched_real_capital is False
+    assert outcome.live_order_routing is False
+
+    evidence = report.paper_evidence_packages[0]
+    assert evidence.closed_count == 0
+    assert evidence.blocked_count == 1
+    assert evidence.failed_count == 1
+    assert "insufficient_walk_forward_splits" in evidence.failure_reasons
+
+
 def test_paper_sim_loop_keeps_existing_outcome_ids_stable_after_backfill(tmp_path):
     from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
 
