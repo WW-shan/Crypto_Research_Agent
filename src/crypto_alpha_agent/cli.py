@@ -119,6 +119,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include historical validation summaries from stored market candles.",
     )
+    research_loop_parser.add_argument(
+        "--include-paper-evidence",
+        action="store_true",
+        help="Attach paper simulation evidence packages from stored paper outcomes.",
+    )
     research_loop_parser.add_argument("--report-out", type=Path, help="Optional Markdown report output path.")
     research_loop_parser.set_defaults(handler=_handle_research_loop, parser=research_loop_parser)
 
@@ -481,6 +486,7 @@ def _handle_research_loop(args: argparse.Namespace) -> dict[str, Any]:
         limit=args.limit,
         run_id=args.run_id,
         include_validation=args.include_validation,
+        include_paper_evidence=args.include_paper_evidence,
     )
     payload = {
         "command": "research-loop",

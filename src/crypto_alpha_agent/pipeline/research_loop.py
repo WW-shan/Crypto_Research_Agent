@@ -13,6 +13,9 @@ from crypto_alpha_agent.agents.scanner import ScannerSignal
 from crypto_alpha_agent.data.models import MarketCandle, RecordType, SourceRecord
 from crypto_alpha_agent.data.scanner_bridge import records_to_scanner_signals
 from crypto_alpha_agent.data.store import ResearchDataStore
+from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
+from crypto_alpha_agent.evidence.models import PaperSimulationOutcome
+from crypto_alpha_agent.evidence.paper import PaperEvidencePackage, aggregate_paper_evidence
 from crypto_alpha_agent.validation.market_history import CandleBar
 from crypto_alpha_agent.validation.momentum import MomentumValidationResult, validate_close_momentum
 
@@ -54,6 +57,7 @@ class ResearchLoopReport(BaseModel):
     hypotheses: list[AlphaHypothesis]
     notes: list[str]
     validation_summaries: list[ValidationSummary] = Field(default_factory=list)
+    paper_evidence_packages: list[PaperEvidencePackage] = Field(default_factory=list)
 
 
 def run_stored_research_loop(
@@ -65,6 +69,7 @@ def run_stored_research_loop(
     limit: int | None = None,
     run_id: str | None = None,
     include_validation: bool = False,
+    include_paper_evidence: bool = False,
 ) -> ResearchLoopReport:
     store = ResearchDataStore(db_path)
     records = store.load_records(record_type=record_type, source=source)
@@ -98,6 +103,9 @@ def run_stored_research_loop(
         hypotheses=hypotheses,
         notes=notes,
         validation_summaries=_validation_summaries(records) if include_validation else [],
+        paper_evidence_packages=(
+            _paper_evidence_packages(db_path) if include_paper_evidence else []
+        ),
     )
 
 
@@ -135,6 +143,23 @@ def _validation_summaries(records: list[SourceRecord]) -> list[ValidationSummary
             )
         )
     return summaries
+
+
+def _paper_evidence_packages(db_path: str | Path) -> list[PaperEvidencePackage]:
+    outcomes = PaperOutcomeLedger(db_path).load_outcomes()
+    return aggregate_paper_evidence(_paper_evidence_mapping(outcome) for outcome in outcomes)
+
+
+def _paper_evidence_mapping(outcome: PaperSimulationOutcome) -> dict[str, object]:
+    return {
+        "strategy_family": outcome.strategy_family,
+        "trade_id": outcome.outcome_id,
+        "symbol": outcome.symbol,
+        "status": outcome.status,
+        "realized_net_pnl": outcome.net_pnl_usd,
+        "max_drawdown_usd": outcome.max_drawdown_usd,
+        "failure_reasons": list(outcome.failure_reasons),
+    }
 
 
 def _candle_bar(candle: MarketCandle) -> CandleBar:

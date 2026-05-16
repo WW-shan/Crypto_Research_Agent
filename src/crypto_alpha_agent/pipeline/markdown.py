@@ -106,6 +106,39 @@ def render_research_loop_markdown(report: ResearchLoopReport) -> str:
     lines.extend(
         [
             "",
+            "## Paper Evidence",
+        ]
+    )
+    if report.paper_evidence_packages:
+        lines.extend(
+            [
+                "| Strategy | Sample size | Closed count | Failed count | Net PnL USD | Hit rate | Max drawdown USD | Failure reasons |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+            ]
+        )
+        for package in report.paper_evidence_packages:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _escape_table_cell(package.strategy_family),
+                        f"{package.sample_size:g}",
+                        f"{package.closed_count:g}",
+                        f"{package.failed_count:g}",
+                        f"{package.net_pnl_usd:g}",
+                        f"{package.hit_rate:g}",
+                        f"{package.max_drawdown_usd:g}",
+                        _escape_table_cell(", ".join(package.failure_reasons) or "none"),
+                    ]
+                )
+                + " |"
+            )
+    else:
+        lines.append("No paper evidence packages attached.")
+
+    lines.extend(
+        [
+            "",
             "## Notes",
         ]
     )
