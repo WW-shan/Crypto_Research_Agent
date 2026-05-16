@@ -22,8 +22,18 @@ class CcxtResearchCollector:
         timeframe: str,
         since: int | None = None,
         limit: int | None = None,
+        params: dict[str, Any] | None = None,
     ) -> list[MarketCandle]:
-        rows = self.exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=limit)
+        if params is None:
+            rows = self.exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=limit)
+        else:
+            rows = self.exchange.fetch_ohlcv(
+                symbol,
+                timeframe,
+                since=since,
+                limit=limit,
+                params=params,
+            )
         return [
             MarketCandle(
                 source="ccxt",
@@ -47,6 +57,7 @@ class CcxtResearchCollector:
         symbol: str,
         since: int | None = None,
         limit: int | None = None,
+        params: dict[str, Any] | None = None,
     ) -> list[FundingRateRecord]:
         fetch_history = getattr(self.exchange, "fetch_funding_rate_history", None)
         if not callable(fetch_history):
@@ -54,7 +65,10 @@ class CcxtResearchCollector:
                 f"{self.exchange.id} does not support fetch_funding_rate_history"
             )
 
-        payloads = fetch_history(symbol, since=since, limit=limit)
+        if params is None:
+            payloads = fetch_history(symbol, since=since, limit=limit)
+        else:
+            payloads = fetch_history(symbol, since=since, limit=limit, params=params)
         return [
             FundingRateRecord(
                 source="ccxt",
