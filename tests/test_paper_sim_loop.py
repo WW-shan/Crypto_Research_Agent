@@ -191,6 +191,105 @@ def test_paper_sim_loop_keeps_existing_outcome_ids_stable_after_backfill(tmp_pat
     assert second_report.paper_evidence_packages[0].closed_count == 3
 
 
+def test_paper_sim_loop_replaces_same_signal_after_price_correction(tmp_path):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+
+    db_path = tmp_path / "research.sqlite"
+    store = ResearchDataStore(db_path)
+    store.upsert_records(
+        [
+            _candle(0, 100).to_source_record(),
+            _candle(1, 103).to_source_record(),
+            _candle(2, 101).to_source_record(),
+            _candle(3, 99).to_source_record(),
+        ]
+    )
+    store.upsert_records([_funding_record(_funding(1, 0.0008))])
+
+    first_report = run_paper_sim_loop(
+        db_path,
+        run_id="paper-corrected-price",
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        current_capital_usd=100.0,
+        notional_usd=10.0,
+        threshold_abs=0.0005,
+        hold_bars=1,
+        min_trades=1,
+        require_walk_forward=False,
+    )
+
+    store.upsert_records([_candle(2, 100).to_source_record()])
+    second_report = run_paper_sim_loop(
+        db_path,
+        run_id="paper-corrected-price",
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        current_capital_usd=100.0,
+        notional_usd=10.0,
+        threshold_abs=0.0005,
+        hold_bars=1,
+        min_trades=1,
+        require_walk_forward=False,
+    )
+
+    loaded = PaperOutcomeLedger(db_path).load_outcomes(run_id="paper-corrected-price")
+
+    assert first_report.outcome_count == 1
+    assert second_report.outcome_count == 1
+    assert second_report.outcomes[0].exit_price == 100.0
+    assert len(loaded) == second_report.outcome_count
+    assert loaded[0].outcome_id == second_report.outcomes[0].outcome_id
+    assert second_report.outcomes[0].outcome_id == first_report.outcomes[0].outcome_id
+
+
+def test_auto_run_id_changes_with_notional_to_keep_outcomes_distinct(tmp_path):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+
+    db_path = _write_happy_path_fixture(tmp_path)
+
+    low_notional_report = run_paper_sim_loop(
+        db_path,
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        current_capital_usd=100.0,
+        notional_usd=10.0,
+        threshold_abs=0.0005,
+        hold_bars=2,
+        min_trades=2,
+        require_walk_forward=False,
+    )
+    high_notional_report = run_paper_sim_loop(
+        db_path,
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        current_capital_usd=100.0,
+        notional_usd=20.0,
+        threshold_abs=0.0005,
+        hold_bars=2,
+        min_trades=2,
+        require_walk_forward=False,
+    )
+
+    loaded = PaperOutcomeLedger(db_path).load_outcomes()
+
+    assert low_notional_report.run_id != high_notional_report.run_id
+    assert {outcome.outcome_id for outcome in low_notional_report.outcomes}.isdisjoint(
+        {outcome.outcome_id for outcome in high_notional_report.outcomes}
+    )
+    assert len(loaded) == (
+        low_notional_report.outcome_count + high_notional_report.outcome_count
+    )
+
+
 def test_empty_store_records_one_blocked_no_signal_outcome(tmp_path):
     from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
 
