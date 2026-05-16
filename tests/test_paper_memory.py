@@ -19,7 +19,7 @@ def _paper_outcome(
         strategy_family="funding_extremity_price_confirmation",
         symbol="BTC/USDT",
         observed_at=datetime(2026, 5, 17, tzinfo=UTC),
-        status="blocked",
+        status=status,
         signal_timestamp=datetime(2026, 5, 17, tzinfo=UTC),
         entry_price=100.0,
         exit_price=100.0,
@@ -60,3 +60,4 @@ def test_closed_paper_outcome_without_failure_reasons_has_no_rejected_reasons(tm
     records = MemoryStore(memory_path).list_records()
 
     assert records[0].rejected_reasons == []
+    assert records[0].opportunity["status"] == "closed"
