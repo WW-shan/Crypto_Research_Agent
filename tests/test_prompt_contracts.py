@@ -21,6 +21,9 @@ COMMON_TERMS = [
     "JSON",
     "falsifiable",
     "disconfirmation",
+    "assumptions",
+    "evidence",
+    "Reject speed-dependent ideas",
     "no live orders",
     "no wallet keys",
 ]
@@ -80,3 +83,19 @@ def test_coder_prompt_restricts_code_scope_to_allowed_values() -> None:
 
     assert "deterministic analysis" not in lower_text
     assert '"code_scope": "backtest | transform | indicator"' in text
+
+
+def test_prompts_force_assumptions_and_evidence_in_json_contracts() -> None:
+    for path in PROMPTS.values():
+        text = path.read_text()
+
+        assert '"assumptions"' in text
+        assert '"evidence"' in text
+
+
+def test_coder_prompt_forbids_unrestricted_network_and_execution_adapters() -> None:
+    text = PROMPTS["coder"].read_text()
+    lower_text = text.lower()
+
+    assert "unrestricted network" in lower_text
+    assert "execution adapters" in lower_text

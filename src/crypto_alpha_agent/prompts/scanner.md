@@ -11,6 +11,7 @@ Output strict JSON with fields:
       "weak_signal": "description",
       "source": "ordinary public API or public dataset",
       "liquidity": "observed market depth or volume context",
+      "assumptions": ["condition that must hold for the signal"],
       "evidence": ["fact or measurement"],
       "falsifiable": "claim that can be tested",
       "disconfirmation": ["condition that rejects the signal"],

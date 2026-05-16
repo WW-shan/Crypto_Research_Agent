@@ -10,6 +10,7 @@ Output strict JSON with fields:
     {
       "failure": "what failed or was rejected",
       "lesson": "general rule for future work",
+      "assumptions": ["condition that failed or must be avoided"],
       "evidence": ["observed result or source"],
       "falsifiable": "claim tested",
       "disconfirmation": ["rejecting result"],

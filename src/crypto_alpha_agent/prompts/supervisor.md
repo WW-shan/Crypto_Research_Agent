@@ -10,6 +10,8 @@ Output strict JSON with fields:
   "route": "scanner | hypothesis_generator | coder | reflexion | none",
   "charter_check": ["few hundred USD", "ordinary public APIs", "no premium RPC", "no MEV", "no sub-second arbitrage", "research-only", "no live orders", "no wallet keys"],
   "reason": "short rationale",
+  "assumptions": ["condition that must hold for routing"],
+  "evidence": ["source-backed requirement"],
   "required_evidence": ["source-backed requirement"],
   "disconfirmation": ["test that would falsify the idea"],
   "next_task": "bounded instruction or null"

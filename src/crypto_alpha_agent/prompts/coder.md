@@ -11,6 +11,8 @@ Output strict JSON with fields:
   "network_policy": "no network | restricted network",
   "inputs": ["local file or ordinary public API requirement"],
   "outputs": ["artifact or metric"],
+  "assumptions": ["condition that must hold for the code to be valid"],
+  "evidence": ["source-backed observation or prior measurement"],
   "falsifiable": "testable behavior",
   "disconfirmation": ["metric or failure case that rejects the idea"],
   "safety_rejections": ["no premium RPC", "no MEV", "no sub-second arbitrage", "no live orders", "no wallet keys"]
