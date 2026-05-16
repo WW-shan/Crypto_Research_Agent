@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -73,10 +74,15 @@ def build_parser() -> argparse.ArgumentParser:
         "research-loop",
         help="Run the stored-data research loop from existing SQLite records.",
     )
-    research_loop_parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite research data store.")
+    research_loop_parser.add_argument(
+        "--db",
+        required=True,
+        type=_existing_sqlite_db_path,
+        help="Path to the SQLite research data store.",
+    )
     research_loop_parser.add_argument(
         "--current-capital-usd",
-        type=float,
+        type=_positive_finite_float,
         default=300.0,
         help="Operator capital profile used for research constraints.",
     )
@@ -132,6 +138,15 @@ def _existing_event_path(raw_path: str) -> Path:
     return path
 
 
+def _existing_sqlite_db_path(raw_path: str) -> Path:
+    path = Path(raw_path)
+    if not path.exists():
+        raise argparse.ArgumentTypeError(f"SQLite DB does not exist: {raw_path}")
+    if not path.is_file():
+        raise argparse.ArgumentTypeError(f"SQLite DB path is not a file: {raw_path}")
+    return path
+
+
 def _utc_date(raw_date: str) -> date:
     try:
         return date.fromisoformat(raw_date)
@@ -146,6 +161,16 @@ def _positive_int(raw_value: str) -> int:
         raise argparse.ArgumentTypeError(f"invalid positive integer: {raw_value!r}") from exc
     if value <= 0:
         raise argparse.ArgumentTypeError(f"invalid positive integer: {raw_value!r}")
+    return value
+
+
+def _positive_finite_float(raw_value: str) -> float:
+    try:
+        value = float(raw_value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid finite positive capital: {raw_value!r}") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise argparse.ArgumentTypeError(f"invalid finite positive capital: {raw_value!r}")
     return value
 
 
