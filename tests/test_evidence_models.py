@@ -349,6 +349,12 @@ def test_validation_evidence_rejects_non_string_blocked_reason_with_validation_e
         ValidationEvidence(**_validation_evidence_kwargs(blocked_reasons=[object()]))
 
 
+@pytest.mark.parametrize("field_name", ["net_return", "trade_count"])
+def test_validation_evidence_rejects_unsupported_canonical_field_with_validation_error(field_name):
+    with pytest.raises(ValidationError):
+        ValidationEvidence(**_validation_evidence_kwargs(**{field_name: object()}))
+
+
 @pytest.mark.parametrize("source_name", ["private_rpc", "premium_rpc", "eth_mempool", "mev_stream"])
 def test_strategy_candidate_rejects_unsafe_data_sources(source_name):
     with pytest.raises(ValidationError):

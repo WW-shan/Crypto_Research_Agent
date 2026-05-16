@@ -294,6 +294,14 @@ def _canonical_evidence_id_value(field: str, value: Any) -> Any:
 
 
 def _jsonable_value(value: Any) -> Any:
+    if value is None or isinstance(value, str | bool):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("canonical evidence values must contain only finite floats")
+        return value
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, Mapping):
@@ -303,7 +311,7 @@ def _jsonable_value(value: Any) -> Any:
         }
     if isinstance(value, Iterable) and not isinstance(value, str | bytes):
         return [_jsonable_value(item) for item in value]
-    return value
+    raise ValueError("canonical evidence values must be JSON-safe")
 
 
 def _strip_nonblank(value: str) -> str:
