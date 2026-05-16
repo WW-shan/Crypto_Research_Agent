@@ -4,6 +4,7 @@ from crypto_alpha_agent.data.models import (
     DataSuitability,
     DefiYieldSnapshot,
     DexPairSnapshot,
+    FundingRateRecord,
     MarketCandle,
     SourceRecord,
 )
@@ -175,3 +176,48 @@ def test_source_record_instance_from_store_becomes_scanner_signal():
 
     assert signals[0].asset == "ARB/USDT"
     assert signals[0].category == "cex"
+
+
+def test_funding_rate_record_becomes_cex_funding_signal():
+    funding = FundingRateRecord(
+        source="ccxt",
+        venue="binance",
+        symbol="BTC/USDT:USDT",
+        timestamp=datetime(2026, 5, 16, tzinfo=UTC),
+        funding_rate=0.0003,
+        suitability=DataSuitability(
+            min_capital_usd=50.0,
+            latency_dependency="low",
+            rpc_dependency="none",
+        ),
+    )
+
+    signals = records_to_scanner_signals([funding], current_capital_usd=300)
+
+    assert signals[0].category == "cex"
+    assert signals[0].metric == "funding_rate"
+    assert signals[0].asset == "BTC/USDT:USDT"
+    assert signals[0].value == 0.0003
+
+
+def test_stored_funding_rate_record_becomes_cex_funding_signal():
+    funding = FundingRateRecord(
+        source="ccxt",
+        venue="binance",
+        symbol="ETH/USDT:USDT",
+        timestamp=datetime(2026, 5, 16, tzinfo=UTC),
+        funding_rate=-0.0002,
+    )
+    record = SourceRecord(
+        record_id="ccxt:ETHUSDT:funding:2026-05-16T00:00:00+00:00",
+        source="ccxt",
+        record_type="funding_rate",
+        observed_at=datetime(2026, 5, 16, tzinfo=UTC),
+        payload=funding.model_dump(mode="json"),
+    )
+
+    signals = records_to_scanner_signals([record], current_capital_usd=300)
+
+    assert signals[0].category == "cex"
+    assert signals[0].metric == "funding_rate"
+    assert signals[0].asset == "ETH/USDT:USDT"

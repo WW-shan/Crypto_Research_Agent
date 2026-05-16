@@ -9,6 +9,7 @@ from crypto_alpha_agent.data.models import (
     DataSuitability,
     DefiYieldSnapshot,
     DexPairSnapshot,
+    FundingRateRecord,
     MarketCandle,
     SourceRecord,
 )
@@ -18,7 +19,12 @@ LOW_DEX_LIQUIDITY_USD = 10_000.0
 
 def records_to_scanner_signals(
     records: Iterable[
-        MarketCandle | DexPairSnapshot | DefiYieldSnapshot | SourceRecord | dict[str, Any]
+        MarketCandle
+        | FundingRateRecord
+        | DexPairSnapshot
+        | DefiYieldSnapshot
+        | SourceRecord
+        | dict[str, Any]
     ],
     current_capital_usd: float,
 ) -> list[ScannerSignal]:
@@ -40,6 +46,8 @@ def _record_to_scanner_signal(
 
     if isinstance(record, MarketCandle):
         return _candle_to_signal(record, current_capital_usd)
+    if isinstance(record, FundingRateRecord):
+        return _funding_rate_to_signal(record, current_capital_usd)
     if isinstance(record, DexPairSnapshot):
         return _dex_pair_to_signal(record, current_capital_usd)
     if isinstance(record, DefiYieldSnapshot):
@@ -69,6 +77,8 @@ def _validate_typed_payload(
     normalized_payload = _restore_json_datetimes(payload)
     if record_type == "market_candle":
         return MarketCandle.model_validate(normalized_payload)
+    if record_type == "funding_rate":
+        return FundingRateRecord.model_validate(normalized_payload)
     if record_type == "dex_pair":
         return DexPairSnapshot.model_validate(normalized_payload)
     if record_type == "defi_yield":
@@ -82,6 +92,8 @@ def _infer_payload_model(
     normalized_payload = _restore_json_datetimes(payload)
     if {"venue", "symbol", "timestamp", "timeframe", "close"}.issubset(normalized_payload):
         return MarketCandle.model_validate(normalized_payload)
+    if {"venue", "symbol", "timestamp", "funding_rate"}.issubset(normalized_payload):
+        return FundingRateRecord.model_validate(normalized_payload)
     if {"chain", "dex", "pair_address", "base_token", "quote_token"}.issubset(
         normalized_payload
     ):
@@ -107,6 +119,25 @@ def _candle_to_signal(record: MarketCandle, current_capital_usd: float) -> Scann
         asset=record.symbol,
         metric="close_return_or_price",
         value=record.close,
+        evidence=_evidence(record.suitability),
+        raw=record.raw,
+        venue=record.venue,
+        capital_required_usd=float(record.suitability.min_capital_usd),
+        speed_dependency=record.suitability.latency_dependency,
+        rpc_dependency=record.suitability.rpc_dependency,
+        weak_signal=_is_weak(record.suitability, current_capital_usd),
+    )
+
+
+def _funding_rate_to_signal(
+    record: FundingRateRecord, current_capital_usd: float
+) -> ScannerSignal:
+    return ScannerSignal(
+        category="cex",
+        source=record.source,
+        asset=record.symbol,
+        metric="funding_rate",
+        value=record.funding_rate,
         evidence=_evidence(record.suitability),
         raw=record.raw,
         venue=record.venue,
