@@ -182,7 +182,7 @@ def test_validation_evidence_id_uses_canonical_blocked_reasons():
     repeated = ValidationEvidence(**_validation_evidence_kwargs(blocked_reasons=["x", "x", " "]))
     canonical = ValidationEvidence(**_validation_evidence_kwargs(blocked_reasons=["x"]))
 
-    assert repeated.blocked_reasons == ["x"]
+    assert repeated.blocked_reasons == ("x",)
     assert repeated.evidence_id == canonical.evidence_id
 
 
@@ -193,9 +193,17 @@ def test_validation_evidence_id_treats_omitted_and_empty_blocked_reasons_equally
     omitted = ValidationEvidence(**omitted_kwargs)
     explicit_empty = ValidationEvidence(**_validation_evidence_kwargs(blocked_reasons=[]))
 
-    assert omitted.blocked_reasons == []
-    assert explicit_empty.blocked_reasons == []
+    assert omitted.blocked_reasons == ()
+    assert explicit_empty.blocked_reasons == ()
     assert omitted.evidence_id == explicit_empty.evidence_id
+
+
+def test_validation_evidence_blocked_reasons_are_immutable():
+    evidence = ValidationEvidence(**_validation_evidence_kwargs())
+
+    with pytest.raises(Exception):
+        evidence.blocked_reasons.append("mutated_after_id_generation")
+    assert evidence.blocked_reasons == ("insufficient_walk_forward_splits",)
 
 
 def test_strategy_candidate_rejects_unsafe_assignment():
@@ -217,6 +225,54 @@ def test_paper_simulation_outcome_rejects_unsafe_assignment():
     with pytest.raises(ValidationError):
         routing_outcome.live_order_routing = True
     assert routing_outcome.live_order_routing is False
+
+
+def test_strategy_candidate_data_sources_are_immutable():
+    candidate = StrategyCandidate(**_strategy_candidate_kwargs())
+
+    with pytest.raises(Exception):
+        candidate.data_sources.append("private_rpc")
+    assert candidate.data_sources == ("ccxt", "binance_public")
+
+
+def test_strategy_candidate_parameters_are_recursively_immutable():
+    candidate = StrategyCandidate(
+        **_strategy_candidate_kwargs(
+            parameters={
+                "funding_threshold_abs": 0.0005,
+                "nested": [1.0],
+                "limits": {"hold_bars": 3},
+            }
+        )
+    )
+
+    with pytest.raises(Exception):
+        candidate.parameters["bad"] = object()
+    with pytest.raises(Exception):
+        candidate.parameters["nested"].append(float("nan"))
+    with pytest.raises(Exception):
+        candidate.parameters["limits"]["bad"] = object()
+
+
+def test_paper_simulation_failure_reasons_are_immutable():
+    outcome = PaperSimulationOutcome(
+        **_paper_simulation_outcome_kwargs(failure_reasons=["exchange_unavailable"])
+    )
+
+    with pytest.raises(Exception):
+        outcome.failure_reasons.append("mutated_after_creation")
+    assert outcome.failure_reasons == ("exchange_unavailable",)
+
+
+def test_experiment_run_string_collections_are_immutable():
+    run = ExperimentRun(**_experiment_run_kwargs())
+
+    with pytest.raises(Exception):
+        run.validation_evidence_ids.append("validation-002")
+    with pytest.raises(Exception):
+        run.paper_outcome_ids.append("paper-003")
+    with pytest.raises(Exception):
+        run.notes.append("mutated_after_creation")
 
 
 @pytest.mark.parametrize("source_name", ["private_rpc", "premium_rpc", "eth_mempool", "mev_stream"])

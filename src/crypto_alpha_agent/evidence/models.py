@@ -7,12 +7,13 @@ from collections.abc import Iterable, Mapping
 from datetime import datetime
 from typing import Annotated, Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
 ExecutionMode = Literal["research_and_paper_only"]
 FiniteFloat = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 NonNegativeFiniteFloat = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
 PassRate = Annotated[float, Field(strict=True, ge=0, le=1, allow_inf_nan=False)]
+StringTuple = tuple[str, ...]
 _UNSAFE_DATA_SOURCE_TOKENS = ("privaterpc", "premiumrpc", "mempool", "mev")
 
 _VALIDATION_EVIDENCE_ID_FIELDS = (
@@ -33,6 +34,19 @@ _VALIDATION_EVIDENCE_ID_FIELDS = (
 )
 
 
+class _FrozenJSONDict(dict[str, Any]):
+    def _reject_mutation(self, *args: Any, **kwargs: Any) -> None:
+        raise TypeError("parameters are immutable")
+
+    __setitem__ = _reject_mutation
+    __delitem__ = _reject_mutation
+    clear = _reject_mutation
+    pop = _reject_mutation
+    popitem = _reject_mutation
+    setdefault = _reject_mutation
+    update = _reject_mutation
+
+
 class _StrictEvidenceModel(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -41,6 +55,18 @@ class _StrictEvidenceModel(BaseModel):
         validate_assignment=True,
         frozen=True,
     )
+
+    @field_serializer(
+        "data_sources",
+        "blocked_reasons",
+        "failure_reasons",
+        "validation_evidence_ids",
+        "paper_outcome_ids",
+        "notes",
+        check_fields=False,
+    )
+    def _serialize_string_tuple(self, values: StringTuple) -> list[str]:
+        return list(values)
 
 
 class StrategyCandidate(_StrictEvidenceModel):
@@ -52,32 +78,36 @@ class StrategyCandidate(_StrictEvidenceModel):
     parameters: dict[str, Any]
     current_capital_usd: NonNegativeFiniteFloat
     min_capital_usd: NonNegativeFiniteFloat
-    data_sources: list[str] = Field(min_length=1)
+    data_sources: StringTuple = Field(min_length=1)
     created_at: datetime
     execution_mode: ExecutionMode = "research_and_paper_only"
     requires_speed_edge: bool = False
     requires_premium_rpc: bool = False
     live_order_routing: bool = False
-    blocked_reasons: list[str] = Field(default_factory=list)
+    blocked_reasons: StringTuple = Field(default_factory=tuple)
 
     @field_validator("candidate_id", "strategy_family", "symbol", "venue", "timeframe")
     @classmethod
     def _normalize_identifier(cls, value: str) -> str:
         return _strip_nonblank(value)
 
-    @field_validator("data_sources")
+    @field_validator("data_sources", mode="before")
     @classmethod
-    def _normalize_data_sources(cls, values: list[str]) -> list[str]:
+    def _normalize_data_sources(cls, values: Iterable[str]) -> StringTuple:
         return _normalize_required_data_sources(values)
 
-    @field_validator("parameters")
+    @field_validator("parameters", mode="after")
     @classmethod
     def _validate_parameters(cls, parameters: dict[str, Any]) -> dict[str, Any]:
-        return _validate_json_safe_parameters(parameters)
+        return _freeze_json_safe_parameters(parameters)
 
-    @field_validator("blocked_reasons")
+    @field_serializer("parameters")
+    def _serialize_parameters(self, parameters: dict[str, Any]) -> dict[str, Any]:
+        return _thaw_json_safe_value(parameters)
+
+    @field_validator("blocked_reasons", mode="before")
     @classmethod
-    def _dedupe_blocked_reasons(cls, values: list[str]) -> list[str]:
+    def _dedupe_blocked_reasons(cls, values: Iterable[str]) -> StringTuple:
         return _dedupe_nonempty_strings(values)
 
     @model_validator(mode="after")
@@ -111,7 +141,7 @@ class ValidationEvidence(_StrictEvidenceModel):
     walk_forward_split_count: int = Field(ge=0)
     walk_forward_pass_rate: PassRate
     approved: bool
-    blocked_reasons: list[str] = Field(default_factory=list)
+    blocked_reasons: StringTuple = Field(default_factory=tuple)
 
     @model_validator(mode="before")
     @classmethod
@@ -126,9 +156,9 @@ class ValidationEvidence(_StrictEvidenceModel):
     def _normalize_identifier(cls, value: str) -> str:
         return _strip_nonblank(value)
 
-    @field_validator("blocked_reasons")
+    @field_validator("blocked_reasons", mode="before")
     @classmethod
-    def _dedupe_blocked_reasons(cls, reasons: list[str]) -> list[str]:
+    def _dedupe_blocked_reasons(cls, reasons: Iterable[str]) -> StringTuple:
         return _dedupe_nonempty_strings(reasons)
 
     @model_validator(mode="after")
@@ -160,7 +190,7 @@ class PaperSimulationOutcome(_StrictEvidenceModel):
     slippage_usd: NonNegativeFiniteFloat
     net_pnl_usd: FiniteFloat
     max_drawdown_usd: NonNegativeFiniteFloat
-    failure_reasons: list[str] = Field(default_factory=list)
+    failure_reasons: StringTuple = Field(default_factory=tuple)
     touched_real_capital: bool = False
     live_order_routing: bool = False
 
@@ -169,9 +199,9 @@ class PaperSimulationOutcome(_StrictEvidenceModel):
     def _normalize_identifier(cls, value: str) -> str:
         return _strip_nonblank(value)
 
-    @field_validator("failure_reasons")
+    @field_validator("failure_reasons", mode="before")
     @classmethod
-    def _dedupe_failure_reasons(cls, reasons: list[str]) -> list[str]:
+    def _dedupe_failure_reasons(cls, reasons: Iterable[str]) -> StringTuple:
         return _dedupe_nonempty_strings(reasons)
 
     @model_validator(mode="after")
@@ -191,11 +221,11 @@ class ExperimentRun(_StrictEvidenceModel):
     candidate_id: str = Field(min_length=1)
     strategy_family: str = Field(min_length=1)
     started_at: datetime
-    data_sources: list[str] = Field(min_length=1)
+    data_sources: StringTuple = Field(min_length=1)
     status: str = Field(min_length=1)
-    validation_evidence_ids: list[str] = Field(default_factory=list)
-    paper_outcome_ids: list[str] = Field(default_factory=list)
-    notes: list[str] = Field(default_factory=list)
+    validation_evidence_ids: StringTuple = Field(default_factory=tuple)
+    paper_outcome_ids: StringTuple = Field(default_factory=tuple)
+    notes: StringTuple = Field(default_factory=tuple)
     live_order_routing: bool = False
 
     @field_validator("run_id", "candidate_id", "strategy_family", "status")
@@ -203,14 +233,14 @@ class ExperimentRun(_StrictEvidenceModel):
     def _normalize_identifier(cls, value: str) -> str:
         return _strip_nonblank(value)
 
-    @field_validator("data_sources")
+    @field_validator("data_sources", mode="before")
     @classmethod
-    def _normalize_data_sources(cls, values: list[str]) -> list[str]:
+    def _normalize_data_sources(cls, values: Iterable[str]) -> StringTuple:
         return _normalize_required_data_sources(values)
 
-    @field_validator("validation_evidence_ids", "paper_outcome_ids", "notes")
+    @field_validator("validation_evidence_ids", "paper_outcome_ids", "notes", mode="before")
     @classmethod
-    def _dedupe_string_list(cls, values: list[str]) -> list[str]:
+    def _dedupe_string_list(cls, values: Iterable[str]) -> StringTuple:
         return _dedupe_nonempty_strings(values)
 
     @model_validator(mode="after")
@@ -233,7 +263,7 @@ def _stable_validation_evidence_id(data: Mapping[str, Any]) -> str:
 def _canonical_evidence_id_value(field: str, value: Any) -> Any:
     if field == "blocked_reasons":
         if value is None:
-            return []
+            return ()
         if _is_string_iterable(value):
             return _dedupe_nonempty_strings(value)
     if isinstance(value, str):
@@ -261,7 +291,7 @@ def _strip_nonblank(value: str) -> str:
     return normalized
 
 
-def _normalize_required_data_sources(values: Iterable[str]) -> list[str]:
+def _normalize_required_data_sources(values: Iterable[str]) -> StringTuple:
     normalized = _dedupe_nonempty_strings(values)
     if not normalized:
         raise ValueError("data_sources must include at least one nonblank source")
@@ -279,31 +309,37 @@ def _data_source_safety_key(source: str) -> str:
     return "".join(character for character in source.lower() if character.isalnum())
 
 
-def _validate_json_safe_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
-    _validate_json_safe_value(parameters)
-    return parameters
+def _freeze_json_safe_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
+    return _freeze_json_safe_value(parameters)
 
 
-def _validate_json_safe_value(value: Any) -> None:
+def _freeze_json_safe_value(value: Any) -> Any:
     if value is None or isinstance(value, str | bool):
-        return
+        return value
     if isinstance(value, int):
-        return
+        return value
     if isinstance(value, float):
         if not math.isfinite(value):
             raise ValueError("parameters must contain only finite floats")
-        return
+        return value
     if isinstance(value, list):
-        for item in value:
-            _validate_json_safe_value(item)
-        return
+        return tuple(_freeze_json_safe_value(item) for item in value)
     if isinstance(value, dict):
+        frozen = _FrozenJSONDict()
         for key, item in value.items():
             if not isinstance(key, str):
                 raise ValueError("parameters must use string keys")
-            _validate_json_safe_value(item)
-        return
+            dict.__setitem__(frozen, key, _freeze_json_safe_value(item))
+        return frozen
     raise ValueError("parameters must contain only JSON-safe values")
+
+
+def _thaw_json_safe_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _thaw_json_safe_value(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_json_safe_value(item) for item in value]
+    return value
 
 
 def _is_string_iterable(value: Any) -> bool:
@@ -312,12 +348,16 @@ def _is_string_iterable(value: Any) -> bool:
     )
 
 
-def _dedupe_nonempty_strings(values: Iterable[str]) -> list[str]:
+def _dedupe_nonempty_strings(values: Iterable[str]) -> StringTuple:
+    if isinstance(values, str | bytes):
+        raise ValueError("value must be a collection of strings")
     deduped: list[str] = []
     seen: set[str] = set()
     for value in values:
+        if not isinstance(value, str):
+            raise ValueError("value must be a string")
         normalized = value.strip()
         if normalized and normalized not in seen:
             deduped.append(normalized)
             seen.add(normalized)
-    return deduped
+    return tuple(deduped)
