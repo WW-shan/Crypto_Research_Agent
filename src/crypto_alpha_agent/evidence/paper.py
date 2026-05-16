@@ -104,21 +104,28 @@ def _coerce_input(
             realized_net_pnl=item.realized_net_pnl,
         )
     if isinstance(item, Mapping):
-        return PaperEvidenceInput.model_validate(_normalize_mapping(item))
+        return PaperEvidenceInput.model_validate(_normalize_mapping(item, strategy_family=strategy_family))
     raise TypeError(f"unsupported paper evidence input type: {type(item).__name__}")
 
 
-def _normalize_mapping(item: Mapping[str, Any]) -> dict[str, Any]:
+def _normalize_mapping(item: Mapping[str, Any], *, strategy_family: str | None = None) -> dict[str, Any]:
+    buy = _as_mapping(item.get("buy"))
+    sell = _as_mapping(item.get("sell"))
+
     normalized: dict[str, Any] = {
-        "strategy_family": item.get("strategy_family"),
+        "strategy_family": item.get("strategy_family") or strategy_family,
         "trade_id": item.get("trade_id"),
-        "symbol": item.get("symbol"),
+        "symbol": _symbol_value(item, buy=buy, sell=sell),
         "status": item.get("status"),
-        "realized_net_pnl": _first_present(item, "realized_net_pnl", "realized_pnl_usd"),
-        "max_drawdown_usd": _drawdown_value(item),
+        "realized_net_pnl": _pnl_value(item, sell=sell),
+        "max_drawdown_usd": _drawdown_value(item, buy=buy, sell=sell),
         "failure_reasons": _failure_reasons(item),
     }
     return {key: value for key, value in normalized.items() if value is not None}
+
+
+def _as_mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
 
 
 def _first_present(item: Mapping[str, Any], *keys: str) -> Any:
@@ -128,8 +135,41 @@ def _first_present(item: Mapping[str, Any], *keys: str) -> Any:
     return None
 
 
-def _drawdown_value(item: Mapping[str, Any]) -> Any:
-    value = _first_present(item, "max_drawdown_usd", "drawdown_usd", "max_downside_usd")
+def _pnl_value(item: Mapping[str, Any], *, sell: Mapping[str, Any]) -> Any:
+    sell_value = _first_present(sell, "realized_net_pnl", "realized_pnl_usd")
+    if sell_value is not None:
+        return sell_value
+    return _first_present(item, "realized_net_pnl", "realized_pnl_usd")
+
+
+def _symbol_value(item: Mapping[str, Any], *, buy: Mapping[str, Any], sell: Mapping[str, Any]) -> Any:
+    sell_fill = _as_mapping(sell.get("fill"))
+    buy_fill = _as_mapping(buy.get("fill"))
+    return (
+        item.get("symbol")
+        or sell.get("symbol")
+        or sell_fill.get("symbol")
+        or buy.get("symbol")
+        or buy_fill.get("symbol")
+    )
+
+
+def _drawdown_value(
+    item: Mapping[str, Any],
+    *,
+    buy: Mapping[str, Any] | None = None,
+    sell: Mapping[str, Any] | None = None,
+) -> Any:
+    drawdown_keys = ("max_drawdown_usd", "drawdown_usd", "max_downside_usd", "max_downside", "max_drawdown", "drawdown")
+    candidates = [
+        _first_present(item, *drawdown_keys),
+    ]
+    if sell is not None:
+        candidates.append(_first_present(sell, *drawdown_keys))
+    if buy is not None:
+        candidates.append(_first_present(buy, *drawdown_keys))
+
+    value = next((candidate for candidate in candidates if candidate is not None), None)
     if value is None:
         return None
     return abs(value)
@@ -146,6 +186,13 @@ def _failure_reasons(item: Mapping[str, Any]) -> list[str]:
     error_reason = item.get("error_reason")
     if error_reason:
         reasons.append(str(error_reason))
+    risk_decision = item.get("risk_decision")
+    if isinstance(risk_decision, Mapping):
+        value = risk_decision.get("reason_codes")
+        if isinstance(value, str):
+            reasons.append(value)
+        elif value is not None:
+            reasons.extend(str(reason) for reason in value if reason)
     return _dedupe(reasons)
 
 

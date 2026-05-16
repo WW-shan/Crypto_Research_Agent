@@ -183,6 +183,88 @@ def test_accepts_paper_trade_result_inputs():
     assert packages[0].hit_rate == 1.0
 
 
+def test_aggregates_nested_closed_paper_outcome_with_strategy_family_default():
+    from crypto_alpha_agent.evidence.paper import aggregate_paper_evidence
+
+    packages = aggregate_paper_evidence(
+        [
+            {
+                "status": "closed",
+                "buy": {
+                    "fill": {
+                        "symbol": "ETH-USD",
+                    },
+                    "capital_used": 100.0,
+                },
+                "sell": {
+                    "fill": {
+                        "symbol": "ETH-USD",
+                    },
+                    "realized_net_pnl": 12.5,
+                    "capital_used": 100.0,
+                    "drawdown": -4.0,
+                },
+            }
+        ],
+        strategy_family="funding_basis",
+    )
+
+    assert len(packages) == 1
+    package = packages[0]
+    assert package.strategy_family == "funding_basis"
+    assert package.sample_size == 1
+    assert package.closed_count == 1
+    assert package.failed_count == 0
+    assert package.net_pnl_usd == 12.5
+    assert package.hit_rate == 1.0
+    assert package.max_drawdown_usd == 4.0
+
+
+def test_aggregates_failed_paper_outcome_with_reason_codes_and_strategy_family_default():
+    from crypto_alpha_agent.evidence.paper import aggregate_paper_evidence
+
+    packages = aggregate_paper_evidence(
+        [
+            {
+                "status": "failed",
+                "stage": "paper_execute",
+                "reason_codes": ["insufficient_paper_cash"],
+                "error": "paper account cash is insufficient",
+            }
+        ],
+        strategy_family="funding_basis",
+    )
+
+    assert packages[0].strategy_family == "funding_basis"
+    assert packages[0].sample_size == 1
+    assert packages[0].closed_count == 0
+    assert packages[0].failed_count == 1
+    assert packages[0].net_pnl_usd == 0.0
+    assert packages[0].hit_rate == 0.0
+    assert packages[0].failure_reasons == ["insufficient_paper_cash"]
+
+
+def test_aggregates_blocked_paper_outcome_with_reason_codes_and_strategy_family_default():
+    from crypto_alpha_agent.evidence.paper import aggregate_paper_evidence
+
+    packages = aggregate_paper_evidence(
+        [
+            {
+                "status": "blocked",
+                "stage": "score_feasibility",
+                "reason_codes": ["capital_above_budget"],
+            }
+        ],
+        strategy_family="funding_basis",
+    )
+
+    assert packages[0].strategy_family == "funding_basis"
+    assert packages[0].sample_size == 1
+    assert packages[0].closed_count == 0
+    assert packages[0].failed_count == 1
+    assert packages[0].failure_reasons == ["capital_above_budget"]
+
+
 def test_rejects_non_finite_numeric_inputs():
     from crypto_alpha_agent.evidence.paper import PaperEvidenceInput
 
