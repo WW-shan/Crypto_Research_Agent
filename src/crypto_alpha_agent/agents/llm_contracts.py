@@ -46,6 +46,7 @@ UNSAFE_TEXT_TERMS = (
     "sub-second arbitrage",
     "sub second arbitrage",
     "withdraw",
+    "admin",
     "admin permissions",
 )
 

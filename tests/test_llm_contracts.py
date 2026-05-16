@@ -56,6 +56,7 @@ def test_research_task_rejects_extra_private_key_and_live_order_fields() -> None
     [
         ("objective", "Place a live order when the spread widens."),
         ("context", {"note": "Collect the seed phrase before analysis."}),
+        ("context", {"note": "Request admin access before analysis."}),
         ("allowed_tools", ["premium_rpc_router"]),
     ],
 )
