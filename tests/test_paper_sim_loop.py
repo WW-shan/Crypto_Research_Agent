@@ -173,6 +173,77 @@ def test_run_paper_sim_loop_blocks_outcomes_when_validation_not_approved(tmp_pat
     assert "insufficient_walk_forward_splits" in evidence.failure_reasons
 
 
+def test_run_paper_sim_loop_replaces_closed_outcomes_when_rerun_blocks(tmp_path):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+
+    db_path = _write_happy_path_fixture(tmp_path)
+
+    first_report = run_paper_sim_loop(
+        db_path,
+        run_id="paper-validation-rerun",
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        current_capital_usd=100.0,
+        notional_usd=1_000.0,
+        threshold_abs=0.0005,
+        hold_bars=2,
+        fee_rate=0.001,
+        slippage_rate=0.0005,
+        min_trades=2,
+        require_walk_forward=False,
+    )
+    other_report = run_paper_sim_loop(
+        db_path,
+        run_id="paper-other-run",
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        current_capital_usd=100.0,
+        notional_usd=1_000.0,
+        threshold_abs=0.0005,
+        hold_bars=2,
+        fee_rate=0.001,
+        slippage_rate=0.0005,
+        min_trades=2,
+        require_walk_forward=False,
+    )
+    second_report = run_paper_sim_loop(
+        db_path,
+        run_id="paper-validation-rerun",
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        current_capital_usd=100.0,
+        notional_usd=1_000.0,
+        threshold_abs=0.0005,
+        hold_bars=2,
+        fee_rate=0.001,
+        slippage_rate=0.0005,
+        min_trades=2,
+    )
+
+    loaded = PaperOutcomeLedger(db_path).load_outcomes(run_id="paper-validation-rerun")
+    other_loaded = PaperOutcomeLedger(db_path).load_outcomes(run_id="paper-other-run")
+
+    assert {outcome.status for outcome in first_report.outcomes} == {"closed"}
+    assert second_report.validation.approved is False
+    assert {outcome.status for outcome in second_report.outcomes} == {"blocked"}
+    assert [outcome.outcome_id for outcome in loaded] == [
+        outcome.outcome_id for outcome in second_report.outcomes
+    ]
+    assert {outcome.status for outcome in loaded} == {"blocked"}
+    assert {outcome.outcome_id for outcome in first_report.outcomes}.isdisjoint(
+        {outcome.outcome_id for outcome in loaded}
+    )
+    assert [outcome.outcome_id for outcome in other_loaded] == [
+        outcome.outcome_id for outcome in other_report.outcomes
+    ]
+
+
 def test_paper_sim_loop_keeps_existing_outcome_ids_stable_after_backfill(tmp_path):
     from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
 
@@ -336,7 +407,7 @@ def test_auto_run_id_changes_with_notional_to_keep_outcomes_distinct(tmp_path):
     )
 
 
-def test_manual_run_id_keeps_different_notional_outcomes_distinct(tmp_path):
+def test_manual_run_id_replaces_previous_outcomes_when_parameters_change(tmp_path):
     from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
 
     db_path = _write_happy_path_fixture(tmp_path)
@@ -376,10 +447,11 @@ def test_manual_run_id_keeps_different_notional_outcomes_distinct(tmp_path):
     assert {outcome.outcome_id for outcome in low_notional_report.outcomes}.isdisjoint(
         {outcome.outcome_id for outcome in high_notional_report.outcomes}
     )
-    assert len(loaded) == (
-        low_notional_report.outcome_count + high_notional_report.outcome_count
-    )
-    assert {outcome.notional_usd for outcome in loaded} == {10.0, 20.0}
+    assert len(loaded) == high_notional_report.outcome_count
+    assert {outcome.outcome_id for outcome in loaded} == {
+        outcome.outcome_id for outcome in high_notional_report.outcomes
+    }
+    assert {outcome.notional_usd for outcome in loaded} == {20.0}
 
 
 def test_empty_store_records_one_blocked_no_signal_outcome(tmp_path):

@@ -196,7 +196,7 @@ def run_paper_sim_loop(
             slippage_rate=slippage_rate,
         )
 
-    PaperOutcomeLedger(db_path).upsert_outcomes(outcomes)
+    PaperOutcomeLedger(db_path).replace_run_outcomes(resolved_run_id, outcomes)
     evidence_packages = aggregate_paper_evidence(
         [_paper_evidence_mapping(outcome) for outcome in outcomes],
         strategy_family=strategy_family,

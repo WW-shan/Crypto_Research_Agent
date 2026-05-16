@@ -16,42 +16,34 @@ class PaperOutcomeLedger:
         self._create_schema()
 
     def upsert_outcomes(self, outcomes: Iterable[PaperSimulationOutcome]) -> int:
-        inserted_at = datetime.now(tz=UTC).isoformat()
-        rows = [
-            (
-                outcome.outcome_id,
-                outcome.run_id,
-                outcome.candidate_id,
-                outcome.strategy_family,
-                outcome.symbol,
-                outcome.observed_at.isoformat(),
-                outcome.status,
-                json.dumps(outcome.model_dump(mode="json"), sort_keys=True),
-                inserted_at,
-            )
-            for outcome in outcomes
-        ]
+        rows = self._outcome_rows(outcomes)
         if not rows:
             return 0
 
         with sqlite3.connect(self.db_path) as connection:
-            connection.executemany(
-                """
-                INSERT OR REPLACE INTO paper_outcomes (
-                    outcome_id,
-                    run_id,
-                    candidate_id,
-                    strategy_family,
-                    symbol,
-                    observed_at,
-                    status,
-                    payload_json,
-                    inserted_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                rows,
-            )
+            self._insert_rows(connection, rows)
+        return len(rows)
+
+    def replace_run_outcomes(
+        self,
+        run_id: str,
+        outcomes: Iterable[PaperSimulationOutcome],
+    ) -> int:
+        if not run_id:
+            raise ValueError("run_id must be non-empty")
+
+        outcome_list = list(outcomes)
+        mismatched_outcome_ids = [
+            outcome.outcome_id for outcome in outcome_list if outcome.run_id != run_id
+        ]
+        if mismatched_outcome_ids:
+            raise ValueError("all replacement outcomes must match run_id")
+
+        rows = self._outcome_rows(outcome_list)
+        with sqlite3.connect(self.db_path) as connection:
+            connection.execute("DELETE FROM paper_outcomes WHERE run_id = ?", (run_id,))
+            if rows:
+                self._insert_rows(connection, rows)
         return len(rows)
 
     def load_outcomes(
@@ -105,3 +97,46 @@ class PaperOutcomeLedger:
                 )
                 """
             )
+
+    def _outcome_rows(
+        self,
+        outcomes: Iterable[PaperSimulationOutcome],
+    ) -> list[tuple[str, str, str, str, str, str, str, str, str]]:
+        inserted_at = datetime.now(tz=UTC).isoformat()
+        return [
+            (
+                outcome.outcome_id,
+                outcome.run_id,
+                outcome.candidate_id,
+                outcome.strategy_family,
+                outcome.symbol,
+                outcome.observed_at.isoformat(),
+                outcome.status,
+                json.dumps(outcome.model_dump(mode="json"), sort_keys=True),
+                inserted_at,
+            )
+            for outcome in outcomes
+        ]
+
+    def _insert_rows(
+        self,
+        connection: sqlite3.Connection,
+        rows: list[tuple[str, str, str, str, str, str, str, str, str]],
+    ) -> None:
+        connection.executemany(
+            """
+            INSERT OR REPLACE INTO paper_outcomes (
+                outcome_id,
+                run_id,
+                candidate_id,
+                strategy_family,
+                symbol,
+                observed_at,
+                status,
+                payload_json,
+                inserted_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
