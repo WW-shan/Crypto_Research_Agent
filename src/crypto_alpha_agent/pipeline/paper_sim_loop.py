@@ -91,6 +91,25 @@ def run_paper_sim_loop(
         min_trades=min_trades,
         require_walk_forward=require_walk_forward,
     )
+    execution_config_id = _stable_execution_config_id(
+        strategy_family=strategy_family,
+        price_symbol=price_symbol,
+        funding_symbol=funding_symbol,
+        timeframe=timeframe,
+        current_capital_usd=capital,
+        requested_notional_usd=requested_notional,
+        effective_notional_usd=capped_notional,
+        threshold_abs=threshold_abs,
+        hold_bars=hold_bars,
+        fee_rate=fee_rate,
+        slippage_rate=slippage_rate,
+        min_trades=min_trades,
+        require_walk_forward=require_walk_forward,
+        walk_forward_train_size=walk_forward_train_size,
+        walk_forward_test_size=walk_forward_test_size,
+        walk_forward_min_splits=walk_forward_min_splits,
+        walk_forward_min_pass_rate=walk_forward_min_pass_rate,
+    )
 
     validation = validate_funding_price_confirmation(
         db_path,
@@ -143,6 +162,7 @@ def run_paper_sim_loop(
         outcomes = [
             _blocked_no_signal_outcome(
                 run_id=resolved_run_id,
+                execution_config_id=execution_config_id,
                 strategy_family=strategy_family,
                 symbol=price_symbol,
                 observed_at=_latest_observed_at(bars, funding_rates),
@@ -153,6 +173,7 @@ def run_paper_sim_loop(
         outcomes = [
             _blocked_validation_outcome(
                 run_id=resolved_run_id,
+                execution_config_id=execution_config_id,
                 strategy_family=strategy_family,
                 symbol=price_symbol,
                 observed_at=_latest_observed_at(bars, funding_rates),
@@ -162,6 +183,7 @@ def run_paper_sim_loop(
     else:
         outcomes = _closed_outcomes(
             run_id=resolved_run_id,
+            execution_config_id=execution_config_id,
             strategy_family=strategy_family,
             symbol=price_symbol,
             funding_symbol=funding_symbol,
@@ -205,6 +227,7 @@ def run_paper_sim_loop(
 def _closed_outcomes(
     *,
     run_id: str,
+    execution_config_id: str,
     strategy_family: str,
     symbol: str,
     funding_symbol: str,
@@ -223,6 +246,7 @@ def _closed_outcomes(
         candidate_id = _stable_candidate_id(
             strategy_family,
             trade,
+            execution_config_id=execution_config_id,
             price_symbol=symbol,
             funding_symbol=funding_symbol,
             timeframe=timeframe,
@@ -262,6 +286,7 @@ def _closed_outcomes(
 def _blocked_validation_outcome(
     *,
     run_id: str,
+    execution_config_id: str,
     strategy_family: str,
     symbol: str,
     observed_at: datetime,
@@ -269,9 +294,9 @@ def _blocked_validation_outcome(
 ) -> PaperSimulationOutcome:
     reasons = _dedupe_strings(failure_reasons) or ["validation_not_approved"]
     return PaperSimulationOutcome(
-        outcome_id=f"{run_id}:blocked:validation",
+        outcome_id=f"{run_id}:blocked:validation:{execution_config_id}",
         run_id=run_id,
-        candidate_id="validation_blocked",
+        candidate_id=f"validation_blocked:{execution_config_id}",
         strategy_family=strategy_family,
         symbol=symbol,
         observed_at=observed_at,
@@ -293,15 +318,16 @@ def _blocked_validation_outcome(
 def _blocked_no_signal_outcome(
     *,
     run_id: str,
+    execution_config_id: str,
     strategy_family: str,
     symbol: str,
     observed_at: datetime,
     failure_reasons: Iterable[str],
 ) -> PaperSimulationOutcome:
     return PaperSimulationOutcome(
-        outcome_id=f"{run_id}:blocked:no_signal",
+        outcome_id=f"{run_id}:blocked:no_signal:{execution_config_id}",
         run_id=run_id,
-        candidate_id="no_signal",
+        candidate_id=f"no_signal:{execution_config_id}",
         strategy_family=strategy_family,
         symbol=symbol,
         observed_at=observed_at,
@@ -337,10 +363,16 @@ def _stable_run_id(**values: object) -> str:
     return f"paper-sim-{digest}"
 
 
+def _stable_execution_config_id(**values: object) -> str:
+    digest = _stable_digest(values)
+    return f"exec-{digest}"
+
+
 def _stable_candidate_id(
     strategy_family: str,
     trade: FundingPriceTrade,
     *,
+    execution_config_id: str,
     price_symbol: str,
     funding_symbol: str,
     timeframe: str,
@@ -352,6 +384,7 @@ def _stable_candidate_id(
     digest = _stable_digest(
         {
             "strategy_family": strategy_family,
+            "execution_config_id": execution_config_id,
             "price_symbol": price_symbol,
             "funding_symbol": funding_symbol,
             "timeframe": timeframe,

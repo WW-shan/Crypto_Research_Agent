@@ -336,6 +336,52 @@ def test_auto_run_id_changes_with_notional_to_keep_outcomes_distinct(tmp_path):
     )
 
 
+def test_manual_run_id_keeps_different_notional_outcomes_distinct(tmp_path):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+
+    db_path = _write_happy_path_fixture(tmp_path)
+
+    low_notional_report = run_paper_sim_loop(
+        db_path,
+        run_id="paper-manual-sizing",
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        current_capital_usd=100.0,
+        notional_usd=10.0,
+        threshold_abs=0.0005,
+        hold_bars=2,
+        min_trades=2,
+        require_walk_forward=False,
+    )
+    high_notional_report = run_paper_sim_loop(
+        db_path,
+        run_id="paper-manual-sizing",
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        current_capital_usd=100.0,
+        notional_usd=20.0,
+        threshold_abs=0.0005,
+        hold_bars=2,
+        min_trades=2,
+        require_walk_forward=False,
+    )
+
+    loaded = PaperOutcomeLedger(db_path).load_outcomes(run_id="paper-manual-sizing")
+
+    assert low_notional_report.run_id == high_notional_report.run_id
+    assert {outcome.outcome_id for outcome in low_notional_report.outcomes}.isdisjoint(
+        {outcome.outcome_id for outcome in high_notional_report.outcomes}
+    )
+    assert len(loaded) == (
+        low_notional_report.outcome_count + high_notional_report.outcome_count
+    )
+    assert {outcome.notional_usd for outcome in loaded} == {10.0, 20.0}
+
+
 def test_empty_store_records_one_blocked_no_signal_outcome(tmp_path):
     from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
 
