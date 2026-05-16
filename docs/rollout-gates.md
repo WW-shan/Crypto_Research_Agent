@@ -4,7 +4,8 @@ Live execution is not a default mode. A strategy earns tiny-live eligibility onl
 after deterministic, local evaluation of paper results and walk-forward evidence.
 The rollout gate produces an eligibility decision and machine-readable reason
 codes; it does not place orders, call exchanges, open wallets, or bypass the
-risk guardian.
+risk guardian. Tiny-live permission scope, kill switch, rollback, and human
+review requirements are defined in `docs/tiny-live-readiness.md`.
 
 ## Default policy
 
@@ -20,6 +21,14 @@ The default `RolloutPolicy` is intentionally fail-closed:
 
 Eligibility requires all gates to pass. Missing data blocks rollout instead of
 being treated as neutral evidence.
+
+A tiny-live readiness artifact may be generated for both passing and blocking
+outcomes by `src/crypto_alpha_agent/evidence/live_readiness.py`. Failed rollout
+gates should still generate a blocking artifact with reason codes for audit and
+rejection tracking. Passing these gates is required before the artifact may
+report `ready_for_human_review=true` or proceed to human live review. The
+artifact is a review artifact only; it keeps `live_execution_enabled=false` and
+does not create an execution path.
 
 ## Evidence requirements
 
@@ -50,6 +59,8 @@ The evaluator returns stable reason codes for automation and review:
 | `insufficient_walk_forward_splits` | Fewer walk-forward splits than the policy minimum. |
 | `non_positive_cost_adjusted_expectancy` | Average paper PnL after costs is not positive. |
 | `failure_rate_above_limit` | Paper failure rate exceeds the policy maximum. |
+| `duplicate_paper_trade_evidence` | Paper evidence contains duplicate trade identifiers. |
+| `duplicate_walk_forward_split` | Walk-forward evidence contains duplicate split identifiers. |
 | `unstable_walk_forward_performance` | Any split expectancy is at or below the policy floor. |
 | `manual_override_violation` | Paper evidence includes a manual override violation. |
 | `max_loss_budget_breached` | Maximum observed paper loss exceeds the policy budget. |
@@ -59,4 +70,5 @@ The evaluator returns stable reason codes for automation and review:
 `eligible_for_tiny_live=True` means the paper evidence passed rollout gates. It
 is not an execution command and must not trigger adapters or wallet actions.
 Actual live behavior remains a separate, gated workflow with explicit approvals,
-permission scoping, and risk checks.
+permission scoping, kill switch controls, rollback procedures, and risk checks
+documented in `docs/tiny-live-readiness.md`.
