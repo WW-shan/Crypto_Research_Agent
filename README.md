@@ -31,3 +31,27 @@ uv run crypto-alpha-agent ingest --offline-check --db var/research.sqlite
 ```
 
 Real network sources are research and paper-validation inputs only and require an explicit `--allow-network` flag. This project excludes MEV/mempool strategies, sub-second CEX-DEX arbitrage, premium RPC-dependent strategies, and live order routing.
+
+## Phase 1 Research Loop
+
+The Phase 1 closed-loop workflow can pull Binance Public Data candles, store
+local research records, generate research-only hypotheses, and optionally write
+a Markdown report:
+
+```bash
+uv run crypto-alpha-agent research-loop \
+  --db var/research.sqlite \
+  --source binance-public \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --year 2026 \
+  --month 5 \
+  --current-capital-usd 300 \
+  --allow-network \
+  --report-out var/reports/daily.md
+```
+
+This command pulls public historical data only. It writes local SQLite records,
+generates research-only hypotheses, and writes the optional Markdown report when
+`--report-out` is provided. It submits no orders, reads no wallet keys, and uses
+no real capital.
