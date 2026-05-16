@@ -192,22 +192,34 @@ def _allowed_family(strings: list[str]) -> str | None:
     return None
 
 
-def _term_pattern(term: str) -> re.Pattern[str]:
+def _term_pattern(
+    term: str, *, allow_interstitial_before_last: bool = False
+) -> re.Pattern[str]:
     parts = [part for part in re.split(r"[\s_-]+", term.lower()) if part]
-    body = _TERM_SEPARATOR_PATTERN.join(re.escape(part) for part in parts)
+    if allow_interstitial_before_last and len(parts) > 1:
+        prefix = _TERM_SEPARATOR_PATTERN.join(re.escape(part) for part in parts[:-1])
+        body = (
+            rf"{prefix}(?:[\s_-]+[A-Za-z0-9][A-Za-z0-9_-]*)*"
+            rf"{_TERM_SEPARATOR_PATTERN}{re.escape(parts[-1])}"
+        )
+    else:
+        body = _TERM_SEPARATOR_PATTERN.join(re.escape(part) for part in parts)
     return re.compile(f"{_TOKEN_BOUNDARY_START}{body}{_TOKEN_BOUNDARY_END}", re.IGNORECASE)
 
 
-def _regex_rule(reason: CharterRejectReason, term: str, body: str) -> tuple[
-    CharterRejectReason, str, re.Pattern[str]
-]:
-    return (reason, term, re.compile(body, re.IGNORECASE))
-
-
 def _term_rule(
-    reason: CharterRejectReason, term: str
+    reason: CharterRejectReason,
+    term: str,
+    *,
+    allow_interstitial_before_last: bool = False,
 ) -> tuple[CharterRejectReason, str, re.Pattern[str]]:
-    return (reason, term, _term_pattern(term))
+    return (
+        reason,
+        term,
+        _term_pattern(
+            term, allow_interstitial_before_last=allow_interstitial_before_last
+        ),
+    )
 
 
 _TEXT_RULES = (
@@ -220,16 +232,12 @@ _TEXT_RULES = (
     _term_rule("bridge_race", "bridge races"),
     _term_rule("flash_loan_race", "flash loan"),
     _term_rule("flash_loan_race", "flash loans"),
-    _regex_rule(
+    _term_rule(
         "sub_second_arbitrage",
         "sub-second arbitrage",
-        rf"{_TOKEN_BOUNDARY_START}sub[\s_-]*second\b.*\barbitrage{_TOKEN_BOUNDARY_END}",
+        allow_interstitial_before_last=True,
     ),
-    _regex_rule(
-        "sub_second_arbitrage",
-        "cex-dex arbitrage",
-        rf"{_TOKEN_BOUNDARY_START}cex[\s_-]*dex[\s_-]+arbitrage{_TOKEN_BOUNDARY_END}",
-    ),
+    _term_rule("sub_second_arbitrage", "cex-dex arbitrage"),
     _term_rule("live_trading_required", "live order"),
     _term_rule("live_trading_required", "live orders"),
     _term_rule("live_trading_required", "live execution"),

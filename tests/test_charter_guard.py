@@ -70,6 +70,22 @@ def test_blocks_sub_second_cex_dex_arbitrage():
     assert "sub-second arbitrage" in decision.matched_terms
 
 
+def test_blocks_joined_and_camelcase_arbitrage_terms():
+    from crypto_alpha_agent.risk.charter_guard import guard_generated_idea
+
+    for text, expected_term in (
+        ("subSecondArbitrage", "sub-second arbitrage"),
+        ("subsecondarbitrage", "sub-second arbitrage"),
+        ("cexDexArbitrage", "cex-dex arbitrage"),
+        ("cexdexarbitrage", "cex-dex arbitrage"),
+    ):
+        decision = guard_generated_idea(text)
+
+        assert decision.approved is False
+        assert decision.reason_codes == ["sub_second_arbitrage"]
+        assert expected_term in decision.matched_terms
+
+
 def test_blocks_live_orders_and_wallet_key_references():
     from crypto_alpha_agent.risk.charter_guard import guard_generated_idea
 
