@@ -188,6 +188,43 @@ def test_research_loop_cli_reads_existing_sqlite_records(capsys, tmp_path):
     assert captured["report"]["hypothesis_count"] == 1
 
 
+def test_research_loop_cli_writes_markdown_report(capsys, tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    report_path = tmp_path / "reports" / "daily.md"
+    candle = MarketCandle(
+        source="binance_public",
+        venue="binance",
+        symbol="SOL/USDT",
+        timestamp=datetime(2026, 5, 16, tzinfo=UTC),
+        timeframe="1h",
+        open=100.0,
+        high=110.0,
+        low=99.0,
+        close=108.0,
+        volume=1000.0,
+    )
+    ResearchDataStore(db_path).upsert_records([candle.to_source_record()])
+
+    exit_code = main(
+        [
+            "research-loop",
+            "--db",
+            str(db_path),
+            "--report-out",
+            str(report_path),
+        ]
+    )
+
+    captured = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert captured["report_artifact"] == str(report_path)
+    report_text = report_path.read_text(encoding="utf-8")
+    assert "# Crypto Alpha Research Loop" in report_text
+    assert "SOL/USDT" in report_text
+    assert "Live order routing: false" in report_text
+    assert "Hypotheses: 1" in report_text
+
+
 def test_research_loop_cli_can_ingest_binance_before_loop(capsys, monkeypatch, tmp_path):
     db_path = tmp_path / "research.sqlite"
 

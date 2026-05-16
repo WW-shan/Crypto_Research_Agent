@@ -12,6 +12,7 @@ from crypto_alpha_agent.data.ingestion import ingest_binance_public_month
 from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.observability.logging import load_events
 from crypto_alpha_agent.observability.reports import generate_daily_report
+from crypto_alpha_agent.pipeline.markdown import render_research_loop_markdown
 from crypto_alpha_agent.pipeline.research_loop import run_stored_research_loop
 
 
@@ -107,6 +108,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     research_loop_parser.add_argument("--limit", type=_positive_int, help="Optional positive record limit.")
     research_loop_parser.add_argument("--run-id", help="Optional research loop run identifier.")
+    research_loop_parser.add_argument("--report-out", type=Path, help="Optional Markdown report output path.")
     research_loop_parser.set_defaults(handler=_handle_research_loop, parser=research_loop_parser)
 
     ingest_parser = subparsers.add_parser(
@@ -333,6 +335,10 @@ def _handle_research_loop(args: argparse.Namespace) -> dict[str, Any]:
         "live_order_routing": False,
         "report": report.model_dump(mode="json"),
     }
+    if args.report_out is not None:
+        args.report_out.parent.mkdir(parents=True, exist_ok=True)
+        args.report_out.write_text(render_research_loop_markdown(report), encoding="utf-8")
+        payload["report_artifact"] = str(args.report_out)
     if ingestion is not None:
         payload["ingestion"] = ingestion.model_dump(mode="json")
     return payload
