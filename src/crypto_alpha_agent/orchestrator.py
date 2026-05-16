@@ -185,6 +185,180 @@ def build_graph(
     )
 
 
+def build_llm_research_graph(
+    llm: Any,
+    *,
+    max_capital_usd: float = 300.0,
+    checkpointer: Any | None = None,
+    interrupt_before: Literal["*"] | Sequence[str] | None = None,
+    interrupt_after: Literal["*"] | Sequence[str] | None = None,
+    debug: bool = False,
+):
+    workflow = StateGraph(dict)
+
+    def llm_research(state: AgentState) -> AgentState:
+        from crypto_alpha_agent.agents.llm_researcher import run_llm_research_node
+
+        next_state = _append_trace(state, "llm_research")
+        report = next_state["research_report"]
+        result = run_llm_research_node(
+            report,
+            llm,
+            max_capital_usd=max_capital_usd,
+        )
+        next_state["llm_research_result"] = result.model_dump(mode="python")
+        if result.proposal is not None:
+            next_state["llm_proposal"] = result.proposal.model_dump(mode="python")
+        if result.guard_decision is not None:
+            next_state["guard_decision"] = result.guard_decision.model_dump(mode="python")
+        return next_state
+
+    def create_validation_request(state: AgentState) -> AgentState:
+        from crypto_alpha_agent.agents.llm_contracts import ValidationRequest
+
+        next_state = _append_trace(state, "create_validation_request")
+        report = next_state["research_report"]
+        proposal = next_state["llm_proposal"]
+        request = ValidationRequest(
+            request_id=f"validation:{proposal['proposal_id']}",
+            proposal_id=proposal["proposal_id"],
+            validation_type="historical_validation",
+            dataset=report.run_id,
+            source="stored_report",
+            metrics=["net_return", "max_drawdown", "hit_rate"],
+            fee_bps=10.0,
+            slippage_bps=5.0,
+        )
+        next_state["validation_request"] = request.model_dump(mode="python")
+        return next_state
+
+    def llm_critique(state: AgentState) -> AgentState:
+        from crypto_alpha_agent.agents.llm_contracts import CritiqueResult
+
+        next_state = _append_trace(state, "llm_critique")
+        proposal = next_state["llm_proposal"]
+        if next_state.get("suggest_paper_action"):
+            critique_result = CritiqueResult(
+                proposal_id=proposal["proposal_id"],
+                accepted=False,
+                reasons=["paper action requires human approval before any execution path"],
+                lessons=["Keep LLM output constrained to research-only proposals."],
+                missing_evidence=[],
+                disconfirmation_failures=[],
+                next_action="human_review",
+            )
+        else:
+            critique_result = CritiqueResult(
+                proposal_id=proposal["proposal_id"],
+                accepted=True,
+                reasons=["proposal passed deterministic validation request creation"],
+                lessons=["Store approved research-only proposal for future retrieval."],
+                missing_evidence=[],
+                disconfirmation_failures=[],
+                next_action="update_memory",
+            )
+        next_state["critique_result"] = critique_result.model_dump(mode="python")
+        return next_state
+
+    def update_llm_memory(state: AgentState) -> AgentState:
+        from crypto_alpha_agent.memory.store import MemoryRecord, MemoryStore
+
+        next_state = _append_trace(state, "update_llm_memory")
+        next_state["memory_updated"] = True
+        memory_path = next_state.get("memory_path")
+        if memory_path is None:
+            return next_state
+
+        report = next_state["research_report"]
+        proposal = next_state.get("llm_proposal")
+        research_result = next_state["llm_research_result"]
+        proposal_id = proposal["proposal_id"] if proposal is not None else None
+        record_id = f"llm:{proposal_id}" if proposal_id is not None else f"llm:{report.run_id}:rejected"
+        score: dict[str, Any] = {
+            "accepted": research_result["accepted"],
+            "rejected_reason_codes": list(research_result.get("rejected_reason_codes", [])),
+        }
+        if "guard_decision" in next_state:
+            score["guard_decision"] = next_state["guard_decision"]
+        if "validation_request" in next_state:
+            score["validation_request"] = next_state["validation_request"]
+        if "critique_result" in next_state:
+            score["critique_result"] = next_state["critique_result"]
+
+        record = MemoryRecord(
+            record_id=record_id,
+            created_at=DETERMINISTIC_EVENT_TIME_ISO,
+            updated_at=DETERMINISTIC_EVENT_TIME_ISO,
+            opportunity={
+                "source": "stored_report",
+                "run_id": report.run_id,
+                "suggest_paper_action": bool(next_state.get("suggest_paper_action")),
+            },
+            hypothesis={
+                "proposal": proposal,
+                "raw_response": research_result["raw_response"],
+                "prompt_context": research_result["prompt_context"],
+            },
+            score=score,
+            rejected_reasons=list(research_result.get("rejected_reason_codes", [])),
+            tags=["llm", "research_loop", "accepted" if research_result["accepted"] else "rejected"],
+        )
+        stored_record = MemoryStore(memory_path).upsert(record)
+        next_state["memory_record_id"] = stored_record.record_id
+        return next_state
+
+    def llm_human_checkpoint(state: AgentState) -> AgentState:
+        next_state = _append_trace(state, "llm_human_checkpoint")
+        if next_state.get("suggest_paper_action"):
+            next_state["approval_required"] = True
+            next_state["paused_at"] = "llm_human_checkpoint"
+            next_state["human_checkpoint_reason"] = "paper_action_requires_human_approval"
+        else:
+            next_state["approval_required"] = False
+        return next_state
+
+    def route_after_llm_research(state: AgentState) -> str:
+        if state["llm_research_result"]["accepted"]:
+            return "create_validation_request"
+        return "update_llm_memory"
+
+    def route_after_llm_memory(state: AgentState) -> str:
+        if state.get("suggest_paper_action") and state["llm_research_result"]["accepted"]:
+            return "llm_human_checkpoint"
+        return "__end__"
+
+    workflow.add_node("llm_research", llm_research)
+    workflow.add_node("create_validation_request", create_validation_request)
+    workflow.add_node("llm_critique", llm_critique)
+    workflow.add_node("update_llm_memory", update_llm_memory)
+    workflow.add_node("llm_human_checkpoint", llm_human_checkpoint)
+
+    workflow.add_edge(START, "llm_research")
+    workflow.add_conditional_edges(
+        "llm_research",
+        route_after_llm_research,
+        {
+            "create_validation_request": "create_validation_request",
+            "update_llm_memory": "update_llm_memory",
+        },
+    )
+    workflow.add_edge("create_validation_request", "llm_critique")
+    workflow.add_edge("llm_critique", "update_llm_memory")
+    workflow.add_conditional_edges(
+        "update_llm_memory",
+        route_after_llm_memory,
+        {"llm_human_checkpoint": "llm_human_checkpoint", "__end__": END},
+    )
+    workflow.add_edge("llm_human_checkpoint", END)
+
+    return workflow.compile(
+        checkpointer=checkpointer,
+        interrupt_before=interrupt_before,
+        interrupt_after=interrupt_after,
+        debug=debug,
+    )
+
+
 def _paper_execution_reason(error: ValueError) -> str:
     message = str(error)
     if "insufficient paper cash" in message:
