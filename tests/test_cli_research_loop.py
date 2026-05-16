@@ -10,7 +10,8 @@ from crypto_alpha_agent.data.models import MarketCandle
 from crypto_alpha_agent.data.store import ResearchDataStore
 
 
-def test_research_loop_cli_rejects_non_finite_current_capital(capsys, tmp_path):
+@pytest.mark.parametrize("capital", ["nan", "inf"])
+def test_research_loop_cli_rejects_non_finite_current_capital(capsys, tmp_path, capital):
     db_path = tmp_path / "research.sqlite"
     ResearchDataStore(db_path)
 
@@ -21,7 +22,7 @@ def test_research_loop_cli_rejects_non_finite_current_capital(capsys, tmp_path):
                 "--db",
                 str(db_path),
                 "--current-capital-usd",
-                "nan",
+                capital,
             ]
         )
 
@@ -37,6 +38,18 @@ def test_research_loop_cli_rejects_missing_db_without_creating_it(tmp_path):
         main(["research-loop", "--db", str(db_path)])
 
     assert not db_path.exists()
+
+
+def test_research_loop_cli_rejects_directory_db_path(capsys, tmp_path):
+    db_path = tmp_path / "research-dir"
+    db_path.mkdir()
+
+    with pytest.raises(SystemExit):
+        main(["research-loop", "--db", str(db_path)])
+
+    captured = capsys.readouterr()
+    assert "not a file" in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_research_loop_cli_reads_existing_sqlite_records(capsys, tmp_path):
