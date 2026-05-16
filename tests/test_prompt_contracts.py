@@ -23,7 +23,7 @@ COMMON_TERMS = [
     "disconfirmation",
     "assumptions",
     "evidence",
-    "Reject speed-dependent ideas",
+    ("speed-dependent", "sub-second arbitrage"),
     "no live orders",
     "no wallet keys",
 ]
@@ -43,6 +43,11 @@ def assert_contains_term(text: str, term: str | tuple[str, ...]) -> None:
         assert any(option.lower() in lower_text for option in term)
         return
     assert term.lower() in lower_text
+
+
+def assert_contains_any(text: str, terms: tuple[str, ...]) -> None:
+    lower_text = text.lower()
+    assert any(term.lower() in lower_text for term in terms)
 
 
 def test_enumerates_all_agent_prompt_files() -> None:
@@ -82,7 +87,22 @@ def test_coder_prompt_restricts_code_scope_to_allowed_values() -> None:
     lower_text = text.lower()
 
     assert "deterministic analysis" not in lower_text
-    assert '"code_scope": "backtest | transform | indicator"' in text
+    assert '"code_scope"' in text
+    for term in ("backtest", "transform", "indicator"):
+        assert_contains_term(text, term)
+
+
+def test_supervisor_prompt_ties_route_and_next_task_to_decision() -> None:
+    text = PROMPTS["supervisor"].read_text()
+
+    assert_contains_term(text, "decision")
+    assert_contains_term(text, "route")
+    assert_contains_term(text, "next_task")
+    assert_contains_any(text, ("decision is route", "decision = route"))
+    assert_contains_any(text, ("route must be none", "route: none"))
+    assert_contains_any(text, ("next_task must be null", "next_task: null"))
+    assert_contains_any(text, ("decision = reject", "decision is reject"))
+    assert_contains_any(text, ("reject or human approval", "decision = reject or human approval"))
 
 
 def test_prompts_force_assumptions_and_evidence_in_json_contracts() -> None:

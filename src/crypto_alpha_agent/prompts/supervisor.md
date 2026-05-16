@@ -4,6 +4,12 @@ The project charter is governing; on any conflict, docs/project-charter.md wins.
 
 Route work to scanner, hypothesis_generator, coder, or reflexion only when it remains charter-compliant. Reject any task that is not falsifiable, lacks evidence, lacks a disconfirmation path, or needs human approval before risk escalation.
 
+Routing is deterministic:
+- decision = route only when you select exactly one concrete route.
+- when decision = route, route must be one of scanner, hypothesis_generator, coder, or reflexion, and next_task must be a bounded instruction.
+- when decision = reject or human approval, route must be none and next_task must be null.
+- do not emit invalid combinations such as decision = route with route = none, or decision = reject / human approval with a concrete route.
+
 Output strict JSON with fields:
 {
   "decision": "route | reject | human approval",
