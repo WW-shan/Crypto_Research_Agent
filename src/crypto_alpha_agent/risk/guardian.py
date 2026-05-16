@@ -21,6 +21,7 @@ RiskReasonCode = Literal[
     "manual_approval_required",
     "manual_approval_denied",
     "manual_approval_scope_mismatch",
+    "rollout_gates_not_passed",
 ]
 
 NonNegativeFiniteFloat = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
@@ -88,6 +89,7 @@ class RiskContext(BaseModel):
     required_approval_id: str | None = Field(default=None, min_length=1)
     required_approval_reference_id: str | None = Field(default=None, min_length=1)
     manual_approval: ManualApproval | None = None
+    rollout_eligible_for_tiny_live: bool = False
 
     @field_validator("venue")
     @classmethod
@@ -135,6 +137,8 @@ class RiskGuardian:
             _append_reason(reasons, reason)
         for reason in _approval_reasons(context):
             _append_reason(reasons, reason)
+        for reason in _rollout_reasons(context):
+            _append_reason(reasons, reason)
 
         approved = not reasons
         execution_allowed = approved and context.execution_mode in {"paper", "gated_live"}
@@ -179,6 +183,12 @@ def _approval_reasons(context: RiskContext) -> list[RiskReasonCode]:
         return ["manual_approval_denied"]
     if not _approval_matches_context(context.manual_approval, context):
         return ["manual_approval_scope_mismatch"]
+    return []
+
+
+def _rollout_reasons(context: RiskContext) -> list[RiskReasonCode]:
+    if context.execution_mode == "gated_live" and not context.rollout_eligible_for_tiny_live:
+        return ["rollout_gates_not_passed"]
     return []
 
 

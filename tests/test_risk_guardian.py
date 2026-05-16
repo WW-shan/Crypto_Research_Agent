@@ -38,6 +38,7 @@ def _context(**overrides) -> RiskContext:
         "consecutive_failures": 0,
         "permission_scope": _scope(),
         "required_approval_reference_id": "ticket-123",
+        "rollout_eligible_for_tiny_live": True,
     }
     data.update(overrides)
     if "manual_approval" not in overrides:
@@ -118,13 +119,57 @@ def test_policy_guards_emit_stable_reason_codes():
 def test_gated_live_executes_only_when_all_guards_and_approval_pass():
     guardian = RiskGuardian(_policy())
 
-    decision = guardian.evaluate(_context())
+    decision = guardian.evaluate(_context(rollout_eligible_for_tiny_live=True))
 
     assert decision.approved is True
     assert decision.execution_allowed is True
     assert decision.live_execution_allowed is True
     assert decision.reason_codes == []
     assert decision.assert_can_execute() is None
+
+
+def test_gated_live_blocks_when_rollout_eligibility_is_missing():
+    guardian = RiskGuardian(_policy())
+    context = RiskContext(
+        opportunity_id="opp-1",
+        execution_mode="gated_live",
+        venue="binance",
+        capital_required_usd=500.0,
+        daily_realized_pnl_usd=-100.0,
+        consecutive_failures=0,
+        permission_scope=_scope(),
+        required_approval_reference_id="ticket-123",
+        manual_approval=ManualApproval(
+            approval_id="approval-123",
+            approved=True,
+            approver="risk-lead",
+            opportunity_id="opp-1",
+            action_mode="gated_live",
+            venue="binance",
+            max_approved_capital_usd=500.0,
+            reason="within test limits",
+            reference_id="ticket-123",
+        ),
+    )
+
+    decision = guardian.evaluate(context)
+
+    assert decision.approved is False
+    assert decision.execution_allowed is False
+    assert decision.live_execution_allowed is False
+    assert decision.reason_codes == ["rollout_gates_not_passed"]
+
+
+def test_gated_live_blocks_when_rollout_eligibility_is_false():
+    guardian = RiskGuardian(_policy())
+    context = _context(rollout_eligible_for_tiny_live=False)
+
+    decision = guardian.evaluate(context)
+
+    assert decision.approved is False
+    assert decision.execution_allowed is False
+    assert decision.live_execution_allowed is False
+    assert decision.reason_codes == ["rollout_gates_not_passed"]
 
 
 def test_gated_live_rejects_approval_scoped_to_different_opportunity():
@@ -214,6 +259,7 @@ def test_gated_live_allows_approval_with_matching_required_reference():
     context = _context(
         required_approval_id="approval-123",
         required_approval_reference_id="ticket-123",
+        rollout_eligible_for_tiny_live=True,
     )
 
     decision = guardian.evaluate(context)
