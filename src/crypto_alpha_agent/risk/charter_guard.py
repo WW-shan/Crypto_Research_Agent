@@ -208,7 +208,9 @@ _TEXT_RULES = (
     _term_rule("premium_rpc_required", "premium rpc"),
     _term_rule("premium_rpc_required", "private rpc"),
     _term_rule("bridge_race", "bridge race"),
+    _term_rule("bridge_race", "bridge races"),
     _term_rule("flash_loan_race", "flash loan"),
+    _term_rule("flash_loan_race", "flash loans"),
     _regex_rule(
         "sub_second_arbitrage",
         "sub-second arbitrage",

@@ -38,6 +38,26 @@ def test_blocks_bridge_race_and_flash_loan_race():
     assert "flash loan" in decision.matched_terms
 
 
+def test_blocks_plural_bridge_races():
+    from crypto_alpha_agent.risk.charter_guard import guard_generated_idea
+
+    decision = guard_generated_idea("Run bridge races across chains")
+
+    assert decision.approved is False
+    assert decision.reason_codes == ["bridge_race"]
+    assert "bridge races" in decision.matched_terms
+
+
+def test_blocks_plural_flash_loans_used_for_races():
+    from crypto_alpha_agent.risk.charter_guard import guard_generated_idea
+
+    decision = guard_generated_idea("Use flash loans to race liquidations")
+
+    assert decision.approved is False
+    assert decision.reason_codes == ["flash_loan_race"]
+    assert "flash loans" in decision.matched_terms
+
+
 def test_blocks_sub_second_cex_dex_arbitrage():
     from crypto_alpha_agent.risk.charter_guard import guard_generated_idea
 
