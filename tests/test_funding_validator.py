@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 
@@ -79,13 +80,27 @@ def test_funding_validator_blocks_insufficient_samples_and_missing_extremes(tmp_
     assert "no_extreme_funding" in result.blocked_reasons
 
 
+def test_funding_validator_rejects_missing_db_without_creating_it(tmp_path):
+    db_path = tmp_path / "missing.sqlite"
+
+    with pytest.raises(FileNotFoundError):
+        validate_funding_extremes(db_path)
+
+    assert not db_path.exists()
+
+
+def test_funding_validator_rejects_directory_db_path(tmp_path):
+    with pytest.raises(ValueError, match="not a file"):
+        validate_funding_extremes(tmp_path)
+
+
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [
         ({"threshold_abs": 0.0}, "threshold_abs must be finite and greater than 0"),
         ({"threshold_abs": float("nan")}, "threshold_abs must be finite and greater than 0"),
-        ({"min_samples": 0}, "min_samples must be greater than 0"),
-        ({"min_extremes": 0}, "min_extremes must be greater than 0"),
+        ({"min_samples": 0}, "min_samples must be a positive integer"),
+        ({"min_extremes": 0}, "min_extremes must be a positive integer"),
     ],
 )
 def test_funding_validator_rejects_invalid_threshold_and_minimums(tmp_path, kwargs, message):
@@ -94,3 +109,53 @@ def test_funding_validator_rejects_invalid_threshold_and_minimums(tmp_path, kwar
 
     with pytest.raises(ValueError, match=message):
         validate_funding_extremes(db_path, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"min_samples": 0},
+        {"min_samples": float("nan")},
+        {"min_samples": 1.5},
+        {"min_samples": True},
+        {"min_extremes": 0},
+        {"min_extremes": float("nan")},
+        {"min_extremes": 1.5},
+        {"min_extremes": True},
+    ],
+)
+def test_funding_validator_rejects_invalid_minimum_inputs(tmp_path, kwargs: dict[str, Any]):
+    db_path = tmp_path / "research.sqlite"
+    ResearchDataStore(db_path)
+
+    with pytest.raises(ValueError, match="positive integer"):
+        validate_funding_extremes(db_path, **kwargs)
+
+
+def test_funding_validator_skips_source_metadata_payload_mismatch(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    record = _funding("BTC/USDT:USDT", 0, 0.001, source="other")
+    record.source = "ccxt"
+    ResearchDataStore(db_path).upsert_records([record])
+
+    result = validate_funding_extremes(
+        db_path,
+        source="ccxt",
+        threshold_abs=0.0005,
+        min_samples=1,
+        min_extremes=1,
+    )
+
+    assert result.sample_count == 0
+    assert result.approved is False
+
+
+@pytest.mark.parametrize("funding_rate", [float("nan"), float("inf")])
+def test_funding_validator_rejects_non_finite_payload_rate(tmp_path, funding_rate: float):
+    db_path = tmp_path / "research.sqlite"
+    record = _funding("BTC/USDT:USDT", 0, 0.001)
+    record.payload["funding_rate"] = funding_rate
+    ResearchDataStore(db_path).upsert_records([record])
+
+    with pytest.raises(ValueError, match="funding_rate must be finite"):
+        validate_funding_extremes(db_path, min_samples=1, min_extremes=1)
