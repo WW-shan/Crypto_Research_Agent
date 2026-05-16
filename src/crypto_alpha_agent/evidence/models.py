@@ -68,6 +68,16 @@ class _StrictEvidenceModel(BaseModel):
     def _serialize_string_tuple(self, values: StringTuple) -> list[str]:
         return list(values)
 
+    @field_serializer(
+        "created_at",
+        "observed_at",
+        "signal_timestamp",
+        "started_at",
+        check_fields=False,
+    )
+    def _serialize_datetime(self, value: datetime) -> str:
+        return value.isoformat()
+
 
 class StrategyCandidate(_StrictEvidenceModel):
     candidate_id: str = Field(min_length=1)
@@ -160,6 +170,18 @@ class ValidationEvidence(_StrictEvidenceModel):
     @classmethod
     def _dedupe_blocked_reasons(cls, reasons: Iterable[str]) -> StringTuple:
         return _dedupe_nonempty_strings(reasons)
+
+    @model_validator(mode="after")
+    def _reject_noncanonical_evidence_id(self) -> Self:
+        canonical_id = _stable_validation_evidence_id(
+            {
+                field: getattr(self, field)
+                for field in _VALIDATION_EVIDENCE_ID_FIELDS
+            }
+        )
+        if self.evidence_id != canonical_id:
+            raise ValueError("evidence_id must match canonical validation evidence payload")
+        return self
 
     @model_validator(mode="after")
     def _reject_approval_contradictions(self) -> Self:

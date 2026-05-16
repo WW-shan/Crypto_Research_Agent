@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 
 import pytest
@@ -198,6 +199,20 @@ def test_validation_evidence_id_treats_omitted_and_empty_blocked_reasons_equally
     assert omitted.evidence_id == explicit_empty.evidence_id
 
 
+def test_validation_evidence_rejects_noncanonical_supplied_evidence_id():
+    with pytest.raises(ValidationError):
+        ValidationEvidence(**_validation_evidence_kwargs(evidence_id="manual-id"))
+
+
+def test_validation_evidence_accepts_canonical_supplied_evidence_id():
+    canonical = ValidationEvidence(**_validation_evidence_kwargs())
+    supplied = ValidationEvidence(
+        **_validation_evidence_kwargs(evidence_id=canonical.evidence_id)
+    )
+
+    assert supplied.evidence_id == canonical.evidence_id
+
+
 def test_validation_evidence_blocked_reasons_are_immutable():
     evidence = ValidationEvidence(**_validation_evidence_kwargs())
 
@@ -273,6 +288,19 @@ def test_experiment_run_string_collections_are_immutable():
         run.paper_outcome_ids.append("paper-003")
     with pytest.raises(Exception):
         run.notes.append("mutated_after_creation")
+
+
+def test_evidence_model_default_dumps_are_json_serializable():
+    models = (
+        StrategyCandidate(**_strategy_candidate_kwargs()),
+        ValidationEvidence(**_validation_evidence_kwargs()),
+        PaperSimulationOutcome(**_paper_simulation_outcome_kwargs()),
+        ExperimentRun(**_experiment_run_kwargs()),
+    )
+
+    for model in models:
+        json.dumps(model.model_dump())
+        json.dumps(model.model_dump(mode="json"))
 
 
 @pytest.mark.parametrize("source_name", ["private_rpc", "premium_rpc", "eth_mempool", "mev_stream"])
