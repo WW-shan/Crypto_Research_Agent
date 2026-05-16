@@ -77,6 +77,53 @@ def test_research_task_rejects_unsafe_text(field: str, value: object) -> None:
         ResearchTask(**payload)
 
 
+@pytest.mark.parametrize(
+    "unsafe_text",
+    [
+        "Review privatekey handling before analysis.",
+        "Never collect a seedphrase for research.",
+        "Do not require premiumRPC access for this study.",
+        "Avoid subsecond arbitrage assumptions.",
+    ],
+)
+def test_research_task_rejects_joined_and_camelcase_unsafe_text(
+    unsafe_text: str,
+) -> None:
+    with pytest.raises(ValidationError, match="unsafe"):
+        ResearchTask(
+            task_id="task-004",
+            agent_role="scanner",
+            objective=unsafe_text,
+            context={"note": "Public APIs only."},
+            evidence=["Historical candles."],
+            allowed_tools=["market_history"],
+            network_policy="ordinary_public_apis",
+            current_capital_usd=250.0,
+        )
+
+
+@pytest.mark.parametrize(
+    "safe_text",
+    [
+        "administrative review of source quality",
+        "Somevenue funding data",
+    ],
+)
+def test_research_task_accepts_safe_text_with_unsafe_substrings(safe_text: str) -> None:
+    task = ResearchTask(
+        task_id="task-005",
+        agent_role="scanner",
+        objective=safe_text,
+        context={"note": "Public APIs only."},
+        evidence=["Historical candles."],
+        allowed_tools=["market_history"],
+        network_policy="ordinary_public_apis",
+        current_capital_usd=250.0,
+    )
+
+    assert task.objective == safe_text
+
+
 def test_hypothesis_proposal_defaults_to_research_only() -> None:
     proposal = HypothesisProposal(
         proposal_id="proposal-001",

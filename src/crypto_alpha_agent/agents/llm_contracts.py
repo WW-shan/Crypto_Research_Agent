@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -48,6 +49,24 @@ UNSAFE_TEXT_TERMS = (
     "withdraw",
     "admin",
     "admin permissions",
+)
+
+_TOKEN_BOUNDARY_START = r"(?<![A-Za-z0-9])"
+_TOKEN_BOUNDARY_END = r"(?![A-Za-z0-9])"
+_TERM_SEPARATOR_PATTERN = r"[\s_-]*"
+
+
+def _unsafe_term_pattern(term: str) -> re.Pattern[str]:
+    parts = [part for part in re.split(r"[\s_-]+", term.lower()) if part]
+    body = _TERM_SEPARATOR_PATTERN.join(re.escape(part) for part in parts)
+    return re.compile(
+        f"{_TOKEN_BOUNDARY_START}{body}{_TOKEN_BOUNDARY_END}",
+        re.IGNORECASE,
+    )
+
+
+UNSAFE_TEXT_PATTERNS = tuple(
+    (term, _unsafe_term_pattern(term)) for term in UNSAFE_TEXT_TERMS
 )
 
 
@@ -131,8 +150,6 @@ def _validate_safe_text(value: Any) -> None:
 
 
 def _reject_unsafe_string(value: str) -> None:
-    normalized = value.lower().replace("-", " ").replace("_", " ")
-    for term in UNSAFE_TEXT_TERMS:
-        normalized_term = term.lower().replace("-", " ").replace("_", " ")
-        if normalized_term in normalized:
+    for term, pattern in UNSAFE_TEXT_PATTERNS:
+        if pattern.search(value):
             raise ValueError(f"unsafe LLM contract text contains prohibited term: {term}")
