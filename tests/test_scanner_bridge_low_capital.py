@@ -155,3 +155,23 @@ def test_source_record_payload_becomes_scanner_signal():
 
     assert signals[0].asset == "OP/USDT"
     assert signals[0].category == "cex"
+
+
+def test_source_record_instance_from_store_becomes_scanner_signal():
+    candle = MarketCandle(
+        source="ccxt",
+        venue="binance",
+        symbol="ARB/USDT",
+        timestamp=datetime(2026, 5, 16, tzinfo=UTC),
+        timeframe="1h",
+        open=100.0,
+        high=110.0,
+        low=99.0,
+        close=108.0,
+        volume=1000.0,
+    )
+
+    signals = records_to_scanner_signals([candle.to_source_record()], current_capital_usd=300)
+
+    assert signals[0].asset == "ARB/USDT"
+    assert signals[0].category == "cex"

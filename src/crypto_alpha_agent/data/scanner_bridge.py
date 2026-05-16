@@ -10,13 +10,16 @@ from crypto_alpha_agent.data.models import (
     DefiYieldSnapshot,
     DexPairSnapshot,
     MarketCandle,
+    SourceRecord,
 )
 
 LOW_DEX_LIQUIDITY_USD = 10_000.0
 
 
 def records_to_scanner_signals(
-    records: Iterable[MarketCandle | DexPairSnapshot | DefiYieldSnapshot | dict[str, Any]],
+    records: Iterable[
+        MarketCandle | DexPairSnapshot | DefiYieldSnapshot | SourceRecord | dict[str, Any]
+    ],
     current_capital_usd: float,
 ) -> list[ScannerSignal]:
     return [
@@ -27,9 +30,11 @@ def records_to_scanner_signals(
 
 
 def _record_to_scanner_signal(
-    record: MarketCandle | DexPairSnapshot | DefiYieldSnapshot | dict[str, Any],
+    record: MarketCandle | DexPairSnapshot | DefiYieldSnapshot | SourceRecord | dict[str, Any],
     current_capital_usd: float,
 ) -> ScannerSignal | None:
+    if isinstance(record, SourceRecord):
+        record = _validate_typed_payload(record.record_type, record.payload)
     if isinstance(record, dict):
         record = _validate_dict_record(record)
 
