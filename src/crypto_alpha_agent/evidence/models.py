@@ -11,6 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 ExecutionMode = Literal["research_and_paper_only"]
 FiniteFloat = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 NonNegativeFiniteFloat = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
+_UNSET = object()
+_UNSAFE_DATA_SOURCE_TOKENS = ("private_rpc", "premium_rpc", "mempool", "mev")
 
 _VALIDATION_EVIDENCE_ID_FIELDS = (
     "strategy_family",
@@ -31,7 +33,21 @@ _VALIDATION_EVIDENCE_ID_FIELDS = (
 
 
 class _StrictEvidenceModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+    model_config = ConfigDict(
+        extra="forbid",
+        strict=True,
+        allow_inf_nan=False,
+        validate_assignment=True,
+    )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        old_value = getattr(self, name, _UNSET)
+        try:
+            super().__setattr__(name, value)
+        except Exception:
+            if name in type(self).model_fields and old_value is not _UNSET:
+                object.__setattr__(self, name, old_value)
+            raise
 
 
 class StrategyCandidate(_StrictEvidenceModel):
@@ -51,9 +67,19 @@ class StrategyCandidate(_StrictEvidenceModel):
     live_order_routing: bool = False
     blocked_reasons: list[str] = Field(default_factory=list)
 
-    @field_validator("data_sources", "blocked_reasons")
+    @field_validator("candidate_id", "strategy_family", "symbol", "venue", "timeframe")
     @classmethod
-    def _dedupe_string_list(cls, values: list[str]) -> list[str]:
+    def _normalize_identifier(cls, value: str) -> str:
+        return _strip_nonblank(value)
+
+    @field_validator("data_sources")
+    @classmethod
+    def _normalize_data_sources(cls, values: list[str]) -> list[str]:
+        return _normalize_required_data_sources(values)
+
+    @field_validator("blocked_reasons")
+    @classmethod
+    def _dedupe_blocked_reasons(cls, values: list[str]) -> list[str]:
         return _dedupe_nonempty_strings(values)
 
     @model_validator(mode="after")
@@ -92,10 +118,15 @@ class ValidationEvidence(_StrictEvidenceModel):
     @model_validator(mode="before")
     @classmethod
     def _populate_evidence_id(cls, data: Any) -> Any:
-        if not isinstance(data, Mapping) or data.get("evidence_id"):
+        if not isinstance(data, Mapping) or "evidence_id" in data:
             return data
         generated = _stable_validation_evidence_id(data)
         return {**data, "evidence_id": generated}
+
+    @field_validator("evidence_id", "strategy_family", "symbol", "timeframe", "validator_name")
+    @classmethod
+    def _normalize_identifier(cls, value: str) -> str:
+        return _strip_nonblank(value)
 
     @field_validator("blocked_reasons")
     @classmethod
@@ -124,6 +155,11 @@ class PaperSimulationOutcome(_StrictEvidenceModel):
     failure_reasons: list[str] = Field(default_factory=list)
     touched_real_capital: bool = False
     live_order_routing: bool = False
+
+    @field_validator("outcome_id", "run_id", "candidate_id", "strategy_family", "symbol", "status")
+    @classmethod
+    def _normalize_identifier(cls, value: str) -> str:
+        return _strip_nonblank(value)
 
     @field_validator("failure_reasons")
     @classmethod
@@ -154,7 +190,17 @@ class ExperimentRun(_StrictEvidenceModel):
     notes: list[str] = Field(default_factory=list)
     live_order_routing: bool = False
 
-    @field_validator("data_sources", "validation_evidence_ids", "paper_outcome_ids", "notes")
+    @field_validator("run_id", "candidate_id", "strategy_family", "status")
+    @classmethod
+    def _normalize_identifier(cls, value: str) -> str:
+        return _strip_nonblank(value)
+
+    @field_validator("data_sources")
+    @classmethod
+    def _normalize_data_sources(cls, values: list[str]) -> list[str]:
+        return _normalize_required_data_sources(values)
+
+    @field_validator("validation_evidence_ids", "paper_outcome_ids", "notes")
     @classmethod
     def _dedupe_string_list(cls, values: list[str]) -> list[str]:
         return _dedupe_nonempty_strings(values)
@@ -168,12 +214,20 @@ class ExperimentRun(_StrictEvidenceModel):
 
 def _stable_validation_evidence_id(data: Mapping[str, Any]) -> str:
     payload = {
-        field: _jsonable_value(data.get(field))
+        field: _canonical_evidence_id_value(field, data.get(field))
         for field in _VALIDATION_EVIDENCE_ID_FIELDS
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
     return f"validation-{digest}"
+
+
+def _canonical_evidence_id_value(field: str, value: Any) -> Any:
+    if field == "blocked_reasons" and _is_string_iterable(value):
+        return _dedupe_nonempty_strings(value)
+    if isinstance(value, str):
+        return value.strip()
+    return _jsonable_value(value)
 
 
 def _jsonable_value(value: Any) -> Any:
@@ -187,6 +241,33 @@ def _jsonable_value(value: Any) -> Any:
     if isinstance(value, Iterable) and not isinstance(value, str | bytes):
         return [_jsonable_value(item) for item in value]
     return value
+
+
+def _strip_nonblank(value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("value must not be blank")
+    return normalized
+
+
+def _normalize_required_data_sources(values: Iterable[str]) -> list[str]:
+    normalized = _dedupe_nonempty_strings(values)
+    if not normalized:
+        raise ValueError("data_sources must include at least one nonblank source")
+    unsafe_sources = [
+        source
+        for source in normalized
+        if any(token in source.lower() for token in _UNSAFE_DATA_SOURCE_TOKENS)
+    ]
+    if unsafe_sources:
+        raise ValueError(f"data_sources include unsafe live-only sources: {', '.join(unsafe_sources)}")
+    return normalized
+
+
+def _is_string_iterable(value: Any) -> bool:
+    return isinstance(value, Iterable) and not isinstance(value, str | bytes) and all(
+        isinstance(item, str) for item in value
+    )
 
 
 def _dedupe_nonempty_strings(values: Iterable[str]) -> list[str]:
