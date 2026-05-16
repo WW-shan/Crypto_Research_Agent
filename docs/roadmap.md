@@ -59,13 +59,14 @@ Implemented:
 Known limits:
 
 - Historical validation currently covers only simple baseline validators, not a
-  broad strategy library or full paper-trading evidence package.
+  broad strategy library.
 - The LLM loop is opt-in and constrained to research contracts; it is not a
   substitute for historical validation or paper evidence.
-- The scheduler is dry-run planning only; there is no deployed daily job,
+- The scheduler is dry-run planning only; there is no production daily job,
   dashboard, or alerting.
-- Paper evidence infrastructure exists, but sustained paper simulation evidence
-  still needs to be collected before any live review.
+- Paper simulation, outcome ledger, evidence reporting, and memory feedback
+  foundations exist, but longer paper evidence collection is still required
+  before any live review.
 - There is no live execution path, no wallet-key access, no exchange order
   routing, and the system should not deploy capital.
 
@@ -179,17 +180,29 @@ historical validation.
 
 Delivered:
 
+- Deterministic `paper-sim-loop` command for the funding extremity plus price
+  confirmation strategy family.
+- Persisted paper outcome ledger for simulated closed and blocked outcomes.
 - Aggregation of persisted paper outcomes into strategy evidence packages.
+- Paper evidence reports attached to the stored-data research loop.
 - Paper eligibility gate that requires sufficient clean evidence before a
   candidate can be considered for paper approval.
 - Failure tracking for paper evidence normalization and eligibility decisions.
+- Paper outcome memory feedback so blocked and failed simulations can inform
+  future research filtering.
 
 Remaining scope:
 
-- Run repeated paper simulations for narrow, charter-compliant strategy families.
+- Add broader charter-compliant strategy families beyond the initial funding
+  extremity plus price confirmation slice.
+- Run longer live paper collection for narrow, charter-compliant strategy
+  families.
 - Produce daily and weekly evidence reports from collected paper outcomes.
 - Expand evidence coverage across fees, slippage, liquidity, stale signals, and
   overfit behavior.
+- Optionally add ordinary public data sources when they improve evidence
+  quality without adding speed-edge, premium infrastructure, or live-trading
+  dependencies.
 
 Completion standard:
 
@@ -223,22 +236,25 @@ Completion standard:
 
 ## Active Next Step
 
-The next practical work is Phase 4 paper simulation and evidence collection,
-plus data-source expansion that can improve slow-to-medium frequency research.
-Do not pivot to speed arbitrage, MEV, premium infrastructure, or high-capital
-strategies.
+The active slice now includes the paper simulation loop, paper outcome ledger,
+paper evidence reports, and paper evidence memory feedback. The next practical
+work is to collect more evidence over time and expand only where it improves
+slow-to-medium frequency research. Do not pivot to speed arbitrage, MEV,
+premium infrastructure, high-capital strategies, or live trading.
 
 Recommended next slice:
 
-1. Run repeated paper simulations for one or two low-capital strategy families
-   that already have conservative historical validation evidence.
-2. Persist enough paper outcomes to exercise the paper evidence aggregation and
-   eligibility gate with realistic pass and fail cases.
-3. Expand ordinary public data coverage where it improves evidence quality:
+1. Broaden strategy-family coverage only after conservative historical
+   validation exists for each family.
+2. Run longer live paper collection for low-capital strategy families that
+   already have conservative historical validation evidence.
+3. Maintain the production daily scheduler gap explicitly; the current scheduler
+   remains a local dry-run planning surface.
+4. Expand ordinary public data coverage where it improves evidence quality:
    additional CCXT venues, funding/open-interest history, DefiLlama
    fundamentals, and DEX liquidity snapshots.
-4. Feed failed paper assumptions and rejected candidates back into memory so the
-   research loop learns what not to retest.
+5. Keep feeding failed paper assumptions and rejected candidates back into
+   memory so the research loop learns what not to retest.
 
 The constraints remain unchanged: low capital measured in a few hundred USD,
 ordinary public APIs/RPC only, no speed edge or speed arbitrage, no MEV or

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from pathlib import Path
 import re
 from typing import Any
 
 from crypto_alpha_agent.agents.hypothesis import AlphaHypothesis, EvidenceBundle
+from crypto_alpha_agent.evidence.models import PaperSimulationOutcome
 from crypto_alpha_agent.memory.store import MemoryRecord, MemoryStore
 from crypto_alpha_agent.orchestrator import DETERMINISTIC_EVENT_TIME_ISO
 from crypto_alpha_agent.pipeline.research_loop import ResearchLoopReport, ValidationSummary
@@ -38,6 +40,31 @@ def persist_research_loop_memory(
     return stored_records
 
 
+def persist_paper_outcome_memory(
+    outcomes: Iterable[PaperSimulationOutcome], memory_path: str | Path
+) -> list[MemoryRecord]:
+    outcome_list = list(outcomes)
+    if not outcome_list:
+        return []
+
+    store = MemoryStore(memory_path)
+    stored_records: list[MemoryRecord] = []
+    for outcome in outcome_list:
+        record = MemoryRecord(
+            record_id=f"paper-outcome:{outcome.run_id}:{outcome.outcome_id}",
+            created_at=DETERMINISTIC_EVENT_TIME_ISO,
+            updated_at=DETERMINISTIC_EVENT_TIME_ISO,
+            opportunity=_paper_opportunity(outcome),
+            hypothesis=_paper_hypothesis(outcome),
+            score=_paper_score(outcome),
+            rejected_reasons=_paper_rejected_reasons(outcome),
+            paper_trade_outcome=outcome.model_dump(mode="json"),
+            tags=_paper_tags(outcome),
+        )
+        stored_records.append(store.upsert(record))
+    return stored_records
+
+
 def _record_id(
     run_id: str, index: int, hypothesis: AlphaHypothesis, curated_hypothesis: dict[str, Any]
 ) -> str:
@@ -47,6 +74,62 @@ def _record_id(
         f"research-loop:{_slug(run_id)}:{index}:"
         f"{_slug(hypothesis.asset)}:{_slug(hypothesis.category)}:{_slug(metric)}:"
         f"{identity_hash}"
+    )
+
+
+def _paper_opportunity(outcome: PaperSimulationOutcome) -> dict[str, Any]:
+    return {
+        "strategy_family": outcome.strategy_family,
+        "symbol": outcome.symbol,
+        "run_id": outcome.run_id,
+        "candidate_id": outcome.candidate_id,
+        "status": outcome.status,
+        "notional_usd": outcome.notional_usd,
+        "uses_real_capital": False,
+        "live_order_routing": False,
+    }
+
+
+def _paper_hypothesis(outcome: PaperSimulationOutcome) -> dict[str, Any]:
+    return {
+        "paper_status": outcome.status,
+        "net_pnl_usd": outcome.net_pnl_usd,
+        "fees_usd": outcome.fees_usd,
+        "slippage_usd": outcome.slippage_usd,
+        "max_drawdown_usd": outcome.max_drawdown_usd,
+        "failure_reasons": list(outcome.failure_reasons),
+    }
+
+
+def _paper_score(outcome: PaperSimulationOutcome) -> dict[str, Any]:
+    return {
+        "entry_price": outcome.entry_price,
+        "exit_price": outcome.exit_price,
+        "quantity": outcome.quantity,
+        "notional_usd": outcome.notional_usd,
+        "gross_pnl_usd": outcome.gross_pnl_usd,
+        "fees_usd": outcome.fees_usd,
+        "slippage_usd": outcome.slippage_usd,
+        "net_pnl_usd": outcome.net_pnl_usd,
+        "max_drawdown_usd": outcome.max_drawdown_usd,
+    }
+
+
+def _paper_rejected_reasons(outcome: PaperSimulationOutcome) -> list[str]:
+    if outcome.status in {"blocked", "failed"}:
+        return list(outcome.failure_reasons)
+    return []
+
+
+def _paper_tags(outcome: PaperSimulationOutcome) -> list[str]:
+    return _unique_non_empty(
+        [
+            "paper-evidence",
+            outcome.strategy_family,
+            _slug(outcome.symbol),
+            outcome.status,
+            outcome.run_id,
+        ]
     )
 
 

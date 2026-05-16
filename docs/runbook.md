@@ -48,6 +48,18 @@ Real network ingestion is for research and paper validation only. It must not su
 
 With ordinary infrastructure and a few hundred USD, the system prioritizes historical data, funding signals, DEX discovery, and DeFi fundamentals. It does not target speed arbitrage, MEV/mempool extraction, sub-second CEX-DEX opportunities, or strategies that depend on premium RPC.
 
+## Safe Research And Paper Memory Workflow
+
+Use this sequence to collect funding-rate history, generate a research report with validation and paper evidence, then feed paper outcomes into memory:
+
+```bash
+uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source ccxt --allow-network --ccxt-feed funding-rate-history --symbol BTC/USDT:USDT --limit 100
+uv run --extra dev crypto-alpha-agent research-loop --db var/research.sqlite --include-validation --include-paper-evidence --report-out var/reports/daily.md
+uv run --extra dev crypto-alpha-agent paper-sim-loop --db var/research.sqlite --strategy-family funding_extremity_price_confirmation --price-symbol BTC/USDT --funding-symbol BTC/USDT:USDT --timeframe 1h --memory var/memory.jsonl
+```
+
+These commands collect public research data, produce local reports, and persist paper-evidence memory records. They do not touch wallets, live order routing, or real capital.
+
 ## Reports
 
 Generate a daily report from persisted observability events:

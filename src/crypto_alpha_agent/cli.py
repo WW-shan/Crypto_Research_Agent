@@ -17,6 +17,7 @@ from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.observability.logging import load_events
 from crypto_alpha_agent.observability.reports import generate_daily_report
 from crypto_alpha_agent.pipeline.markdown import render_research_loop_markdown
+from crypto_alpha_agent.pipeline.memory import persist_paper_outcome_memory
 from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
 from crypto_alpha_agent.pipeline.research_loop import run_stored_research_loop
 from crypto_alpha_agent.scheduler import build_daily_schedule_plan
@@ -191,6 +192,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Require walk-forward validation splits.",
     )
     paper_sim_loop_parser.add_argument("--report-out", type=Path, help="Optional JSON report output path.")
+    paper_sim_loop_parser.add_argument(
+        "--memory",
+        type=Path,
+        help="Optional JSONL memory path for paper outcome feedback records.",
+    )
     paper_sim_loop_parser.set_defaults(handler=_handle_paper_sim_loop, parser=paper_sim_loop_parser)
 
     ingest_parser = subparsers.add_parser(
@@ -607,11 +613,17 @@ def _handle_paper_sim_loop(args: argparse.Namespace) -> dict[str, Any]:
     except ValueError as exc:
         args.parser.error(str(exc))
 
+    memory_records = []
+    if args.memory is not None:
+        memory_records = persist_paper_outcome_memory(report.outcomes, args.memory)
+
     payload = {
         "command": "paper-sim-loop",
         "mode": "paper_simulation_only",
         "uses_real_capital": False,
         "live_order_routing": False,
+        "memory_records_written": len(memory_records),
+        "memory_path": str(args.memory) if args.memory is not None else None,
         "report": report.model_dump(mode="json"),
     }
     if args.report_out is not None:
