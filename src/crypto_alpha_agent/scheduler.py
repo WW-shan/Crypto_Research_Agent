@@ -45,8 +45,20 @@ def build_daily_schedule_plan(
 ) -> DailySchedulePlan:
     if not math.isfinite(current_capital_usd) or current_capital_usd <= 0:
         raise ValueError("current_capital_usd must be finite and positive")
-    if _has_network_ingestion_intent(source=source, symbol=symbol, year=year, month=month) and not allow_network:
-        raise ValueError("--allow-network is required when scheduling network ingestion")
+    if _has_network_ingestion_intent(
+        allow_network=allow_network,
+        source=source,
+        symbol=symbol,
+        year=year,
+        month=month,
+    ):
+        _validate_network_ingestion_args(
+            allow_network=allow_network,
+            source=source,
+            symbol=symbol,
+            year=year,
+            month=month,
+        )
 
     db = str(db_path)
     report = str(report_out)
@@ -87,12 +99,39 @@ def build_daily_schedule_plan(
 
 def _has_network_ingestion_intent(
     *,
+    allow_network: bool,
     source: str | None,
     symbol: str | None,
     year: int | None,
     month: int | None,
 ) -> bool:
-    return bool(source == "binance-public" or symbol is not None or year is not None or month is not None)
+    return bool(allow_network or source is not None or symbol is not None or year is not None or month is not None)
+
+
+def _validate_network_ingestion_args(
+    *,
+    allow_network: bool,
+    source: str | None,
+    symbol: str | None,
+    year: int | None,
+    month: int | None,
+) -> None:
+    if not allow_network:
+        raise ValueError("--allow-network is required when scheduling network ingestion")
+    if source != "binance-public":
+        raise ValueError("--source binance-public is required when scheduling network ingestion")
+
+    missing = [
+        option
+        for option, value in (
+            ("--symbol", symbol),
+            ("--year", year),
+            ("--month", month),
+        )
+        if value is None
+    ]
+    if missing:
+        raise ValueError(f"{', '.join(missing)} required when scheduling network ingestion")
 
 
 def _network_research_loop_args(

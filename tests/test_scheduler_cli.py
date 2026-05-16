@@ -116,6 +116,64 @@ def test_schedule_cli_rejects_network_ingestion_intent_without_gate(capsys, tmp_
     assert not report_path.exists()
 
 
+def test_schedule_cli_rejects_binance_source_without_complete_ingestion_tuple(capsys, tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    report_path = tmp_path / "daily.md"
+
+    with pytest.raises(SystemExit):
+        main(
+            [
+                "schedule",
+                "--dry-run",
+                "--db",
+                str(db_path),
+                "--report-out",
+                str(report_path),
+                "--allow-network",
+                "--source",
+                "binance-public",
+            ]
+        )
+
+    captured = capsys.readouterr()
+    assert "--symbol, --year, --month required" in captured.err
+    assert "Traceback" not in captured.err
+    assert captured.out == ""
+    assert not db_path.exists()
+    assert not report_path.exists()
+
+
+def test_schedule_cli_rejects_network_args_without_binance_source(capsys, tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    report_path = tmp_path / "daily.md"
+
+    with pytest.raises(SystemExit):
+        main(
+            [
+                "schedule",
+                "--dry-run",
+                "--db",
+                str(db_path),
+                "--report-out",
+                str(report_path),
+                "--allow-network",
+                "--symbol",
+                "BTCUSDT",
+                "--year",
+                "2026",
+                "--month",
+                "5",
+            ]
+        )
+
+    captured = capsys.readouterr()
+    assert "--source binance-public is required" in captured.err
+    assert "Traceback" not in captured.err
+    assert captured.out == ""
+    assert not db_path.exists()
+    assert not report_path.exists()
+
+
 def test_schedule_cli_allows_explicit_network_plan_without_live_capital_or_routing(capsys, tmp_path):
     db_path = tmp_path / "research.sqlite"
     report_path = tmp_path / "daily.md"
