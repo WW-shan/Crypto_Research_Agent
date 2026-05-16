@@ -287,8 +287,7 @@ def _canonical_evidence_id_value(field: str, value: Any) -> Any:
     if field == "blocked_reasons":
         if value is None:
             return ()
-        if _is_string_iterable(value):
-            return _dedupe_nonempty_strings(value)
+        return _dedupe_nonempty_strings(value)
     if isinstance(value, str):
         return value.strip()
     return _jsonable_value(value)
@@ -363,12 +362,6 @@ def _thaw_json_safe_value(value: Any) -> Any:
     if isinstance(value, tuple):
         return [_thaw_json_safe_value(item) for item in value]
     return value
-
-
-def _is_string_iterable(value: Any) -> bool:
-    return isinstance(value, Iterable) and not isinstance(value, str | bytes) and all(
-        isinstance(item, str) for item in value
-    )
 
 
 def _dedupe_nonempty_strings(values: Iterable[str]) -> StringTuple:

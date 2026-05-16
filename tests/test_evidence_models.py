@@ -344,6 +344,11 @@ def test_optional_string_collections_reject_none_with_validation_error():
         ExperimentRun(**_experiment_run_kwargs(validation_evidence_ids=None))
 
 
+def test_validation_evidence_rejects_non_string_blocked_reason_with_validation_error():
+    with pytest.raises(ValidationError):
+        ValidationEvidence(**_validation_evidence_kwargs(blocked_reasons=[object()]))
+
+
 @pytest.mark.parametrize("source_name", ["private_rpc", "premium_rpc", "eth_mempool", "mev_stream"])
 def test_strategy_candidate_rejects_unsafe_data_sources(source_name):
     with pytest.raises(ValidationError):
