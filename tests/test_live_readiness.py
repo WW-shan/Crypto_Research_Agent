@@ -53,9 +53,9 @@ def test_generates_review_ready_artifact_without_enabling_live_execution():
     assert artifact.ready_for_human_review is True
     assert artifact.live_execution_enabled is False
     assert artifact.required_action_mode == "gated_live_review_only"
-    assert artifact.reason_codes == []
-    assert artifact.rollout_reason_codes == []
-    assert artifact.paper_failure_reasons == []
+    assert artifact.reason_codes == ()
+    assert artifact.rollout_reason_codes == ()
+    assert artifact.paper_failure_reasons == ()
     assert artifact.max_notional_usd == 25.0
     assert artifact.max_daily_loss_usd == 10.0
     assert artifact.human_approval_reference == "approval-2026-05-16"
@@ -63,6 +63,53 @@ def test_generates_review_ready_artifact_without_enabling_live_execution():
     checklist_by_code = {item.code: item for item in artifact.checklist_items}
     assert checklist_by_code["paper_evidence_positive_clean"].status == "pass"
     assert checklist_by_code["human_approval_recorded"].status == "pass"
+
+
+def test_padded_requested_strategy_family_is_normalized_before_comparison():
+    from crypto_alpha_agent.evidence.live_readiness import generate_tiny_live_readiness_artifact
+
+    artifact = generate_tiny_live_readiness_artifact(
+        strategy_family="  funding_basis  ",
+        rollout_evaluation=_passing_rollout(),
+        paper_evidence=_clean_paper(),
+        human_approved=True,
+        human_approval_reference="approval-2026-05-16",
+    )
+
+    assert artifact.strategy_family == "funding_basis"
+    assert artifact.ready_for_human_review is True
+    assert "strategy_family_mismatch" not in artifact.reason_codes
+
+
+def test_blank_requested_strategy_family_is_rejected():
+    from crypto_alpha_agent.evidence.live_readiness import (
+        TinyLiveReadinessArtifact,
+        generate_tiny_live_readiness_artifact,
+    )
+
+    with pytest.raises(ValidationError):
+        generate_tiny_live_readiness_artifact(
+            strategy_family="   ",
+            rollout_evaluation=_passing_rollout(),
+            paper_evidence=_clean_paper(),
+            human_approved=True,
+            human_approval_reference="approval-2026-05-16",
+        )
+
+    with pytest.raises(ValidationError):
+        TinyLiveReadinessArtifact(
+            strategy_family="   ",
+            ready_for_human_review=False,
+            live_execution_enabled=False,
+            required_action_mode="gated_live_review_only",
+            reason_codes=[],
+            checklist_items=[],
+            rollout_reason_codes=[],
+            paper_failure_reasons=[],
+            max_notional_usd=25.0,
+            max_daily_loss_usd=10.0,
+            human_approval_reference=None,
+        )
 
 
 def test_blocks_readiness_with_deterministic_reasons_and_checklist_details():
@@ -87,15 +134,15 @@ def test_blocks_readiness_with_deterministic_reasons_and_checklist_details():
 
     assert artifact.ready_for_human_review is False
     assert artifact.live_execution_enabled is False
-    assert artifact.reason_codes == [
+    assert artifact.reason_codes == (
         "rollout_gates_not_passed",
         "paper_evidence_failed",
         "insufficient_paper_sample",
         "human_approval_missing",
         "strategy_family_mismatch",
-    ]
-    assert artifact.rollout_reason_codes == ["insufficient_sample_size"]
-    assert artifact.paper_failure_reasons == ["paper_order_rejected"]
+    )
+    assert artifact.rollout_reason_codes == ("insufficient_sample_size",)
+    assert artifact.paper_failure_reasons == ("paper_order_rejected",)
 
     checklist_by_code = {item.code: item for item in artifact.checklist_items}
     assert checklist_by_code["rollout_gates_passed"].status == "fail"
@@ -145,9 +192,9 @@ def test_human_approval_requires_boolean_true_and_nonblank_reference():
     )
 
     assert string_approved_artifact.ready_for_human_review is False
-    assert string_approved_artifact.reason_codes == ["human_approval_missing"]
+    assert string_approved_artifact.reason_codes == ("human_approval_missing",)
     assert blank_reference_artifact.ready_for_human_review is False
-    assert blank_reference_artifact.reason_codes == ["human_approval_missing"]
+    assert blank_reference_artifact.reason_codes == ("human_approval_missing",)
     assert blank_reference_artifact.human_approval_reference is None
 
 
@@ -177,6 +224,71 @@ def test_evidence_package_exports_live_readiness_artifact_api():
 
     assert TinyLiveReadinessArtifact is DirectArtifact
     assert generate_tiny_live_readiness_artifact is direct_generate
+
+
+def test_readiness_artifact_rejects_direct_contradictory_construction():
+    from crypto_alpha_agent.evidence.live_readiness import (
+        TinyLiveReadinessArtifact,
+        TinyLiveReadinessChecklistItem,
+    )
+
+    with pytest.raises(ValidationError):
+        TinyLiveReadinessArtifact(
+            strategy_family="funding_basis",
+            ready_for_human_review=True,
+            live_execution_enabled=False,
+            required_action_mode="gated_live_review_only",
+            reason_codes=["human_approval_missing"],
+            checklist_items=[],
+            rollout_reason_codes=[],
+            paper_failure_reasons=[],
+            max_notional_usd=25.0,
+            max_daily_loss_usd=10.0,
+            human_approval_reference=None,
+        )
+
+    with pytest.raises(ValidationError):
+        TinyLiveReadinessArtifact(
+            strategy_family="funding_basis",
+            ready_for_human_review=True,
+            live_execution_enabled=False,
+            required_action_mode="gated_live_review_only",
+            reason_codes=[],
+            checklist_items=[
+                TinyLiveReadinessChecklistItem(
+                    code="human_approval_recorded",
+                    name="Human approval recorded",
+                    status="fail",
+                    detail="Human approval and reference are required before review readiness.",
+                )
+            ],
+            rollout_reason_codes=[],
+            paper_failure_reasons=[],
+            max_notional_usd=25.0,
+            max_daily_loss_usd=10.0,
+            human_approval_reference=None,
+        )
+
+
+def test_readiness_models_are_frozen_and_collections_are_immutable():
+    from crypto_alpha_agent.evidence.live_readiness import generate_tiny_live_readiness_artifact
+
+    artifact = generate_tiny_live_readiness_artifact(
+        strategy_family="funding_basis",
+        rollout_evaluation=_passing_rollout(),
+        paper_evidence=_clean_paper(),
+        human_approved=True,
+        human_approval_reference="approval-2026-05-16",
+    )
+
+    with pytest.raises(ValidationError):
+        artifact.ready_for_human_review = False
+
+    with pytest.raises(AttributeError):
+        artifact.reason_codes.append("human_approval_missing")  # type: ignore[attr-defined]
+
+    with pytest.raises(ValidationError):
+        artifact.checklist_items[0].status = "fail"
 
 
 def test_readiness_models_are_strict_and_reject_extra_fields():

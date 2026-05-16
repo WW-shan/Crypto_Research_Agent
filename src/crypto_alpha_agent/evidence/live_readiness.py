@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 
 from crypto_alpha_agent.evidence.paper import PaperEvidencePackage
 from crypto_alpha_agent.risk.rollout import RolloutEvaluation, RolloutReasonCode
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 ReadinessReasonCode = Literal[
     "rollout_gates_not_passed",
@@ -20,7 +20,7 @@ NonNegativeFiniteFloat = Annotated[float, Field(strict=True, ge=0, allow_inf_nan
 
 
 class TinyLiveReadinessChecklistItem(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False, frozen=True)
 
     code: str = Field(min_length=1)
     name: str = Field(min_length=1)
@@ -28,20 +28,65 @@ class TinyLiveReadinessChecklistItem(BaseModel):
     detail: str = Field(min_length=1)
 
 
-class TinyLiveReadinessArtifact(BaseModel):
+class _TinyLiveReadinessRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+
+    strategy_family: str = Field(min_length=1)
+
+    @field_validator("strategy_family")
+    @classmethod
+    def _normalize_strategy_family(cls, strategy_family: str) -> str:
+        normalized = strategy_family.strip()
+        if not normalized:
+            raise ValueError("strategy_family must not be blank")
+        return normalized
+
+
+class TinyLiveReadinessArtifact(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False, frozen=True)
 
     strategy_family: str = Field(min_length=1)
     ready_for_human_review: bool
     live_execution_enabled: Literal[False] = False
     required_action_mode: RequiredActionMode = "gated_live_review_only"
-    reason_codes: list[ReadinessReasonCode] = Field(default_factory=list)
-    checklist_items: list[TinyLiveReadinessChecklistItem] = Field(default_factory=list)
-    rollout_reason_codes: list[RolloutReasonCode] = Field(default_factory=list)
-    paper_failure_reasons: list[str] = Field(default_factory=list)
+    reason_codes: tuple[ReadinessReasonCode, ...] = Field(default_factory=tuple)
+    checklist_items: tuple[TinyLiveReadinessChecklistItem, ...] = Field(default_factory=tuple)
+    rollout_reason_codes: tuple[RolloutReasonCode, ...] = Field(default_factory=tuple)
+    paper_failure_reasons: tuple[str, ...] = Field(default_factory=tuple)
     max_notional_usd: NonNegativeFiniteFloat
     max_daily_loss_usd: NonNegativeFiniteFloat
     human_approval_reference: str | None = None
+
+    @field_validator("strategy_family")
+    @classmethod
+    def _normalize_strategy_family(cls, strategy_family: str) -> str:
+        normalized = strategy_family.strip()
+        if not normalized:
+            raise ValueError("strategy_family must not be blank")
+        return normalized
+
+    @field_validator(
+        "reason_codes",
+        "checklist_items",
+        "rollout_reason_codes",
+        "paper_failure_reasons",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_lists_to_tuples(cls, value: Any) -> Any:
+        if isinstance(value, list):
+            return tuple(value)
+        return value
+
+    @model_validator(mode="after")
+    def _reject_ready_contradictions(self) -> Self:
+        if not self.ready_for_human_review:
+            return self
+        if self.reason_codes:
+            raise ValueError("ready_for_human_review cannot be true when reason_codes is non-empty")
+        if any(item.status == "fail" for item in self.checklist_items):
+            raise ValueError("ready_for_human_review cannot be true when checklist_items contains a fail item")
+        return self
 
 
 def generate_tiny_live_readiness_artifact(
@@ -54,6 +99,7 @@ def generate_tiny_live_readiness_artifact(
     max_notional_usd: float = 25.0,
     max_daily_loss_usd: float = 10.0,
 ) -> TinyLiveReadinessArtifact:
+    request = _TinyLiveReadinessRequest(strategy_family=strategy_family)
     rollout = (
         rollout_evaluation
         if isinstance(rollout_evaluation, RolloutEvaluation)
@@ -83,7 +129,7 @@ def generate_tiny_live_readiness_artifact(
         else None
     )
     human_approval_recorded = human_approved is True and approval_reference is not None
-    strategy_matches = paper.strategy_family == strategy_family
+    strategy_matches = paper.strategy_family == request.strategy_family
 
     reason_codes: list[ReadinessReasonCode] = []
     if not rollout_passed:
@@ -153,25 +199,25 @@ def generate_tiny_live_readiness_artifact(
             name="Strategy family matches",
             status="pass" if strategy_matches else "fail",
             detail=(
-                f"Evidence strategy family matches requested family {strategy_family}."
+                f"Evidence strategy family matches requested family {request.strategy_family}."
                 if strategy_matches
                 else (
                     "Evidence strategy family mismatch: "
-                    f"requested={strategy_family}, evidence={paper.strategy_family}."
+                    f"requested={request.strategy_family}, evidence={paper.strategy_family}."
                 )
             ),
         ),
     ]
 
     return TinyLiveReadinessArtifact(
-        strategy_family=strategy_family,
+        strategy_family=request.strategy_family,
         ready_for_human_review=not reason_codes,
         live_execution_enabled=False,
         required_action_mode="gated_live_review_only",
-        reason_codes=reason_codes,
-        checklist_items=checklist_items,
-        rollout_reason_codes=list(rollout.reason_codes),
-        paper_failure_reasons=list(paper.failure_reasons),
+        reason_codes=tuple(reason_codes),
+        checklist_items=tuple(checklist_items),
+        rollout_reason_codes=tuple(rollout.reason_codes),
+        paper_failure_reasons=tuple(paper.failure_reasons),
         max_notional_usd=max_notional_usd,
         max_daily_loss_usd=max_daily_loss_usd,
         human_approval_reference=approval_reference,
