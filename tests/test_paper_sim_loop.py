@@ -10,6 +10,7 @@ import pytest
 from crypto_alpha_agent.data.models import FundingRateRecord, MarketCandle, SourceRecord
 from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
+from crypto_alpha_agent.memory.store import MemoryStore
 
 
 def _candle(hour: int, close: float) -> MarketCandle:
@@ -398,6 +399,56 @@ def test_cli_paper_sim_loop_outputs_json_and_persists_ledger(tmp_path):
     assert payload["report"]["notional_usd"] == 25.0
     assert len(loaded) == payload["report"]["outcome_count"]
     assert report_payload == payload
+
+
+def test_cli_paper_sim_loop_memory_writes_records_and_outputs_metadata(tmp_path):
+    db_path = _write_happy_path_fixture(tmp_path)
+    memory_path = tmp_path / "paper-memory.jsonl"
+
+    result = _run_cli(
+        "paper-sim-loop",
+        "--db",
+        str(db_path),
+        "--strategy-family",
+        "funding_extremity_price_confirmation",
+        "--price-symbol",
+        "BTC/USDT",
+        "--funding-symbol",
+        "BTC/USDT:USDT",
+        "--timeframe",
+        "1h",
+        "--run-id",
+        "cli-paper-memory",
+        "--current-capital-usd",
+        "30",
+        "--notional-usd",
+        "100",
+        "--threshold-abs",
+        "0.0005",
+        "--hold-bars",
+        "2",
+        "--fee-rate",
+        "0.001",
+        "--slippage-rate",
+        "0.0005",
+        "--min-trades",
+        "2",
+        "--no-require-walk-forward",
+        "--memory",
+        str(memory_path),
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    records = MemoryStore(memory_path).list_records()
+
+    assert "memory_records_written" in payload
+    assert "memory_path" in payload
+    assert payload["memory_records_written"] == 3
+    assert payload["memory_path"] == str(memory_path)
+    assert len(records) == payload["memory_records_written"]
+    assert {record.paper_trade_outcome["run_id"] for record in records} == {"cli-paper-memory"}
+    assert all(record.opportunity["notional"] == 25.0 for record in records)
 
 
 def test_cli_paper_sim_loop_accepts_zero_capital_and_notional(tmp_path):

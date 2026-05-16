@@ -84,6 +84,7 @@ def _paper_opportunity(outcome: PaperSimulationOutcome) -> dict[str, Any]:
         "run_id": outcome.run_id,
         "candidate_id": outcome.candidate_id,
         "status": outcome.status,
+        "notional": outcome.notional_usd,
         "notional_usd": outcome.notional_usd,
         "uses_real_capital": False,
         "live_order_routing": False,
