@@ -17,6 +17,7 @@ from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.observability.logging import load_events
 from crypto_alpha_agent.observability.reports import generate_daily_report
 from crypto_alpha_agent.pipeline.markdown import render_research_loop_markdown
+from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
 from crypto_alpha_agent.pipeline.research_loop import run_stored_research_loop
 from crypto_alpha_agent.scheduler import build_daily_schedule_plan
 
@@ -120,6 +121,72 @@ def build_parser() -> argparse.ArgumentParser:
     )
     research_loop_parser.add_argument("--report-out", type=Path, help="Optional Markdown report output path.")
     research_loop_parser.set_defaults(handler=_handle_research_loop, parser=research_loop_parser)
+
+    paper_sim_loop_parser = subparsers.add_parser(
+        "paper-sim-loop",
+        help="Run deterministic paper simulation outcomes from stored validation data.",
+    )
+    paper_sim_loop_parser.add_argument(
+        "--db",
+        required=True,
+        type=Path,
+        help="Path to the SQLite research data store.",
+    )
+    paper_sim_loop_parser.add_argument("--strategy-family", required=True, help="Strategy family to simulate.")
+    paper_sim_loop_parser.add_argument("--price-symbol", required=True, help="Stored market candle symbol.")
+    paper_sim_loop_parser.add_argument("--funding-symbol", required=True, help="Stored funding-rate symbol.")
+    paper_sim_loop_parser.add_argument("--timeframe", required=True, help="Stored market candle timeframe.")
+    paper_sim_loop_parser.add_argument("--run-id", help="Optional paper simulation run identifier.")
+    paper_sim_loop_parser.add_argument(
+        "--current-capital-usd",
+        type=_positive_finite_float,
+        default=300.0,
+        help="Operator capital profile used to cap paper notional.",
+    )
+    paper_sim_loop_parser.add_argument(
+        "--notional-usd",
+        type=_positive_finite_float,
+        default=25.0,
+        help="Requested per-trade paper notional before low-capital caps.",
+    )
+    paper_sim_loop_parser.add_argument(
+        "--threshold-abs",
+        type=_positive_finite_float,
+        default=0.0005,
+        help="Absolute funding-rate threshold for an extreme signal.",
+    )
+    paper_sim_loop_parser.add_argument(
+        "--hold-bars",
+        type=_positive_int,
+        default=1,
+        help="Number of price bars to hold each paper simulation outcome.",
+    )
+    paper_sim_loop_parser.add_argument(
+        "--fee-rate",
+        type=_non_negative_finite_float,
+        default=0.001,
+        help="One-way fee rate charged on entry and exit.",
+    )
+    paper_sim_loop_parser.add_argument(
+        "--slippage-rate",
+        type=_non_negative_finite_float,
+        default=0.0005,
+        help="One-way slippage rate charged on entry and exit.",
+    )
+    paper_sim_loop_parser.add_argument(
+        "--min-trades",
+        type=_non_negative_int,
+        default=3,
+        help="Minimum generated trade count required by validation.",
+    )
+    paper_sim_loop_parser.add_argument(
+        "--require-walk-forward",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Require walk-forward validation splits.",
+    )
+    paper_sim_loop_parser.add_argument("--report-out", type=Path, help="Optional JSON report output path.")
+    paper_sim_loop_parser.set_defaults(handler=_handle_paper_sim_loop, parser=paper_sim_loop_parser)
 
     ingest_parser = subparsers.add_parser(
         "ingest",
@@ -262,6 +329,26 @@ def _positive_finite_float(raw_value: str) -> float:
         raise argparse.ArgumentTypeError(f"invalid finite positive capital: {raw_value!r}") from exc
     if not math.isfinite(value) or value <= 0:
         raise argparse.ArgumentTypeError(f"invalid finite positive capital: {raw_value!r}")
+    return value
+
+
+def _non_negative_int(raw_value: str) -> int:
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid non-negative integer: {raw_value!r}") from exc
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"invalid non-negative integer: {raw_value!r}")
+    return value
+
+
+def _non_negative_finite_float(raw_value: str) -> float:
+    try:
+        value = float(raw_value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid finite non-negative value: {raw_value!r}") from exc
+    if not math.isfinite(value) or value < 0:
+        raise argparse.ArgumentTypeError(f"invalid finite non-negative value: {raw_value!r}")
     return value
 
 
@@ -489,6 +576,42 @@ def _handle_ingest(args: argparse.Namespace) -> dict[str, Any]:
     }
     if ingestion is not None:
         payload["ingestion"] = ingestion.model_dump(mode="json")
+    return payload
+
+
+def _handle_paper_sim_loop(args: argparse.Namespace) -> dict[str, Any]:
+    _require_existing_sqlite_db(args.parser, args.db)
+    try:
+        report = run_paper_sim_loop(
+            args.db,
+            run_id=args.run_id,
+            strategy_family=args.strategy_family,
+            price_symbol=args.price_symbol,
+            funding_symbol=args.funding_symbol,
+            timeframe=args.timeframe,
+            current_capital_usd=args.current_capital_usd,
+            notional_usd=args.notional_usd,
+            threshold_abs=args.threshold_abs,
+            hold_bars=args.hold_bars,
+            fee_rate=args.fee_rate,
+            slippage_rate=args.slippage_rate,
+            min_trades=args.min_trades,
+            require_walk_forward=args.require_walk_forward,
+        )
+    except ValueError as exc:
+        args.parser.error(str(exc))
+
+    payload = {
+        "command": "paper-sim-loop",
+        "mode": "paper_simulation_only",
+        "uses_real_capital": False,
+        "live_order_routing": False,
+        "report": report.model_dump(mode="json"),
+    }
+    if args.report_out is not None:
+        payload["report_artifact"] = str(args.report_out)
+        args.report_out.parent.mkdir(parents=True, exist_ok=True)
+        args.report_out.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
     return payload
 
 
