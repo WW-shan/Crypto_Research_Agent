@@ -48,6 +48,16 @@ def test_research_loop_can_include_historical_validation_summary(tmp_path):
     assert summary.fee_adjusted_expectancy is not None
 
 
+def test_research_loop_validation_summary_respects_loaded_record_limit(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    _store_momentum_candles(db_path)
+
+    report = run_stored_research_loop(db_path, include_validation=True, limit=1)
+
+    assert report.loaded_records == 1
+    assert report.validation_summaries == []
+
+
 def test_research_loop_cli_markdown_includes_validation_section(capsys, tmp_path):
     db_path = tmp_path / "research.sqlite"
     report_path = tmp_path / "report.md"

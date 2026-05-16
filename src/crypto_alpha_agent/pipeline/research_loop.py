@@ -13,7 +13,7 @@ from crypto_alpha_agent.agents.scanner import ScannerSignal
 from crypto_alpha_agent.data.models import MarketCandle, RecordType, SourceRecord
 from crypto_alpha_agent.data.scanner_bridge import records_to_scanner_signals
 from crypto_alpha_agent.data.store import ResearchDataStore
-from crypto_alpha_agent.validation.market_history import load_candle_history
+from crypto_alpha_agent.validation.market_history import CandleBar
 from crypto_alpha_agent.validation.momentum import MomentumValidationResult, validate_close_momentum
 
 
@@ -97,9 +97,7 @@ def run_stored_research_loop(
         anomalies=anomalies,
         hypotheses=hypotheses,
         notes=notes,
-        validation_summaries=(
-            _validation_summaries(db_path, records, source=source) if include_validation else []
-        ),
+        validation_summaries=_validation_summaries(records) if include_validation else [],
     )
 
 
@@ -114,30 +112,20 @@ def _notes(records: list[SourceRecord], signals: list[ScannerSignal]) -> list[st
     return notes
 
 
-def _validation_summaries(
-    db_path: str | Path,
-    records: list[SourceRecord],
-    *,
-    source: str | None,
-) -> list[ValidationSummary]:
-    groups: dict[tuple[str, str], list[SourceRecord]] = defaultdict(list)
+def _validation_summaries(records: list[SourceRecord]) -> list[ValidationSummary]:
+    groups: dict[tuple[str, str], list[CandleBar]] = defaultdict(list)
     for record in records:
         if record.record_type != "market_candle":
             continue
         candle = MarketCandle.model_validate_json(json.dumps(record.payload))
-        groups[(candle.symbol, candle.timeframe)].append(record)
+        groups[(candle.symbol, candle.timeframe)].append(_candle_bar(candle))
 
     summaries: list[ValidationSummary] = []
     for symbol, timeframe in sorted(groups):
-        if source is None:
-            bars = load_candle_history(db_path, symbol=symbol, timeframe=timeframe)
-        else:
-            bars = load_candle_history(
-                db_path,
-                symbol=symbol,
-                timeframe=timeframe,
-                source=source,
-            )
+        bars = sorted(
+            groups[(symbol, timeframe)],
+            key=lambda bar: (bar.timestamp, bar.source, bar.venue, bar.symbol),
+        )
         if len(bars) < 2:
             continue
 
@@ -147,6 +135,21 @@ def _validation_summaries(
             )
         )
     return summaries
+
+
+def _candle_bar(candle: MarketCandle) -> CandleBar:
+    return CandleBar(
+        source=candle.source,
+        venue=candle.venue,
+        symbol=candle.symbol,
+        timestamp=candle.timestamp,
+        timeframe=candle.timeframe,
+        open=candle.open,
+        high=candle.high,
+        low=candle.low,
+        close=candle.close,
+        volume=candle.volume,
+    )
 
 
 def _summary_from_momentum_result(result: MomentumValidationResult) -> ValidationSummary:
