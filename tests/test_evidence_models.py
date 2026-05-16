@@ -122,6 +122,42 @@ def test_validation_evidence_blocks_when_walk_forward_is_missing():
     assert "insufficient_walk_forward_splits" in evidence.blocked_reasons
 
 
+@pytest.mark.parametrize("walk_forward_pass_rate", [-0.01, 1.01])
+def test_validation_evidence_rejects_invalid_walk_forward_pass_rate(walk_forward_pass_rate):
+    with pytest.raises(ValidationError):
+        ValidationEvidence(**_validation_evidence_kwargs(walk_forward_pass_rate=walk_forward_pass_rate))
+
+
+def test_validation_evidence_rejects_approval_without_walk_forward_splits():
+    with pytest.raises(ValidationError):
+        ValidationEvidence(
+            **_validation_evidence_kwargs(
+                approved=True,
+                blocked_reasons=[],
+                walk_forward_split_count=0,
+            )
+        )
+
+
+def test_validation_evidence_rejects_approval_with_blocked_reasons():
+    with pytest.raises(ValidationError):
+        ValidationEvidence(
+            **_validation_evidence_kwargs(
+                approved=True,
+                blocked_reasons=["insufficient_walk_forward_splits"],
+                walk_forward_split_count=1,
+            )
+        )
+
+
+def test_validation_evidence_rejects_identity_assignment():
+    evidence = ValidationEvidence(**_validation_evidence_kwargs())
+
+    with pytest.raises(ValidationError):
+        evidence.trade_count = 13
+    assert evidence.trade_count == 12
+
+
 def test_paper_simulation_outcome_cannot_touch_live_capital():
     with pytest.raises(ValidationError):
         PaperSimulationOutcome(**_paper_simulation_outcome_kwargs(touched_real_capital=True))
@@ -187,6 +223,21 @@ def test_paper_simulation_outcome_rejects_unsafe_assignment():
 def test_strategy_candidate_rejects_unsafe_data_sources(source_name):
     with pytest.raises(ValidationError):
         StrategyCandidate(**_strategy_candidate_kwargs(data_sources=[source_name]))
+
+
+@pytest.mark.parametrize(
+    "source_name",
+    ["private-rpc", "private rpc", "premium-rpc", "premium rpc", "mem-pool"],
+)
+def test_strategy_candidate_rejects_unsafe_data_source_separator_variants(source_name):
+    with pytest.raises(ValidationError):
+        StrategyCandidate(**_strategy_candidate_kwargs(data_sources=[source_name]))
+
+
+@pytest.mark.parametrize("parameters", [{"bad": object()}, {"nested": [float("nan")]}])
+def test_strategy_candidate_rejects_non_json_safe_parameters(parameters):
+    with pytest.raises(ValidationError):
+        StrategyCandidate(**_strategy_candidate_kwargs(parameters=parameters))
 
 
 def test_strategy_candidate_rejects_blank_scalar_identifier():

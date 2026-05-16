@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 from typing import Annotated, Any, Literal, Self
@@ -11,8 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 ExecutionMode = Literal["research_and_paper_only"]
 FiniteFloat = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 NonNegativeFiniteFloat = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
-_UNSET = object()
-_UNSAFE_DATA_SOURCE_TOKENS = ("private_rpc", "premium_rpc", "mempool", "mev")
+PassRate = Annotated[float, Field(strict=True, ge=0, le=1, allow_inf_nan=False)]
+_UNSAFE_DATA_SOURCE_TOKENS = ("privaterpc", "premiumrpc", "mempool", "mev")
 
 _VALIDATION_EVIDENCE_ID_FIELDS = (
     "strategy_family",
@@ -38,16 +39,8 @@ class _StrictEvidenceModel(BaseModel):
         strict=True,
         allow_inf_nan=False,
         validate_assignment=True,
+        frozen=True,
     )
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        old_value = getattr(self, name, _UNSET)
-        try:
-            super().__setattr__(name, value)
-        except Exception:
-            if name in type(self).model_fields and old_value is not _UNSET:
-                object.__setattr__(self, name, old_value)
-            raise
 
 
 class StrategyCandidate(_StrictEvidenceModel):
@@ -76,6 +69,11 @@ class StrategyCandidate(_StrictEvidenceModel):
     @classmethod
     def _normalize_data_sources(cls, values: list[str]) -> list[str]:
         return _normalize_required_data_sources(values)
+
+    @field_validator("parameters")
+    @classmethod
+    def _validate_parameters(cls, parameters: dict[str, Any]) -> dict[str, Any]:
+        return _validate_json_safe_parameters(parameters)
 
     @field_validator("blocked_reasons")
     @classmethod
@@ -111,7 +109,7 @@ class ValidationEvidence(_StrictEvidenceModel):
     slippage_adjusted_expectancy: FiniteFloat
     max_drawdown: NonNegativeFiniteFloat
     walk_forward_split_count: int = Field(ge=0)
-    walk_forward_pass_rate: FiniteFloat
+    walk_forward_pass_rate: PassRate
     approved: bool
     blocked_reasons: list[str] = Field(default_factory=list)
 
@@ -132,6 +130,16 @@ class ValidationEvidence(_StrictEvidenceModel):
     @classmethod
     def _dedupe_blocked_reasons(cls, reasons: list[str]) -> list[str]:
         return _dedupe_nonempty_strings(reasons)
+
+    @model_validator(mode="after")
+    def _reject_approval_contradictions(self) -> Self:
+        if not self.approved:
+            return self
+        if self.walk_forward_split_count == 0:
+            raise ValueError("approved validation evidence requires walk-forward splits")
+        if self.blocked_reasons:
+            raise ValueError("approved validation evidence cannot include blocked_reasons")
+        return self
 
 
 class PaperSimulationOutcome(_StrictEvidenceModel):
@@ -260,11 +268,42 @@ def _normalize_required_data_sources(values: Iterable[str]) -> list[str]:
     unsafe_sources = [
         source
         for source in normalized
-        if any(token in source.lower() for token in _UNSAFE_DATA_SOURCE_TOKENS)
+        if any(token in _data_source_safety_key(source) for token in _UNSAFE_DATA_SOURCE_TOKENS)
     ]
     if unsafe_sources:
         raise ValueError(f"data_sources include unsafe live-only sources: {', '.join(unsafe_sources)}")
     return normalized
+
+
+def _data_source_safety_key(source: str) -> str:
+    return "".join(character for character in source.lower() if character.isalnum())
+
+
+def _validate_json_safe_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
+    _validate_json_safe_value(parameters)
+    return parameters
+
+
+def _validate_json_safe_value(value: Any) -> None:
+    if value is None or isinstance(value, str | bool):
+        return
+    if isinstance(value, int):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("parameters must contain only finite floats")
+        return
+    if isinstance(value, list):
+        for item in value:
+            _validate_json_safe_value(item)
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValueError("parameters must use string keys")
+            _validate_json_safe_value(item)
+        return
+    raise ValueError("parameters must contain only JSON-safe values")
 
 
 def _is_string_iterable(value: Any) -> bool:
