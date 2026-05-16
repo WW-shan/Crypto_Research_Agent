@@ -50,13 +50,16 @@ With ordinary infrastructure and a few hundred USD, the system prioritizes histo
 
 ## Safe Research And Paper Memory Workflow
 
-Use this sequence to collect funding-rate history, generate a research report with validation and paper evidence, then feed paper outcomes into memory:
+Use this sequence to collect OHLCV price candles and funding-rate history, run the paper loop so it writes ledger and memory, then generate a research report with validation and paper evidence:
 
 ```bash
+uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source ccxt --allow-network --ccxt-feed ohlcv --symbol BTC/USDT --timeframe 1h --limit 100
 uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source ccxt --allow-network --ccxt-feed funding-rate-history --symbol BTC/USDT:USDT --limit 100
-uv run --extra dev crypto-alpha-agent research-loop --db var/research.sqlite --include-validation --include-paper-evidence --report-out var/reports/daily.md
 uv run --extra dev crypto-alpha-agent paper-sim-loop --db var/research.sqlite --strategy-family funding_extremity_price_confirmation --price-symbol BTC/USDT --funding-symbol BTC/USDT:USDT --timeframe 1h --memory var/memory.jsonl
+uv run --extra dev crypto-alpha-agent research-loop --db var/research.sqlite --include-validation --include-paper-evidence --report-out var/reports/daily.md
 ```
+
+The paper simulation loop needs OHLCV price bars as well as funding history. If you ingest only funding-rate history and skip OHLCV, the paper loop will fail closed or block the candidate, for example with `insufficient_price_bars`. That is the safe behavior, but it will not produce useful closed paper outcomes for the report.
 
 These commands collect public research data, produce local reports, and persist paper-evidence memory records. They do not touch wallets, live order routing, or real capital.
 
