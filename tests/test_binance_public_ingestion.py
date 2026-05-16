@@ -54,3 +54,13 @@ def test_parses_microsecond_open_time_after_2025():
     candles = client.download_monthly_spot_klines("BTCUSDT", "1h", 2026, 5)
 
     assert candles[0].timestamp == datetime.fromtimestamp(1747353600, tz=UTC)
+
+
+def test_normalizes_stablecoin_quote_suffixes_before_usd_suffix():
+    csv_text = "1747353600000,65000,65100,64900,65050,123.4,1747357199999,0,0,0,0,0\n"
+    session = FakeSession(_zip_csv("DOGEFDUSD-1h-2026-05.csv", csv_text))
+    client = BinancePublicDataClient(session=session)
+
+    candles = client.download_monthly_spot_klines("DOGEFDUSD", "1h", 2026, 5)
+
+    assert candles[0].symbol == "DOGE/FDUSD"

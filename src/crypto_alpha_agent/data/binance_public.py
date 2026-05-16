@@ -92,7 +92,7 @@ def _normalize_symbol(symbol: str) -> str:
         base, quote = upper_symbol.split("/", 1)
         return f"{base}/{quote}"
 
-    for quote in ("USDT", "USDC", "USD", "BTC", "ETH"):
+    for quote in ("FDUSD", "USDT", "USDC", "BUSD", "TUSD", "USD", "BTC", "ETH"):
         if upper_symbol.endswith(quote) and len(upper_symbol) > len(quote):
             return f"{upper_symbol[: -len(quote)]}/{quote}"
     return upper_symbol
