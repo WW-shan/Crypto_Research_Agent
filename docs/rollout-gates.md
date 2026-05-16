@@ -22,10 +22,13 @@ The default `RolloutPolicy` is intentionally fail-closed:
 Eligibility requires all gates to pass. Missing data blocks rollout instead of
 being treated as neutral evidence.
 
-Passing these gates is a prerequisite for generating a tiny-live readiness
-artifact from `src/crypto_alpha_agent/evidence/live_readiness.py`. The artifact
-is a review artifact only; it keeps `live_execution_enabled=false` and does not
-create an execution path.
+A tiny-live readiness artifact may be generated for both passing and blocking
+outcomes by `src/crypto_alpha_agent/evidence/live_readiness.py`. Failed rollout
+gates should still generate a blocking artifact with reason codes for audit and
+rejection tracking. Passing these gates is required before the artifact may
+report `ready_for_human_review=true` or proceed to human live review. The
+artifact is a review artifact only; it keeps `live_execution_enabled=false` and
+does not create an execution path.
 
 ## Evidence requirements
 
