@@ -28,6 +28,26 @@ uv run crypto-alpha-agent paper --dry-run
 
 Each command prints one JSON object to stdout. The JSON includes `live_api_calls: false` and `uses_real_capital: false`.
 
+## Safe Ingest
+
+Initialize the local research data store without network access:
+
+```bash
+uv run crypto-alpha-agent ingest --offline-check --db var/research.sqlite
+uv run crypto-alpha-agent ingest --offline-check --current-capital-usd 300 --db var/research.sqlite
+```
+
+To declare real network ingestion sources, the operator must explicitly allow network access:
+
+```bash
+uv run crypto-alpha-agent ingest --db var/research.sqlite --source defillama --allow-network
+uv run crypto-alpha-agent ingest --db var/research.sqlite --source binance-public --source dexscreener --allow-network
+```
+
+Real network ingestion is for research and paper validation only. It must not submit orders, route live capital, read wallet keys, or assume any collected opportunity is executable.
+
+With ordinary infrastructure and a few hundred USD, the system prioritizes historical data, funding signals, DEX discovery, and DeFi fundamentals. It does not target speed arbitrage, MEV/mempool extraction, sub-second CEX-DEX opportunities, or strategies that depend on premium RPC.
+
 ## Reports
 
 Generate a daily report from persisted observability events:

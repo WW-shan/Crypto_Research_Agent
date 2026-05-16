@@ -7,6 +7,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Sequence
 
+from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.observability.logging import load_events
 from crypto_alpha_agent.observability.reports import generate_daily_report
 
@@ -66,6 +67,36 @@ def build_parser() -> argparse.ArgumentParser:
     replay_parser.add_argument("--events", required=True, type=_existing_event_path, help="Path to persisted event JSONL.")
     replay_parser.add_argument("--date", type=_utc_date, help="Optional UTC report date in YYYY-MM-DD format.")
     replay_parser.set_defaults(handler=_handle_replay)
+
+    ingest_parser = subparsers.add_parser(
+        "ingest",
+        help="Initialize safe research data ingestion without live capital or order routing.",
+    )
+    ingest_parser.add_argument(
+        "--offline-check",
+        action="store_true",
+        help="Create/open the research SQLite store and report safe defaults without network access.",
+    )
+    ingest_parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite research data store.")
+    ingest_parser.add_argument(
+        "--current-capital-usd",
+        type=float,
+        default=300.0,
+        help="Operator capital profile used for research constraints.",
+    )
+    ingest_parser.add_argument(
+        "--source",
+        action="append",
+        choices=("binance-public", "ccxt", "dexscreener", "defillama"),
+        default=[],
+        help="Optional real-data source declaration. Repeat for multiple sources.",
+    )
+    ingest_parser.add_argument(
+        "--allow-network",
+        action="store_true",
+        help="Required explicit gate before declaring any network-backed source.",
+    )
+    ingest_parser.set_defaults(handler=_handle_ingest, parser=ingest_parser)
 
     return parser
 
@@ -189,6 +220,38 @@ def _handle_replay(args: argparse.Namespace) -> dict[str, Any]:
         )
         payload["report"] = report.model_dump(mode="json")
     return payload
+
+
+def _handle_ingest(args: argparse.Namespace) -> dict[str, Any]:
+    if args.source and not args.allow_network:
+        args.parser.error("--allow-network is required when --source is provided")
+    if not args.offline_check and not args.source:
+        args.parser.error("--offline-check is required unless --source is provided")
+
+    mode = "network_declared"
+    if args.offline_check:
+        ResearchDataStore(args.db)
+        mode = "offline_check"
+
+    return {
+        "command": "ingest",
+        "mode": mode,
+        "db_path": str(args.db),
+        "sources_requested": args.source,
+        "network_allowed": args.allow_network,
+        "uses_real_capital": False,
+        "live_order_routing": False,
+        "capital_profile": {
+            "current_capital_usd": args.current_capital_usd,
+            "low_latency_required": False,
+            "premium_rpc_required": False,
+        },
+        "notes": [
+            "ingestion is for research and paper validation only",
+            "no live orders are submitted",
+            "no wallet keys are read",
+        ],
+    }
 
 
 if __name__ == "__main__":
