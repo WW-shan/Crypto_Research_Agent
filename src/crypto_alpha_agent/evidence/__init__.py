@@ -5,6 +5,7 @@ from crypto_alpha_agent.evidence.live_readiness import (
     TinyLiveReadinessChecklistItem,
     generate_tiny_live_readiness_artifact,
 )
+from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
 from crypto_alpha_agent.evidence.models import (
     ExperimentRun,
     PaperSimulationOutcome,
@@ -21,6 +22,7 @@ __all__ = [
     "ExperimentRun",
     "PaperEvidenceInput",
     "PaperEvidencePackage",
+    "PaperOutcomeLedger",
     "PaperSimulationOutcome",
     "StrategyCandidate",
     "TinyLiveReadinessArtifact",
