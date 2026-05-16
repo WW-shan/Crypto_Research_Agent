@@ -70,6 +70,28 @@ class CollidingFundingCollector:
         ]
 
 
+class VenueOhlcvCollector:
+    def __init__(self, venue: str, close: float) -> None:
+        self.venue = venue
+        self.close = close
+
+    def fetch_ohlcv(self, symbol, timeframe, since=None, limit=None, params=None):
+        return [
+            MarketCandle(
+                source="ccxt",
+                venue=self.venue,
+                symbol=symbol,
+                timestamp=datetime(2026, 5, 17, tzinfo=UTC),
+                timeframe=timeframe,
+                open=100.0,
+                high=102.0,
+                low=99.0,
+                close=self.close,
+                volume=1000.0,
+            )
+        ]
+
+
 def test_ingest_ccxt_ohlcv_writes_market_candles(tmp_path):
     db_path = tmp_path / "research.sqlite"
     collector = FakeCcxtCollector()
@@ -89,6 +111,41 @@ def test_ingest_ccxt_ohlcv_writes_market_candles(tmp_path):
     assert summary.records_written == 1
     assert records[0].payload["symbol"] == "BTC/USDT"
     assert collector.ohlcv_calls == [("BTC/USDT", "1h", None, 1, None)]
+
+
+def test_ingest_ccxt_ohlcv_keeps_same_timestamp_records_by_venue(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+
+    binance_summary = ingest_ccxt_ohlcv(
+        db_path,
+        symbol="BTC/USDT",
+        timeframe="1h",
+        allow_network=True,
+        collector=VenueOhlcvCollector("binance", close=101.0),
+    )
+    okx_summary = ingest_ccxt_ohlcv(
+        db_path,
+        symbol="BTC/USDT",
+        timeframe="1h",
+        allow_network=True,
+        collector=VenueOhlcvCollector("okx", close=102.0),
+    )
+
+    records = ResearchDataStore(db_path).load_records(record_type="market_candle", source="ccxt")
+    record_ids = {record.record_id for record in records}
+    assert binance_summary.records_fetched == 1
+    assert binance_summary.records_written == 1
+    assert okx_summary.records_fetched == 1
+    assert okx_summary.records_written == 1
+    assert record_ids == {
+        "ccxt:binance:BTCUSDT:ohlcv:1h:2026-05-17T00:00:00+00:00",
+        "ccxt:okx:BTCUSDT:ohlcv:1h:2026-05-17T00:00:00+00:00",
+    }
+    assert {record.payload["venue"] for record in records} == {"binance", "okx"}
+    assert {record.payload["close"] for record in records} == {101.0, 102.0}
+    assert {
+        record.payload["suitability"]["execution_role"] for record in records
+    } == {"research_and_paper"}
 
 
 def test_ingest_ccxt_funding_writes_funding_records(tmp_path):

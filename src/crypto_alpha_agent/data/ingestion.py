@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict
 
 from crypto_alpha_agent.data.ccxt_collector import CcxtResearchCollector
 from crypto_alpha_agent.data.binance_public import BinancePublicDataClient
-from crypto_alpha_agent.data.models import FundingRateRecord, SourceRecord
+from crypto_alpha_agent.data.models import FundingRateRecord, MarketCandle, SourceRecord
 from crypto_alpha_agent.data.store import ResearchDataStore
 
 
@@ -98,7 +98,7 @@ def ingest_ccxt_ohlcv(
         limit=limit,
         params=None,
     )
-    records = [candle.to_source_record() for candle in candles]
+    records = [_ccxt_ohlcv_to_source_record(candle) for candle in candles]
     records_written = ResearchDataStore(db_path).upsert_records(records)
     return CcxtIngestionSummary(
         source="ccxt",
@@ -145,6 +145,22 @@ def ingest_ccxt_funding_rate_history(
         network_allowed=True,
         uses_real_capital=False,
         live_order_routing=False,
+    )
+
+
+def _ccxt_ohlcv_to_source_record(candle: MarketCandle) -> SourceRecord:
+    safe_venue = _ccxt_safe_component(candle.venue)
+    safe_symbol = _ccxt_safe_symbol(candle.symbol)
+    safe_timeframe = _ccxt_safe_component(candle.timeframe)
+    return SourceRecord(
+        record_id=(
+            f"{candle.source}:{safe_venue}:{safe_symbol}:ohlcv:"
+            f"{safe_timeframe}:{candle.timestamp.isoformat()}"
+        ),
+        source=candle.source,
+        record_type="market_candle",
+        observed_at=candle.timestamp,
+        payload=candle.model_dump(mode="json"),
     )
 
 
