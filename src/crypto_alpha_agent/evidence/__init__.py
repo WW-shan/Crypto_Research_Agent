@@ -5,6 +5,12 @@ from crypto_alpha_agent.evidence.live_readiness import (
     TinyLiveReadinessChecklistItem,
     generate_tiny_live_readiness_artifact,
 )
+from crypto_alpha_agent.evidence.models import (
+    ExperimentRun,
+    PaperSimulationOutcome,
+    StrategyCandidate,
+    ValidationEvidence,
+)
 from crypto_alpha_agent.evidence.paper import (
     PaperEvidenceInput,
     PaperEvidencePackage,
@@ -12,10 +18,14 @@ from crypto_alpha_agent.evidence.paper import (
 )
 
 __all__ = [
+    "ExperimentRun",
     "PaperEvidenceInput",
     "PaperEvidencePackage",
+    "PaperSimulationOutcome",
+    "StrategyCandidate",
     "TinyLiveReadinessArtifact",
     "TinyLiveReadinessChecklistItem",
+    "ValidationEvidence",
     "aggregate_paper_evidence",
     "generate_tiny_live_readiness_artifact",
 ]
