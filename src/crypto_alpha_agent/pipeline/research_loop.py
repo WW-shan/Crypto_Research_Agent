@@ -1,15 +1,35 @@
 from __future__ import annotations
 
+from collections import defaultdict
+import json
 from pathlib import Path
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from crypto_alpha_agent.agents.anomaly import AnomalyDetector, RankedAnomaly
 from crypto_alpha_agent.agents.hypothesis import AlphaHypothesis, HypothesisGenerator
 from crypto_alpha_agent.agents.scanner import ScannerSignal
-from crypto_alpha_agent.data.models import RecordType, SourceRecord
+from crypto_alpha_agent.data.models import MarketCandle, RecordType, SourceRecord
 from crypto_alpha_agent.data.scanner_bridge import records_to_scanner_signals
 from crypto_alpha_agent.data.store import ResearchDataStore
+from crypto_alpha_agent.validation.market_history import load_candle_history
+from crypto_alpha_agent.validation.momentum import MomentumValidationResult, validate_close_momentum
+
+
+class ValidationSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+
+    strategy_family: str
+    asset: str
+    timeframe: str
+    status: Literal["passed", "blocked"]
+    trade_count: int
+    net_return: float | None = None
+    max_drawdown: float | None = None
+    fee_adjusted_expectancy: float | None = None
+    slippage_adjusted_expectancy: float | None = None
+    blocked_reasons: list[str] = Field(default_factory=list)
 
 
 class ResearchLoopReport(BaseModel):
@@ -33,6 +53,7 @@ class ResearchLoopReport(BaseModel):
     anomalies: list[RankedAnomaly]
     hypotheses: list[AlphaHypothesis]
     notes: list[str]
+    validation_summaries: list[ValidationSummary] = Field(default_factory=list)
 
 
 def run_stored_research_loop(
@@ -43,6 +64,7 @@ def run_stored_research_loop(
     record_type: RecordType | None = None,
     limit: int | None = None,
     run_id: str | None = None,
+    include_validation: bool = False,
 ) -> ResearchLoopReport:
     store = ResearchDataStore(db_path)
     records = store.load_records(record_type=record_type, source=source)
@@ -75,6 +97,9 @@ def run_stored_research_loop(
         anomalies=anomalies,
         hypotheses=hypotheses,
         notes=notes,
+        validation_summaries=(
+            _validation_summaries(db_path, records, source=source) if include_validation else []
+        ),
     )
 
 
@@ -87,3 +112,53 @@ def _notes(records: list[SourceRecord], signals: list[ScannerSignal]) -> list[st
     if any(signal.weak_signal for signal in signals):
         notes.append("weak_signals_present")
     return notes
+
+
+def _validation_summaries(
+    db_path: str | Path,
+    records: list[SourceRecord],
+    *,
+    source: str | None,
+) -> list[ValidationSummary]:
+    groups: dict[tuple[str, str], list[SourceRecord]] = defaultdict(list)
+    for record in records:
+        if record.record_type != "market_candle":
+            continue
+        candle = MarketCandle.model_validate_json(json.dumps(record.payload))
+        groups[(candle.symbol, candle.timeframe)].append(record)
+
+    summaries: list[ValidationSummary] = []
+    for symbol, timeframe in sorted(groups):
+        if source is None:
+            bars = load_candle_history(db_path, symbol=symbol, timeframe=timeframe)
+        else:
+            bars = load_candle_history(
+                db_path,
+                symbol=symbol,
+                timeframe=timeframe,
+                source=source,
+            )
+        if len(bars) < 2:
+            continue
+
+        summaries.append(
+            _summary_from_momentum_result(
+                validate_close_momentum(bars, lookback_bars=1, hold_bars=1, min_trades=2)
+            )
+        )
+    return summaries
+
+
+def _summary_from_momentum_result(result: MomentumValidationResult) -> ValidationSummary:
+    return ValidationSummary(
+        strategy_family=result.strategy_family,
+        asset=result.symbol,
+        timeframe=result.timeframe,
+        status="passed" if result.approved else "blocked",
+        trade_count=result.trade_count,
+        net_return=result.net_return,
+        max_drawdown=result.max_drawdown,
+        fee_adjusted_expectancy=result.fee_adjusted_expectancy,
+        slippage_adjusted_expectancy=result.slippage_adjusted_expectancy,
+        blocked_reasons=result.blocked_reasons,
+    )

@@ -108,6 +108,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     research_loop_parser.add_argument("--limit", type=_positive_int, help="Optional positive record limit.")
     research_loop_parser.add_argument("--run-id", help="Optional research loop run identifier.")
+    research_loop_parser.add_argument(
+        "--include-validation",
+        action="store_true",
+        help="Include historical validation summaries from stored market candles.",
+    )
     research_loop_parser.add_argument("--report-out", type=Path, help="Optional Markdown report output path.")
     research_loop_parser.set_defaults(handler=_handle_research_loop, parser=research_loop_parser)
 
@@ -327,6 +332,7 @@ def _handle_research_loop(args: argparse.Namespace) -> dict[str, Any]:
         record_type=args.record_type,
         limit=args.limit,
         run_id=args.run_id,
+        include_validation=args.include_validation,
     )
     payload = {
         "command": "research-loop",
