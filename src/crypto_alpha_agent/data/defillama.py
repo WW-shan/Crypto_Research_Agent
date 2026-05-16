@@ -11,7 +11,7 @@ from crypto_alpha_agent.data.models import DataSuitability, DefiYieldSnapshot
 class DefiLlamaResearchClient:
     def __init__(
         self,
-        base_url: str = "https://api.llama.fi",
+        base_url: str = "https://yields.llama.fi",
         session=None,
         timeout_seconds: float = 30.0,
         now=None,

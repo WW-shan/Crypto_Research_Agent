@@ -128,3 +128,12 @@ def test_defillama_yields_filter_low_tvl_pools_as_research_only():
 
     assert [pool.chain for pool in pools] == ["Ethereum"]
     assert pools[0].suitability.rpc_dependency == "none"
+
+
+def test_defillama_yields_use_yields_llama_base_url_by_default():
+    session = FakeSession({"data": []})
+    client = DefiLlamaResearchClient(session=session)
+
+    client.yield_pools()
+
+    assert session.urls == ["https://yields.llama.fi/pools"]

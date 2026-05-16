@@ -17,7 +17,7 @@ P0 sources are suitable for the first implementation because they are free or lo
 - Binance Public Data: free bulk historical klines/trades from `data.binance.vision`; good for reproducible backtests. Source: https://github.com/binance/binance-public-data
 - CCXT REST: unified OHLCV/ticker/funding-style access across exchanges; good for normalized research pulls, not low-latency execution. Source: https://github.com/ccxt/ccxt/wiki/manual
 - DexScreener API: free DEX pair/token discovery, liquidity, price, and volume snapshots; useful for anomaly discovery, not execution pricing. Source: https://docs.dexscreener.com/api/reference
-- DefiLlama API: protocol TVL, fees, stablecoins, yields, and basic DeFi fundamentals; useful for low-frequency alpha hypotheses. Source: https://defillama.com/docs/api
+- DefiLlama API: protocol TVL, fees, stablecoins, yields, and basic DeFi fundamentals; use `https://yields.llama.fi/pools` for yield pools. Source: https://defillama.com/docs/api
 
 P1 sources stay in the design but are not required for this first patch:
 
@@ -526,6 +526,7 @@ Implement:
 Implement:
 
 - `yield_pools(min_tvl_usd=10000)` using `/pools`.
+- Default the yield-pool base URL to `https://yields.llama.fi`; the broader protocol API uses other DefiLlama hosts.
 - Normalize `chain`, `project`, `symbol`, `tvlUsd`, and `apy`.
 - Filter out pools below `min_tvl_usd`.
 - Set `latency_dependency="low"` and `rpc_dependency="none"` because this is slow research data, not execution data.
