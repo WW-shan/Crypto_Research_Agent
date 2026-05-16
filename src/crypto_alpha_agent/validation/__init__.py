@@ -5,6 +5,10 @@ from crypto_alpha_agent.validation.funding_price import (
     FundingPriceValidationResult,
     validate_funding_price_confirmation,
 )
+from crypto_alpha_agent.validation.gates import (
+    WalkForwardGateResult,
+    evaluate_walk_forward_gate,
+)
 from crypto_alpha_agent.validation.walk_forward import (
     WalkForwardSplit,
     WalkForwardWindow,
@@ -17,8 +21,10 @@ __all__ = [
     "FundingExtremityResult",
     "FundingPriceValidationResult",
     "MomentumValidationResult",
+    "WalkForwardGateResult",
     "WalkForwardSplit",
     "WalkForwardWindow",
+    "evaluate_walk_forward_gate",
     "generate_walk_forward_windows",
     "load_candle_history",
     "split_sequence",

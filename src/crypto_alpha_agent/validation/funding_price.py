@@ -3,13 +3,16 @@ from __future__ import annotations
 import json
 import math
 from bisect import bisect_left
+from collections.abc import Sequence
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
 from crypto_alpha_agent.data.models import FundingRateRecord
 from crypto_alpha_agent.data.store import ResearchDataStore
+from crypto_alpha_agent.validation.gates import evaluate_walk_forward_gate
 from crypto_alpha_agent.validation.market_history import CandleBar, load_candle_history
+from crypto_alpha_agent.validation.walk_forward import generate_walk_forward_windows
 
 
 class FundingPriceValidationResult(BaseModel):
@@ -46,6 +49,10 @@ def validate_funding_price_confirmation(
     slippage_rate: float = 0.0005,
     min_trades: int = 3,
     require_walk_forward: bool = True,
+    walk_forward_train_size: int = 24,
+    walk_forward_test_size: int = 8,
+    walk_forward_min_splits: int = 3,
+    walk_forward_min_pass_rate: float = 1.0,
 ) -> FundingPriceValidationResult:
     if not math.isfinite(threshold_abs) or threshold_abs <= 0:
         raise ValueError("threshold_abs must be finite and greater than 0")
@@ -73,17 +80,18 @@ def validate_funding_price_confirmation(
             hold_bars=hold_bars,
         )
 
-    raw_returns: list[float] = []
+    indexed_trades: list[tuple[int, int, float]] = []
     if (
         not duplicate_price_timestamp
         and not duplicate_funding_timestamp
         and not non_positive_price
     ):
-        raw_returns = _extreme_reversion_returns(
+        indexed_trades = _extreme_reversion_trades(
             bars,
             extremes,
             hold_bars=hold_bars,
         )
+    raw_returns = [trade_return for _, _, trade_return in indexed_trades]
     cost_per_trade = (float(fee_rate) + float(slippage_rate)) * 2.0
     fee_cost_per_trade = float(fee_rate) * 2.0
     adjusted_returns = [trade_return - cost_per_trade for trade_return in raw_returns]
@@ -101,6 +109,23 @@ def validate_funding_price_confirmation(
     net_return, max_drawdown = _cumulative_return_and_drawdown(adjusted_returns)
     walk_forward_split_count = 0
     walk_forward_pass_rate = 0.0
+    walk_forward_blocked_reasons: list[str] = []
+    if require_walk_forward:
+        walk_forward_expectancies = _walk_forward_adjusted_expectancies(
+            total_bars=len(bars),
+            trades=indexed_trades,
+            cost_per_trade=cost_per_trade,
+            train_size=walk_forward_train_size,
+            test_size=walk_forward_test_size,
+        )
+        walk_forward_gate = evaluate_walk_forward_gate(
+            walk_forward_expectancies,
+            min_splits=walk_forward_min_splits,
+            min_pass_rate=walk_forward_min_pass_rate,
+        )
+        walk_forward_split_count = walk_forward_gate.split_count
+        walk_forward_pass_rate = walk_forward_gate.pass_rate
+        walk_forward_blocked_reasons = walk_forward_gate.blocked_reasons
 
     blocked_reasons = _blocked_reasons(
         bar_count=len(bars),
@@ -115,8 +140,7 @@ def validate_funding_price_confirmation(
         duplicate_funding_timestamp=duplicate_funding_timestamp,
         non_positive_price=non_positive_price,
     )
-    if require_walk_forward and walk_forward_split_count == 0:
-        blocked_reasons.append("insufficient_walk_forward_splits")
+    blocked_reasons.extend(walk_forward_blocked_reasons)
 
     return FundingPriceValidationResult(
         strategy_family="funding_extremity_price_confirmation",
@@ -139,9 +163,10 @@ def validate_funding_price_confirmation(
     )
 
 
-def _require_positive_int(name: str, value: int) -> None:
+def _require_positive_int(name: str, value: int) -> int:
     if type(value) is not int or value <= 0:
         raise ValueError(f"{name} must be a positive integer")
+    return value
 
 
 def _require_non_negative_int(name: str, value: int) -> None:
@@ -206,14 +231,14 @@ def _has_non_positive_trade_price(
     return False
 
 
-def _extreme_reversion_returns(
+def _extreme_reversion_trades(
     bars: list[CandleBar],
     extremes: list[FundingRateRecord],
     *,
     hold_bars: int,
-) -> list[float]:
+) -> list[tuple[int, int, float]]:
     timestamps = [bar.timestamp for bar in bars]
-    returns: list[float] = []
+    trades: list[tuple[int, int, float]] = []
 
     for funding in extremes:
         entry_index = bisect_left(timestamps, funding.timestamp)
@@ -228,11 +253,44 @@ def _extreme_reversion_returns(
 
         price_return = (exit_price / entry_price) - 1.0
         if funding.funding_rate >= 0:
-            returns.append(-price_return)
+            trades.append((entry_index, exit_index, -price_return))
         else:
-            returns.append(price_return)
+            trades.append((entry_index, exit_index, price_return))
 
-    return returns
+    return trades
+
+
+def _walk_forward_adjusted_expectancies(
+    *,
+    total_bars: int,
+    trades: Sequence[tuple[int, int, float]],
+    cost_per_trade: float,
+    train_size: int,
+    test_size: int,
+) -> list[float]:
+    train_size = _require_positive_int("walk_forward_train_size", train_size)
+    test_size = _require_positive_int("walk_forward_test_size", test_size)
+    if total_bars < train_size + test_size:
+        return []
+
+    windows = generate_walk_forward_windows(
+        total_bars,
+        train_size=train_size,
+        test_size=test_size,
+    )
+    expectancies: list[float] = []
+    for window in windows:
+        split_returns = [
+            trade_return - cost_per_trade
+            for entry_index, exit_index, trade_return in trades
+            if window.test_start <= entry_index and exit_index < window.test_end
+        ]
+        expectancy = (
+            math.fsum(split_returns) / len(split_returns) if split_returns else 0.0
+        )
+        expectancies.append(expectancy)
+
+    return expectancies
 
 
 def _cumulative_return_and_drawdown(returns: list[float]) -> tuple[float, float]:
