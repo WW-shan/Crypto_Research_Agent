@@ -10,6 +10,7 @@ from typing import Any, Sequence
 from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.observability.logging import load_events
 from crypto_alpha_agent.observability.reports import generate_daily_report
+from crypto_alpha_agent.pipeline.research_loop import run_stored_research_loop
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -68,6 +69,27 @@ def build_parser() -> argparse.ArgumentParser:
     replay_parser.add_argument("--date", type=_utc_date, help="Optional UTC report date in YYYY-MM-DD format.")
     replay_parser.set_defaults(handler=_handle_replay)
 
+    research_loop_parser = subparsers.add_parser(
+        "research-loop",
+        help="Run the stored-data research loop from existing SQLite records.",
+    )
+    research_loop_parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite research data store.")
+    research_loop_parser.add_argument(
+        "--current-capital-usd",
+        type=float,
+        default=300.0,
+        help="Operator capital profile used for research constraints.",
+    )
+    research_loop_parser.add_argument("--source", help="Optional source filter.")
+    research_loop_parser.add_argument(
+        "--record-type",
+        choices=("market_candle", "funding_rate", "dex_pair", "defi_yield", "source_health"),
+        help="Optional record type filter.",
+    )
+    research_loop_parser.add_argument("--limit", type=_positive_int, help="Optional positive record limit.")
+    research_loop_parser.add_argument("--run-id", help="Optional research loop run identifier.")
+    research_loop_parser.set_defaults(handler=_handle_research_loop)
+
     ingest_parser = subparsers.add_parser(
         "ingest",
         help="Initialize safe research data ingestion without live capital or order routing.",
@@ -115,6 +137,16 @@ def _utc_date(raw_date: str) -> date:
         return date.fromisoformat(raw_date)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"invalid UTC date {raw_date!r}; expected YYYY-MM-DD") from exc
+
+
+def _positive_int(raw_value: str) -> int:
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid positive integer: {raw_value!r}") from exc
+    if value <= 0:
+        raise argparse.ArgumentTypeError(f"invalid positive integer: {raw_value!r}")
+    return value
 
 
 def _add_dry_run_command(
@@ -220,6 +252,24 @@ def _handle_replay(args: argparse.Namespace) -> dict[str, Any]:
         )
         payload["report"] = report.model_dump(mode="json")
     return payload
+
+
+def _handle_research_loop(args: argparse.Namespace) -> dict[str, Any]:
+    report = run_stored_research_loop(
+        args.db,
+        current_capital_usd=args.current_capital_usd,
+        source=args.source,
+        record_type=args.record_type,
+        limit=args.limit,
+        run_id=args.run_id,
+    )
+    return {
+        "command": "research-loop",
+        "mode": "research_only",
+        "uses_real_capital": False,
+        "live_order_routing": False,
+        "report": report.model_dump(mode="json"),
+    }
 
 
 def _handle_ingest(args: argparse.Namespace) -> dict[str, Any]:
