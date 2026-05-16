@@ -72,3 +72,11 @@ def test_prompts_include_role_specific_contract_terms() -> None:
 
         for term in ROLE_TERMS[role]:
             assert_contains_term(text, term)
+
+
+def test_coder_prompt_restricts_code_scope_to_allowed_values() -> None:
+    text = PROMPTS["coder"].read_text()
+    lower_text = text.lower()
+
+    assert "deterministic analysis" not in lower_text
+    assert '"code_scope": "backtest | transform | indicator"' in text
