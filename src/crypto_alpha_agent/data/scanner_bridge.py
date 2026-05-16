@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import datetime
 from typing import Any
 
 from crypto_alpha_agent.agents.scanner import ScannerSignal
@@ -45,13 +46,53 @@ def _validate_dict_record(
     record: dict[str, Any],
 ) -> MarketCandle | DexPairSnapshot | DefiYieldSnapshot | dict[str, Any]:
     record_type = record.get("record_type")
-    if record_type == "market_candle":
-        return MarketCandle.model_validate(record)
-    if record_type == "dex_pair":
-        return DexPairSnapshot.model_validate(record)
-    if record_type == "defi_yield":
-        return DefiYieldSnapshot.model_validate(record)
+    payload = record.get("payload")
+    if record_type is not None and isinstance(payload, dict):
+        return _validate_typed_payload(record_type, payload)
+
+    inferred_record = _infer_payload_model(record)
+    if inferred_record is not None:
+        return inferred_record
+
     return record
+
+
+def _validate_typed_payload(
+    record_type: Any,
+    payload: dict[str, Any],
+) -> MarketCandle | DexPairSnapshot | DefiYieldSnapshot | dict[str, Any]:
+    normalized_payload = _restore_json_datetimes(payload)
+    if record_type == "market_candle":
+        return MarketCandle.model_validate(normalized_payload)
+    if record_type == "dex_pair":
+        return DexPairSnapshot.model_validate(normalized_payload)
+    if record_type == "defi_yield":
+        return DefiYieldSnapshot.model_validate(normalized_payload)
+    return payload
+
+
+def _infer_payload_model(
+    payload: dict[str, Any],
+) -> MarketCandle | DexPairSnapshot | DefiYieldSnapshot | None:
+    normalized_payload = _restore_json_datetimes(payload)
+    if {"venue", "symbol", "timestamp", "timeframe", "close"}.issubset(normalized_payload):
+        return MarketCandle.model_validate(normalized_payload)
+    if {"chain", "dex", "pair_address", "base_token", "quote_token"}.issubset(
+        normalized_payload
+    ):
+        return DexPairSnapshot.model_validate(normalized_payload)
+    if {"chain", "project", "symbol", "tvl_usd", "apy"}.issubset(normalized_payload):
+        return DefiYieldSnapshot.model_validate(normalized_payload)
+    return None
+
+
+def _restore_json_datetimes(payload: dict[str, Any]) -> dict[str, Any]:
+    restored = dict(payload)
+    for field_name in ("timestamp", "observed_at", "next_funding_at"):
+        value = restored.get(field_name)
+        if isinstance(value, str):
+            restored[field_name] = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return restored
 
 
 def _candle_to_signal(record: MarketCandle, current_capital_usd: float) -> ScannerSignal:

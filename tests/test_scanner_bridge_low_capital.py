@@ -5,6 +5,7 @@ from crypto_alpha_agent.data.models import (
     DefiYieldSnapshot,
     DexPairSnapshot,
     MarketCandle,
+    SourceRecord,
 )
 from crypto_alpha_agent.data.scanner_bridge import records_to_scanner_signals
 
@@ -107,3 +108,50 @@ def test_capital_requirement_above_current_capital_sets_weak_signal():
     signals = records_to_scanner_signals([candle], current_capital_usd=300)
 
     assert signals[0].weak_signal is True
+
+
+def test_plain_candle_payload_dict_becomes_scanner_signal():
+    candle = MarketCandle(
+        source="ccxt",
+        venue="binance",
+        symbol="SOL/USDT",
+        timestamp=datetime(2026, 5, 16, tzinfo=UTC),
+        timeframe="1h",
+        open=100.0,
+        high=110.0,
+        low=99.0,
+        close=108.0,
+        volume=1000.0,
+    )
+
+    signals = records_to_scanner_signals([candle.model_dump(mode="json")], current_capital_usd=300)
+
+    assert signals[0].asset == "SOL/USDT"
+    assert signals[0].value == 108.0
+
+
+def test_source_record_payload_becomes_scanner_signal():
+    candle = MarketCandle(
+        source="ccxt",
+        venue="binance",
+        symbol="OP/USDT",
+        timestamp=datetime(2026, 5, 16, tzinfo=UTC),
+        timeframe="1h",
+        open=100.0,
+        high=110.0,
+        low=99.0,
+        close=108.0,
+        volume=1000.0,
+    )
+    record = SourceRecord(
+        record_id="ccxt:OPUSDT:1h:2026-05-16T00:00:00+00:00",
+        source="ccxt",
+        record_type="market_candle",
+        observed_at=datetime(2026, 5, 16, tzinfo=UTC),
+        payload=candle.model_dump(mode="json"),
+    )
+
+    signals = records_to_scanner_signals([record.model_dump(mode="json")], current_capital_usd=300)
+
+    assert signals[0].asset == "OP/USDT"
+    assert signals[0].category == "cex"
