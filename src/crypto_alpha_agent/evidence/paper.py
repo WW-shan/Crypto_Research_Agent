@@ -172,7 +172,11 @@ def _drawdown_value(
     value = next((candidate for candidate in candidates if candidate is not None), None)
     if value is None:
         return None
-    return abs(value)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int | float):
+        return abs(value)
+    return value
 
 
 def _failure_reasons(item: Mapping[str, Any]) -> list[str]:
@@ -186,6 +190,9 @@ def _failure_reasons(item: Mapping[str, Any]) -> list[str]:
     error_reason = item.get("error_reason")
     if error_reason:
         reasons.append(str(error_reason))
+    error = item.get("error")
+    if error:
+        reasons.append(str(error))
     risk_decision = item.get("risk_decision")
     if isinstance(risk_decision, Mapping):
         value = risk_decision.get("reason_codes")

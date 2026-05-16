@@ -220,6 +220,22 @@ def test_aggregates_nested_closed_paper_outcome_with_strategy_family_default():
     assert package.max_drawdown_usd == 4.0
 
 
+def test_rejects_bool_drawdown_from_mapping_input():
+    from crypto_alpha_agent.evidence.paper import aggregate_paper_evidence
+
+    with pytest.raises(ValidationError):
+        aggregate_paper_evidence(
+            [
+                {
+                    "status": "closed",
+                    "realized_net_pnl": 1.0,
+                    "drawdown": True,
+                }
+            ],
+            strategy_family="funding_basis",
+        )
+
+
 def test_aggregates_failed_paper_outcome_with_reason_codes_and_strategy_family_default():
     from crypto_alpha_agent.evidence.paper import aggregate_paper_evidence
 
@@ -241,7 +257,27 @@ def test_aggregates_failed_paper_outcome_with_reason_codes_and_strategy_family_d
     assert packages[0].failed_count == 1
     assert packages[0].net_pnl_usd == 0.0
     assert packages[0].hit_rate == 0.0
-    assert packages[0].failure_reasons == ["insufficient_paper_cash"]
+    assert packages[0].failure_reasons == [
+        "insufficient_paper_cash",
+        "paper account cash is insufficient",
+    ]
+
+
+def test_aggregates_failed_paper_outcome_with_error_fallback():
+    from crypto_alpha_agent.evidence.paper import aggregate_paper_evidence
+
+    packages = aggregate_paper_evidence(
+        [
+            {
+                "status": "failed",
+                "stage": "paper_execute",
+                "error": "paper account cash is insufficient",
+            }
+        ],
+        strategy_family="funding_basis",
+    )
+
+    assert packages[0].failure_reasons == ["paper account cash is insufficient"]
 
 
 def test_aggregates_blocked_paper_outcome_with_reason_codes_and_strategy_family_default():
