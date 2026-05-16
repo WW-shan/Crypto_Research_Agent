@@ -150,6 +150,18 @@ def test_validation_evidence_id_uses_canonical_blocked_reasons():
     assert repeated.evidence_id == canonical.evidence_id
 
 
+def test_validation_evidence_id_treats_omitted_and_empty_blocked_reasons_equally():
+    omitted_kwargs = _validation_evidence_kwargs()
+    omitted_kwargs.pop("blocked_reasons")
+
+    omitted = ValidationEvidence(**omitted_kwargs)
+    explicit_empty = ValidationEvidence(**_validation_evidence_kwargs(blocked_reasons=[]))
+
+    assert omitted.blocked_reasons == []
+    assert explicit_empty.blocked_reasons == []
+    assert omitted.evidence_id == explicit_empty.evidence_id
+
+
 def test_strategy_candidate_rejects_unsafe_assignment():
     candidate = StrategyCandidate(**_strategy_candidate_kwargs())
 

@@ -223,8 +223,11 @@ def _stable_validation_evidence_id(data: Mapping[str, Any]) -> str:
 
 
 def _canonical_evidence_id_value(field: str, value: Any) -> Any:
-    if field == "blocked_reasons" and _is_string_iterable(value):
-        return _dedupe_nonempty_strings(value)
+    if field == "blocked_reasons":
+        if value is None:
+            return []
+        if _is_string_iterable(value):
+            return _dedupe_nonempty_strings(value)
     if isinstance(value, str):
         return value.strip()
     return _jsonable_value(value)
