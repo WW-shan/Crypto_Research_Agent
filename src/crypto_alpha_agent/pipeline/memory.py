@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 import re
 from typing import Any
 
-from crypto_alpha_agent.agents.hypothesis import AlphaHypothesis
+from crypto_alpha_agent.agents.hypothesis import AlphaHypothesis, EvidenceBundle
 from crypto_alpha_agent.memory.store import MemoryRecord, MemoryStore
 from crypto_alpha_agent.orchestrator import DETERMINISTIC_EVENT_TIME_ISO
 from crypto_alpha_agent.pipeline.research_loop import ResearchLoopReport, ValidationSummary
@@ -21,12 +23,13 @@ def persist_research_loop_memory(
     store = MemoryStore(memory_path)
     stored_records: list[MemoryRecord] = []
     for index, hypothesis in enumerate(report.hypotheses):
+        curated_hypothesis = _curated_hypothesis(hypothesis)
         record = MemoryRecord(
-            record_id=_record_id(report.run_id, index, hypothesis),
+            record_id=_record_id(report.run_id, index, hypothesis, curated_hypothesis),
             created_at=DETERMINISTIC_EVENT_TIME_ISO,
             updated_at=DETERMINISTIC_EVENT_TIME_ISO,
             opportunity=_opportunity(report, hypothesis),
-            hypothesis=hypothesis.model_dump(mode="python"),
+            hypothesis=curated_hypothesis,
             score=_score(report, hypothesis),
             rejected_reasons=_rejected_reasons(report, hypothesis),
             tags=_tags(report.run_id, hypothesis),
@@ -35,12 +38,63 @@ def persist_research_loop_memory(
     return stored_records
 
 
-def _record_id(run_id: str, index: int, hypothesis: AlphaHypothesis) -> str:
+def _record_id(
+    run_id: str, index: int, hypothesis: AlphaHypothesis, curated_hypothesis: dict[str, Any]
+) -> str:
     metric = hypothesis.evidence[0].metric if hypothesis.evidence else "unknown"
+    identity_hash = _short_hash(curated_hypothesis)
     return (
         f"research-loop:{_slug(run_id)}:{index}:"
-        f"{_slug(hypothesis.asset)}:{_slug(hypothesis.category)}:{_slug(metric)}"
+        f"{_slug(hypothesis.asset)}:{_slug(hypothesis.category)}:{_slug(metric)}:"
+        f"{identity_hash}"
     )
+
+
+def _curated_hypothesis(hypothesis: AlphaHypothesis) -> dict[str, Any]:
+    return {
+        "source": hypothesis.source,
+        "category": hypothesis.category,
+        "asset": hypothesis.asset,
+        "what_changed": hypothesis.what_changed,
+        "why_it_might_be_edge": hypothesis.why_it_might_be_edge,
+        "evidence": [_curated_evidence(evidence) for evidence in hypothesis.evidence],
+        "expected_persistence_seconds": hypothesis.expected_persistence_seconds,
+        "disconfirmation_tests": list(hypothesis.disconfirmation_tests),
+        "disconfirmation_criteria": [
+            criterion.model_dump(mode="python") for criterion in hypothesis.disconfirmation_criteria
+        ],
+        "action_mode": hypothesis.action_mode,
+        "actionability": hypothesis.actionability,
+        "venue": hypothesis.venue,
+        "chain": hypothesis.chain,
+        "protocol": hypothesis.protocol,
+    }
+
+
+def _curated_evidence(evidence: EvidenceBundle) -> dict[str, Any]:
+    raw = evidence.raw
+    raw_keys = sorted(str(key) for key in raw)
+    return {
+        "source": evidence.source,
+        "category": evidence.category,
+        "asset": evidence.asset,
+        "metric": evidence.metric,
+        "value": evidence.value,
+        "signal_evidence": list(evidence.signal_evidence),
+        "raw_keys": raw_keys,
+        "raw_sha256": _sha256(raw) if raw else None,
+        "raw_omitted": bool(raw),
+        "anomaly_classification": evidence.anomaly_classification,
+        "anomaly_score": evidence.anomaly_score,
+        "executable": evidence.executable,
+        "persistence_seconds": evidence.persistence_seconds,
+        "anomaly_reasons": list(evidence.anomaly_reasons),
+        "venue": evidence.venue,
+        "chain": evidence.chain,
+        "protocol": evidence.protocol,
+        "z_score": evidence.z_score,
+        "deviation": evidence.deviation,
+    }
 
 
 def _opportunity(report: ResearchLoopReport, hypothesis: AlphaHypothesis) -> dict[str, Any]:
@@ -117,6 +171,18 @@ def _validation_summaries_for_asset(
 
 def _slug(value: str) -> str:
     return SLUG_PATTERN.sub("-", value.lower()).strip("-") or "unknown"
+
+
+def _short_hash(value: dict[str, Any]) -> str:
+    return _sha256(value)[:12]
+
+
+def _sha256(value: Any) -> str:
+    return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def _unique_non_empty(values: list[str]) -> list[str]:

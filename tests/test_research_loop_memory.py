@@ -1,3 +1,6 @@
+import copy
+import json
+
 from crypto_alpha_agent.agents.anomaly import AnomalyDetector
 from crypto_alpha_agent.agents.hypothesis import HypothesisGenerator
 from crypto_alpha_agent.agents.scanner import ScannerSignal
@@ -101,7 +104,9 @@ def test_persist_research_loop_memory_records_accepted_and_blocked_hypotheses(tm
     accepted = next(record for record in records if "accepted" in record.tags)
     blocked = next(record for record in records if "blocked" in record.tags)
 
-    assert accepted.record_id == "research-loop:memory-run-001:0:btc-usdt:cex:funding-rate"
+    assert accepted.record_id.startswith(
+        "research-loop:memory-run-001:0:btc-usdt:cex:funding-rate:"
+    )
     assert accepted.rejected_reasons == []
     assert {"research-loop", "memory-run-001", "btc-usdt", "cex", "executable", "accepted"} <= set(
         accepted.tags
@@ -112,7 +117,7 @@ def test_persist_research_loop_memory_records_accepted_and_blocked_hypotheses(tm
     assert accepted.hypothesis["action_mode"] == "research_only"
     assert accepted.score["validation_summaries"][0]["status"] == "passed"
 
-    assert blocked.record_id == "research-loop:memory-run-001:1:eth-usdt:cex:spread"
+    assert blocked.record_id.startswith("research-loop:memory-run-001:1:eth-usdt:cex:spread:")
     assert "hypothesis_blocked" in blocked.rejected_reasons
     assert "insufficient_trades" in blocked.rejected_reasons
     assert "execution constraints exceed visible liquidity/timing" in blocked.rejected_reasons
@@ -152,10 +157,65 @@ def test_persist_research_loop_memory_is_idempotent_by_record_id(tmp_path):
     reopened = MemoryStore(memory_path)
 
     assert [record.record_id for record in second] == [record.record_id for record in first]
-    assert [record.record_id for record in reopened.list_records()] == [
-        "research-loop:memory-run-001:0:btc-usdt:cex:funding-rate",
-        "research-loop:memory-run-001:1:eth-usdt:cex:spread",
+    reopened_record_ids = [record.record_id for record in reopened.list_records()]
+    assert reopened_record_ids == [record.record_id for record in first]
+    assert reopened_record_ids[0].startswith(
+        "research-loop:memory-run-001:0:btc-usdt:cex:funding-rate:"
+    )
+    assert reopened_record_ids[1].startswith("research-loop:memory-run-001:1:eth-usdt:cex:spread:")
+
+
+def test_persist_research_loop_memory_distinguishes_same_rank_hypotheses_by_evidence_identity(
+    tmp_path,
+):
+    memory_path = tmp_path / "memory.jsonl"
+    first_report = _report()
+    second_report = copy.deepcopy(first_report)
+    second_hypothesis = second_report.hypotheses[0]
+    second_hypothesis.evidence[0].source = "coinbase"
+    second_hypothesis.evidence[0].value = 1.75
+    second_hypothesis.evidence[0].raw = {
+        "timeframe": "1h",
+        "provider_event_id": "distinct-provider-event",
+    }
+
+    first_records = persist_research_loop_memory(first_report, memory_path)
+    repeated_records = persist_research_loop_memory(first_report, memory_path)
+    second_records = persist_research_loop_memory(second_report, memory_path)
+    stored_records = MemoryStore(memory_path).list_records()
+
+    assert [record.record_id for record in repeated_records] == [
+        record.record_id for record in first_records
     ]
+    assert first_records[0].record_id.startswith(
+        "research-loop:memory-run-001:0:btc-usdt:cex:funding-rate:"
+    )
+    assert second_records[0].record_id.startswith(
+        "research-loop:memory-run-001:0:btc-usdt:cex:funding-rate:"
+    )
+    assert second_records[0].record_id != first_records[0].record_id
+    assert len(stored_records) == 3
+    assert len({record.record_id for record in stored_records}) == 3
+
+
+def test_persist_research_loop_memory_omits_large_raw_payloads_from_hypothesis(tmp_path):
+    memory_path = tmp_path / "memory.jsonl"
+    report = _report()
+    huge_marker = "RAW_PAYLOAD_MARKER_SHOULD_NOT_BE_PERSISTED"
+    report.hypotheses[0].evidence[0].raw = {
+        "timeframe": "1h",
+        "nested": {"blob": huge_marker * 200},
+    }
+
+    records = persist_research_loop_memory(report, memory_path)
+    stored_json = json.dumps(records[0].hypothesis, sort_keys=True)
+
+    assert huge_marker not in stored_json
+    evidence = records[0].hypothesis["evidence"][0]
+    assert "raw" not in evidence
+    assert evidence["raw_omitted"] is True
+    assert evidence["raw_keys"] == ["nested", "timeframe"]
+    assert len(evidence["raw_sha256"]) == 64
 
 
 def test_persist_research_loop_memory_empty_report_returns_empty_without_file(tmp_path):
