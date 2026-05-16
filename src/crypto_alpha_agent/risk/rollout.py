@@ -9,6 +9,8 @@ RolloutReasonCode = Literal[
     "insufficient_walk_forward_splits",
     "non_positive_cost_adjusted_expectancy",
     "failure_rate_above_limit",
+    "duplicate_paper_trade_evidence",
+    "duplicate_walk_forward_split",
     "unstable_walk_forward_performance",
     "manual_override_violation",
     "max_loss_budget_breached",
@@ -16,6 +18,7 @@ RolloutReasonCode = Literal[
 
 FiniteFloat = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 NonNegativeFiniteFloat = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
+FailureRateLimit = Annotated[float, Field(strict=True, ge=0, le=1, allow_inf_nan=False)]
 PositiveInt = Annotated[int, Field(strict=True, gt=0)]
 NonNegativeInt = Annotated[int, Field(strict=True, ge=0)]
 
@@ -24,7 +27,7 @@ class RolloutPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     min_paper_trade_count: PositiveInt = 30
-    max_failure_rate: NonNegativeFiniteFloat = 0.10
+    max_failure_rate: FailureRateLimit = 0.10
     min_walk_forward_splits: PositiveInt = 3
     min_walk_forward_expectancy_usd: FiniteFloat = 0.0
     max_loss_budget_usd: NonNegativeFiniteFloat = 100.0
@@ -82,6 +85,12 @@ def evaluate_rollout(
     if split_count < policy.min_walk_forward_splits:
         reasons.append("insufficient_walk_forward_splits")
 
+    if _has_duplicate_ids(observation.trade_id for observation in observations):
+        reasons.append("duplicate_paper_trade_evidence")
+
+    if _has_duplicate_ids(split.split_id for split in walk_forward_splits):
+        reasons.append("duplicate_walk_forward_split")
+
     if observation_count > 0 and expectancy <= 0:
         reasons.append("non_positive_cost_adjusted_expectancy")
 
@@ -118,3 +127,12 @@ def _failure_rate(observations: list[PaperTradeObservation]) -> float:
     if not observations:
         return 0.0
     return sum(1 for observation in observations if observation.failed) / len(observations)
+
+
+def _has_duplicate_ids(ids) -> bool:
+    seen: set[str] = set()
+    for evidence_id in ids:
+        if evidence_id in seen:
+            return True
+        seen.add(evidence_id)
+    return False

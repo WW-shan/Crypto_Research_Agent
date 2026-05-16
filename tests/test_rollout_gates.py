@@ -92,6 +92,11 @@ def test_high_failure_rate_blocks_tiny_live():
     assert evaluation.failure_rate == pytest.approx(4 / 30)
 
 
+def test_policy_rejects_failure_rate_limit_above_one():
+    with pytest.raises(ValidationError):
+        RolloutPolicy(max_failure_rate=1.01)
+
+
 def test_unstable_walk_forward_split_blocks_tiny_live():
     splits = [
         WalkForwardSplit(split_id="wf-1", cost_adjusted_expectancy_usd=2.0),
@@ -103,6 +108,26 @@ def test_unstable_walk_forward_split_blocks_tiny_live():
 
     assert evaluation.eligible_for_tiny_live is False
     assert evaluation.reason_codes == ["unstable_walk_forward_performance"]
+
+
+def test_duplicate_paper_trade_evidence_blocks_tiny_live():
+    observations = _passing_observations()
+    observations[-1] = observations[-1].model_copy(update={"trade_id": observations[0].trade_id})
+
+    evaluation = _passing_evaluation(observations=observations)
+
+    assert evaluation.eligible_for_tiny_live is False
+    assert evaluation.reason_codes == ["duplicate_paper_trade_evidence"]
+
+
+def test_duplicate_walk_forward_split_blocks_tiny_live():
+    splits = _passing_splits()
+    splits[-1] = splits[-1].model_copy(update={"split_id": splits[0].split_id})
+
+    evaluation = _passing_evaluation(walk_forward_splits=splits)
+
+    assert evaluation.eligible_for_tiny_live is False
+    assert evaluation.reason_codes == ["duplicate_walk_forward_split"]
 
 
 def test_manual_override_violation_blocks_tiny_live():
