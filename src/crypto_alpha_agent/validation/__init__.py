@@ -1,6 +1,10 @@
 from crypto_alpha_agent.validation.market_history import CandleBar, load_candle_history
 from crypto_alpha_agent.validation.momentum import MomentumValidationResult, validate_close_momentum
 from crypto_alpha_agent.validation.funding import FundingExtremityResult, validate_funding_extremes
+from crypto_alpha_agent.validation.funding_price import (
+    FundingPriceValidationResult,
+    validate_funding_price_confirmation,
+)
 from crypto_alpha_agent.validation.walk_forward import (
     WalkForwardSplit,
     WalkForwardWindow,
@@ -11,6 +15,7 @@ from crypto_alpha_agent.validation.walk_forward import (
 __all__ = [
     "CandleBar",
     "FundingExtremityResult",
+    "FundingPriceValidationResult",
     "MomentumValidationResult",
     "WalkForwardSplit",
     "WalkForwardWindow",
@@ -19,4 +24,5 @@ __all__ = [
     "split_sequence",
     "validate_close_momentum",
     "validate_funding_extremes",
+    "validate_funding_price_confirmation",
 ]
