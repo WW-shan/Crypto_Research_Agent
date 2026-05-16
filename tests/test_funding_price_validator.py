@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+import pytest
+
 from crypto_alpha_agent.data.models import FundingRateRecord, MarketCandle, SourceRecord
 from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.validation.funding_price import validate_funding_price_confirmation
@@ -41,13 +43,21 @@ def _funding_record(funding: FundingRateRecord) -> SourceRecord:
     )
 
 
-def test_funding_price_validator_measures_extreme_reversion_edge(tmp_path):
+def _write_happy_path_fixture(tmp_path):
     db_path = tmp_path / "research.sqlite"
     store = ResearchDataStore(db_path)
-    candles = [_candle(i, close) for i, close in enumerate([100, 103, 101, 99, 102, 104, 101, 100, 98, 101])]
+    candles = [
+        _candle(i, close)
+        for i, close in enumerate([100, 103, 101, 99, 102, 104, 101, 100, 98, 101])
+    ]
     fundings = [_funding(1, 0.0008), _funding(4, -0.0009), _funding(6, 0.0007)]
     store.upsert_records([item.to_source_record() for item in candles])
     store.upsert_records([_funding_record(item) for item in fundings])
+    return db_path
+
+
+def test_funding_price_validator_measures_extreme_reversion_edge(tmp_path):
+    db_path = _write_happy_path_fixture(tmp_path)
 
     result = validate_funding_price_confirmation(
         db_path,
@@ -65,10 +75,118 @@ def test_funding_price_validator_measures_extreme_reversion_edge(tmp_path):
     assert result.strategy_family == "funding_extremity_price_confirmation"
     assert result.trade_count == 3
     assert result.extreme_count == 3
+    raw_returns = [4 / 103, -1 / 102, 3 / 101]
+    adjusted_returns = [trade_return - 0.003 for trade_return in raw_returns]
+    equity = 1.0
+    peak = 1.0
+    max_drawdown = 0.0
+    for trade_return in adjusted_returns:
+        equity *= 1.0 + trade_return
+        peak = max(peak, equity)
+        max_drawdown = max(max_drawdown, (peak - equity) / peak)
+    assert result.gross_expectancy == pytest.approx(sum(raw_returns) / len(raw_returns))
+    assert result.fee_adjusted_expectancy == pytest.approx(
+        sum(trade_return - 0.002 for trade_return in raw_returns) / len(raw_returns)
+    )
+    assert result.slippage_adjusted_expectancy == pytest.approx(
+        sum(adjusted_returns) / len(adjusted_returns)
+    )
+    assert result.net_return == pytest.approx(equity - 1.0)
+    assert result.max_drawdown == pytest.approx(max_drawdown)
     assert result.fee_adjusted_expectancy != result.gross_expectancy
     assert result.slippage_adjusted_expectancy != result.gross_expectancy
     assert result.approved is True
     assert result.blocked_reasons == []
+
+
+def test_funding_price_validator_fails_closed_when_walk_forward_required(tmp_path):
+    db_path = _write_happy_path_fixture(tmp_path)
+
+    result = validate_funding_price_confirmation(
+        db_path,
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        threshold_abs=0.0005,
+        hold_bars=2,
+        fee_rate=0.001,
+        slippage_rate=0.0005,
+        min_trades=2,
+    )
+
+    assert result.approved is False
+    assert result.walk_forward_split_count == 0
+    assert "insufficient_walk_forward_splits" in result.blocked_reasons
+
+
+def test_funding_price_validator_fails_closed_on_duplicate_price_timestamp(tmp_path):
+    db_path = _write_happy_path_fixture(tmp_path)
+    duplicate_candle = _candle(4, 999.0).model_copy(
+        update={"source": "coinbase_public", "venue": "coinbase"}
+    )
+    ResearchDataStore(db_path).upsert_records([duplicate_candle.to_source_record()])
+
+    result = validate_funding_price_confirmation(
+        db_path,
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        threshold_abs=0.0005,
+        hold_bars=2,
+        fee_rate=0.001,
+        slippage_rate=0.0005,
+        min_trades=2,
+        require_walk_forward=False,
+    )
+
+    assert result.approved is False
+    assert "duplicate_price_timestamp" in result.blocked_reasons
+
+
+def test_funding_price_validator_fails_closed_on_duplicate_funding_timestamp(tmp_path):
+    db_path = _write_happy_path_fixture(tmp_path)
+    duplicate_funding = _funding(4, -0.0009).model_copy(
+        update={"source": "okx_ccxt", "venue": "okx"}
+    )
+    ResearchDataStore(db_path).upsert_records([_funding_record(duplicate_funding)])
+
+    result = validate_funding_price_confirmation(
+        db_path,
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        threshold_abs=0.0005,
+        hold_bars=2,
+        fee_rate=0.001,
+        slippage_rate=0.0005,
+        min_trades=2,
+        require_walk_forward=False,
+    )
+
+    assert result.approved is False
+    assert "duplicate_funding_timestamp" in result.blocked_reasons
+
+
+def test_funding_price_validator_fails_closed_on_non_positive_exit_price(tmp_path):
+    db_path = _write_happy_path_fixture(tmp_path)
+    zero_exit_candle = _candle(3, 1.0).model_copy(update={"close": 0.0})
+    ResearchDataStore(db_path).upsert_records([zero_exit_candle.to_source_record()])
+
+    result = validate_funding_price_confirmation(
+        db_path,
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        threshold_abs=0.0005,
+        hold_bars=2,
+        fee_rate=0.001,
+        slippage_rate=0.0005,
+        min_trades=2,
+        require_walk_forward=False,
+    )
+
+    assert result.approved is False
+    assert "non_positive_price" in result.blocked_reasons
 
 
 def test_funding_price_validator_blocks_without_enough_trades(tmp_path):

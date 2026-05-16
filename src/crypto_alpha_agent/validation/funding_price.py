@@ -58,17 +58,32 @@ def validate_funding_price_confirmation(
 
     bars = load_candle_history(db_path, symbol=price_symbol, timeframe=timeframe)
     funding_rates = _load_funding_history(db_path, funding_symbol=funding_symbol)
+    duplicate_price_timestamp = _has_duplicate_timestamps(bars)
+    duplicate_funding_timestamp = _has_duplicate_timestamps(funding_rates)
     extremes = [
         funding
         for funding in funding_rates
         if abs(float(funding.funding_rate)) >= threshold_abs
     ]
+    non_positive_price = False
+    if not duplicate_price_timestamp and not duplicate_funding_timestamp:
+        non_positive_price = _has_non_positive_trade_price(
+            bars,
+            extremes,
+            hold_bars=hold_bars,
+        )
 
-    raw_returns = _extreme_reversion_returns(
-        bars,
-        extremes,
-        hold_bars=hold_bars,
-    )
+    raw_returns: list[float] = []
+    if (
+        not duplicate_price_timestamp
+        and not duplicate_funding_timestamp
+        and not non_positive_price
+    ):
+        raw_returns = _extreme_reversion_returns(
+            bars,
+            extremes,
+            hold_bars=hold_bars,
+        )
     cost_per_trade = (float(fee_rate) + float(slippage_rate)) * 2.0
     fee_cost_per_trade = float(fee_rate) * 2.0
     adjusted_returns = [trade_return - cost_per_trade for trade_return in raw_returns]
@@ -86,8 +101,6 @@ def validate_funding_price_confirmation(
     net_return, max_drawdown = _cumulative_return_and_drawdown(adjusted_returns)
     walk_forward_split_count = 0
     walk_forward_pass_rate = 0.0
-    if require_walk_forward:
-        walk_forward_split_count = 0
 
     blocked_reasons = _blocked_reasons(
         bar_count=len(bars),
@@ -98,7 +111,12 @@ def validate_funding_price_confirmation(
         min_trades=min_trades,
         expectancy=slippage_adjusted_expectancy,
         net_return=net_return,
+        duplicate_price_timestamp=duplicate_price_timestamp,
+        duplicate_funding_timestamp=duplicate_funding_timestamp,
+        non_positive_price=non_positive_price,
     )
+    if require_walk_forward and walk_forward_split_count == 0:
+        blocked_reasons.append("insufficient_walk_forward_splits")
 
     return FundingPriceValidationResult(
         strategy_family="funding_extremity_price_confirmation",
@@ -157,6 +175,37 @@ def _load_funding_history(
     )
 
 
+def _has_duplicate_timestamps(records: list[CandleBar] | list[FundingRateRecord]) -> bool:
+    timestamps = set()
+    for record in records:
+        if record.timestamp in timestamps:
+            return True
+        timestamps.add(record.timestamp)
+    return False
+
+
+def _has_non_positive_trade_price(
+    bars: list[CandleBar],
+    extremes: list[FundingRateRecord],
+    *,
+    hold_bars: int,
+) -> bool:
+    timestamps = [bar.timestamp for bar in bars]
+
+    for funding in extremes:
+        entry_index = bisect_left(timestamps, funding.timestamp)
+        exit_index = entry_index + hold_bars
+        if entry_index >= len(bars) or exit_index >= len(bars):
+            continue
+
+        entry_price = float(bars[entry_index].close)
+        exit_price = float(bars[exit_index].close)
+        if entry_price <= 0 or exit_price <= 0:
+            return True
+
+    return False
+
+
 def _extreme_reversion_returns(
     bars: list[CandleBar],
     extremes: list[FundingRateRecord],
@@ -174,7 +223,7 @@ def _extreme_reversion_returns(
 
         entry_price = float(bars[entry_index].close)
         exit_price = float(bars[exit_index].close)
-        if entry_price <= 0:
+        if entry_price <= 0 or exit_price <= 0:
             continue
 
         price_return = (exit_price / entry_price) - 1.0
@@ -210,8 +259,17 @@ def _blocked_reasons(
     min_trades: int,
     expectancy: float,
     net_return: float,
+    duplicate_price_timestamp: bool,
+    duplicate_funding_timestamp: bool,
+    non_positive_price: bool,
 ) -> list[str]:
     reasons: list[str] = []
+    if duplicate_price_timestamp:
+        reasons.append("duplicate_price_timestamp")
+    if duplicate_funding_timestamp:
+        reasons.append("duplicate_funding_timestamp")
+    if non_positive_price:
+        reasons.append("non_positive_price")
     if bar_count < hold_bars + 1:
         reasons.append("insufficient_price_bars")
     if funding_sample_count == 0:
