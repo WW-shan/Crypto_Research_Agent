@@ -7,6 +7,10 @@ implementation phase.
 The project charter in `docs/project-charter.md` is the governing constraint for
 this roadmap.
 
+The standing owner profile remains profit-first research with only a few hundred
+USD, ordinary public APIs/RPC, no speed edge, no MEV or premium infrastructure,
+and research plus paper validation before any live capital.
+
 ## Current Baseline
 
 Implemented:
@@ -42,16 +46,28 @@ Implemented:
   - Walk-forward train/test window utility.
   - Optional `--include-validation` research-loop summaries in JSON and
     Markdown reports.
+- Closed-loop MVP foundations:
+  - Charter-constrained prompts, LLM contract models, and guardrails for
+    research-only proposals.
+  - Fake-LLM-tested research adapter plus an opt-in LangGraph LLM research loop.
+  - Memory persistence for generated and blocked hypotheses.
+  - Local dry-run scheduler planning with explicit network controls.
+  - Paper evidence aggregation and a paper eligibility gate.
+  - Tiny-live readiness artifact generation only, with documented tiny-live
+    controls in `docs/tiny-live-readiness.md`.
 
 Known limits:
 
 - Historical validation currently covers only simple baseline validators, not a
   broad strategy library or full paper-trading evidence package.
-- Agent behavior is mostly deterministic and template-driven, not a live
-  multi-agent LLM research process.
-- There is no scheduler, daily report job, dashboard, alerting, or deployment
-  configuration.
-- There is no live trading path, by design.
+- The LLM loop is opt-in and constrained to research contracts; it is not a
+  substitute for historical validation or paper evidence.
+- The scheduler is dry-run planning only; there is no deployed daily job,
+  dashboard, or alerting.
+- Paper evidence infrastructure exists, but sustained paper simulation evidence
+  still needs to be collected before any live review.
+- There is no live execution path, no wallet-key access, no exchange order
+  routing, and the system should not deploy capital.
 
 ## Phase 1: Real Data Closed-Loop MVP - Complete
 
@@ -130,18 +146,23 @@ Remaining Phase 2 gaps:
 - Add enough strategy-family evidence before any paper-trading gate is
   considered.
 
-## Phase 3: LLM Research Agent Loop
+## Phase 3: LLM Research Agent Loop - Complete
 
 Goal: Move from static templates to an AI-assisted research loop that proposes
 and critiques hypotheses while staying inside the charter.
 
-Scope:
+Delivered:
 
-- Supervisor prompt that must read `docs/project-charter.md`.
-- Research agent that proposes hypotheses from anomaly bundles.
-- Validator agent that demands falsifiable evidence.
-- Coder agent restricted to backtests, transforms, and indicators.
-- Reflector agent that writes failure lessons into memory.
+- Charter-constrained prompt templates for supervisor, scanner, hypothesis
+  generator, coder, and reflexion roles.
+- Strict LLM research contract models that default to research-only behavior and
+  reject live-order, private-key, high-capital, MEV, premium-RPC, bridge-race,
+  flash-loan, and speed-edge instructions.
+- Fake-LLM research adapter with deterministic tests for valid, invalid, and
+  unsafe model output.
+- Opt-in LangGraph LLM research loop that guards proposals, requests
+  validation, critiques evidence, persists memory, and routes paper suggestions
+  to human review rather than execution.
 
 Completion standard:
 
@@ -151,17 +172,24 @@ Completion standard:
 - Generated code is sandboxed and cannot access wallets, shell, or unrestricted
   network.
 
-## Phase 4: Paper Evidence Accumulation
+## Phase 4: Paper Evidence Accumulation - Partly Complete
 
 Goal: Collect paper-trade evidence only for strategy families that passed
 historical validation.
 
-Scope:
+Delivered:
 
-- Paper execution against deterministic fill assumptions.
-- Strategy-specific paper logs.
-- Daily and weekly evidence reports.
-- Failure tracking for slippage, liquidity, stale signal, and overfit behavior.
+- Aggregation of persisted paper outcomes into strategy evidence packages.
+- Paper eligibility gate that requires sufficient clean evidence before a
+  candidate can be considered for paper approval.
+- Failure tracking for paper evidence normalization and eligibility decisions.
+
+Remaining scope:
+
+- Run repeated paper simulations for narrow, charter-compliant strategy families.
+- Produce daily and weekly evidence reports from collected paper outcomes.
+- Expand evidence coverage across fees, slippage, liquidity, stale signals, and
+  overfit behavior.
 
 Completion standard:
 
@@ -169,16 +197,23 @@ Completion standard:
 - The system tracks net expectancy, drawdown, hit rate, and failure reasons.
 - Candidates that degrade are automatically removed from paper consideration.
 
-## Phase 5: Tiny Live Readiness Review
+## Phase 5: Tiny Live Readiness Review - Artifact Only
 
 Goal: Decide whether a narrow strategy family is ready for tiny live testing.
 
-Scope:
+Delivered:
 
-- Use the rollout gates in `docs/rollout-gates.md`.
-- Require human approval.
-- Require venue and API permission scoping.
-- Start with tiny notional only if all gates pass.
+- Tiny-live readiness artifact generation from rollout gates, paper evidence,
+  notional limits, and human approval status.
+- Readiness artifacts can record both blocking and passing review outcomes.
+- Tiny-live controls are documented in `docs/tiny-live-readiness.md`.
+
+Remaining scope:
+
+- This phase still does not include live execution, wallet access, order routing,
+  or capital deployment.
+- Live readiness remains blocked until repeated paper evidence passes rollout
+  gates for a narrow low-capital strategy family and a human explicitly approves.
 
 Completion standard:
 
@@ -188,20 +223,25 @@ Completion standard:
 
 ## Active Next Step
 
-The next implementation should be Phase 3: LLM Research Agent Loop, while
-keeping Phase 2 validators conservative and evidence-only.
+The next practical work is Phase 4 paper simulation and evidence collection,
+plus data-source expansion that can improve slow-to-medium frequency research.
+Do not pivot to speed arbitrage, MEV, premium infrastructure, or high-capital
+strategies.
 
 Recommended next slice:
 
-1. Add charter-constrained prompt templates for supervisor, scanner,
-   hypothesis generator, coder, and reflexion roles.
-2. Add strict LLM research contract models that reject live-order and
-   private-key instructions.
-3. Add a deterministic charter guard that blocks MEV, premium RPC, bridge race,
-   flash-loan, and high-capital ideas.
-4. Add a fake-LLM-tested research adapter before connecting any real model.
+1. Run repeated paper simulations for one or two low-capital strategy families
+   that already have conservative historical validation evidence.
+2. Persist enough paper outcomes to exercise the paper evidence aggregation and
+   eligibility gate with realistic pass and fail cases.
+3. Expand ordinary public data coverage where it improves evidence quality:
+   additional CCXT venues, funding/open-interest history, DefiLlama
+   fundamentals, and DEX liquidity snapshots.
+4. Feed failed paper assumptions and rejected candidates back into memory so the
+   research loop learns what not to retest.
 
-The constraints remain unchanged: low capital, no speed arbitrage, no MEV or
+The constraints remain unchanged: low capital measured in a few hundred USD,
+ordinary public APIs/RPC only, no speed edge or speed arbitrage, no MEV or
 premium infrastructure dependency, no wallet-key access, no order routing, and
 no live capital.
 
