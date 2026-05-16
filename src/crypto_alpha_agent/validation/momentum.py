@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import math
 
 from pydantic import BaseModel, ConfigDict
 
@@ -40,10 +41,10 @@ def validate_close_momentum(
         raise ValueError("hold_bars must be greater than 0")
     if min_trades < 0:
         raise ValueError("min_trades must be non-negative")
-    if fee_rate < 0:
-        raise ValueError("fee_rate must be non-negative")
-    if slippage_rate < 0:
-        raise ValueError("slippage_rate must be non-negative")
+    if not math.isfinite(fee_rate) or fee_rate < 0:
+        raise ValueError("fee_rate must be finite and non-negative")
+    if not math.isfinite(slippage_rate) or slippage_rate < 0:
+        raise ValueError("slippage_rate must be finite and non-negative")
     if not bars:
         raise ValueError("bars must be non-empty")
 

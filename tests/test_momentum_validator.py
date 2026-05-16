@@ -61,6 +61,18 @@ def test_momentum_validator_blocks_when_trade_count_is_too_low():
     assert "insufficient_trades" in result.blocked_reasons
 
 
+@pytest.mark.parametrize("cost_name", ["fee_rate", "slippage_rate"])
+@pytest.mark.parametrize("cost_value", [-0.001, float("nan"), float("inf")])
+@pytest.mark.parametrize("closes", [[100], [100, 101, 102]])
+def test_momentum_validator_rejects_invalid_costs_before_backtest(
+    cost_name: str,
+    cost_value: float,
+    closes: list[float],
+):
+    with pytest.raises(ValueError, match="finite.*non-negative"):
+        validate_close_momentum(_bars(closes), **{cost_name: cost_value})
+
+
 @pytest.mark.parametrize("lookback_bars, hold_bars", [(0, 1), (1, 0)])
 def test_momentum_validator_rejects_invalid_windows(lookback_bars: int, hold_bars: int):
     with pytest.raises(ValueError):
