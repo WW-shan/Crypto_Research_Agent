@@ -38,6 +38,61 @@ def _clean_paper(**overrides) -> PaperEvidencePackage:
     return PaperEvidencePackage(**data)
 
 
+def _passing_checklist_items():
+    from crypto_alpha_agent.evidence.live_readiness import TinyLiveReadinessChecklistItem
+
+    return (
+        TinyLiveReadinessChecklistItem(
+            code="rollout_gates_passed",
+            name="Rollout gates passed",
+            status="pass",
+            detail="Rollout gates passed.",
+        ),
+        TinyLiveReadinessChecklistItem(
+            code="paper_evidence_positive_clean",
+            name="Paper evidence positive and clean",
+            status="pass",
+            detail="Paper evidence is profitable and has no recorded failures.",
+        ),
+        TinyLiveReadinessChecklistItem(
+            code="paper_sample_covers_rollout",
+            name="Paper sample covers rollout observations",
+            status="pass",
+            detail="Paper sample and closed counts cover rollout observations.",
+        ),
+        TinyLiveReadinessChecklistItem(
+            code="human_approval_recorded",
+            name="Human approval recorded",
+            status="pass",
+            detail="Human approval reference recorded: approval-2026-05-16.",
+        ),
+        TinyLiveReadinessChecklistItem(
+            code="strategy_family_matches",
+            name="Strategy family matches",
+            status="pass",
+            detail="Evidence strategy family matches requested family funding_basis.",
+        ),
+    )
+
+
+def _ready_artifact_kwargs(**overrides):
+    data = {
+        "strategy_family": "funding_basis",
+        "ready_for_human_review": True,
+        "live_execution_enabled": False,
+        "required_action_mode": "gated_live_review_only",
+        "reason_codes": (),
+        "checklist_items": _passing_checklist_items(),
+        "rollout_reason_codes": (),
+        "paper_failure_reasons": (),
+        "max_notional_usd": 25.0,
+        "max_daily_loss_usd": 10.0,
+        "human_approval_reference": "approval-2026-05-16",
+    }
+    data.update(overrides)
+    return data
+
+
 def test_generates_review_ready_artifact_without_enabling_live_execution():
     from crypto_alpha_agent.evidence.live_readiness import generate_tiny_live_readiness_artifact
 
@@ -267,6 +322,48 @@ def test_readiness_artifact_rejects_direct_contradictory_construction():
             max_notional_usd=25.0,
             max_daily_loss_usd=10.0,
             human_approval_reference=None,
+        )
+
+
+def test_readiness_artifact_rejects_ready_with_rollout_or_paper_failures():
+    from crypto_alpha_agent.evidence.live_readiness import TinyLiveReadinessArtifact
+
+    with pytest.raises(ValidationError):
+        TinyLiveReadinessArtifact(
+            **_ready_artifact_kwargs(rollout_reason_codes=("insufficient_sample_size",))
+        )
+
+    with pytest.raises(ValidationError):
+        TinyLiveReadinessArtifact(
+            **_ready_artifact_kwargs(paper_failure_reasons=("paper_order_rejected",))
+        )
+
+
+@pytest.mark.parametrize("approval_reference", [None, "   "])
+def test_readiness_artifact_rejects_ready_without_nonblank_human_approval_reference(
+    approval_reference,
+):
+    from crypto_alpha_agent.evidence.live_readiness import TinyLiveReadinessArtifact
+
+    with pytest.raises(ValidationError):
+        TinyLiveReadinessArtifact(
+            **_ready_artifact_kwargs(human_approval_reference=approval_reference)
+        )
+
+
+def test_readiness_artifact_rejects_ready_without_required_pass_checklist_codes():
+    from crypto_alpha_agent.evidence.live_readiness import TinyLiveReadinessArtifact
+
+    missing_human_approval = tuple(
+        item for item in _passing_checklist_items() if item.code != "human_approval_recorded"
+    )
+
+    with pytest.raises(ValidationError):
+        TinyLiveReadinessArtifact(**_ready_artifact_kwargs(checklist_items=()))
+
+    with pytest.raises(ValidationError):
+        TinyLiveReadinessArtifact(
+            **_ready_artifact_kwargs(checklist_items=missing_human_approval)
         )
 
 

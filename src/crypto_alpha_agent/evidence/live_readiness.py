@@ -17,6 +17,13 @@ ReadinessReasonCode = Literal[
 ReadinessChecklistStatus = Literal["pass", "fail"]
 RequiredActionMode = Literal["gated_live_review_only"]
 NonNegativeFiniteFloat = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
+_REQUIRED_READINESS_CHECKLIST_CODES = (
+    "rollout_gates_passed",
+    "paper_evidence_positive_clean",
+    "paper_sample_covers_rollout",
+    "human_approval_recorded",
+    "strategy_family_matches",
+)
 
 
 class TinyLiveReadinessChecklistItem(BaseModel):
@@ -84,8 +91,27 @@ class TinyLiveReadinessArtifact(BaseModel):
             return self
         if self.reason_codes:
             raise ValueError("ready_for_human_review cannot be true when reason_codes is non-empty")
+        if self.rollout_reason_codes:
+            raise ValueError("ready_for_human_review cannot be true when rollout_reason_codes is non-empty")
+        if self.paper_failure_reasons:
+            raise ValueError("ready_for_human_review cannot be true when paper_failure_reasons is non-empty")
+        if self.human_approval_reference is None or not self.human_approval_reference.strip():
+            raise ValueError("ready_for_human_review requires a nonblank human_approval_reference")
         if any(item.status == "fail" for item in self.checklist_items):
             raise ValueError("ready_for_human_review cannot be true when checklist_items contains a fail item")
+        passing_checklist_codes = {
+            item.code for item in self.checklist_items if item.status == "pass"
+        }
+        missing_codes = [
+            code
+            for code in _REQUIRED_READINESS_CHECKLIST_CODES
+            if code not in passing_checklist_codes
+        ]
+        if missing_codes:
+            raise ValueError(
+                "ready_for_human_review requires pass checklist items for: "
+                f"{', '.join(missing_codes)}"
+            )
         return self
 
 
