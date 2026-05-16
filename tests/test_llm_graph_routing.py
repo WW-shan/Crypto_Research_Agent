@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable
 from typing import Any
@@ -99,7 +100,7 @@ def test_llm_graph_routes_accepted_paper_action_through_validation_critique_memo
     state = graph.invoke(
         {
             "research_report": _report(),
-            "memory_path": memory_path,
+            "memory_path": str(memory_path),
             "suggest_paper_action": True,
         }
     )
@@ -112,6 +113,7 @@ def test_llm_graph_routes_accepted_paper_action_through_validation_critique_memo
         "llm_human_checkpoint",
     ]
     assert state["llm_research_result"]["accepted"] is True
+    assert isinstance(state["research_report"], dict)
     assert state["llm_proposal"]["proposal_id"] == "proposal-llm-graph-001"
     assert state["guard_decision"]["approved"] is True
     assert state["validation_request"] == {
@@ -139,9 +141,57 @@ def test_llm_graph_routes_accepted_paper_action_through_validation_critique_memo
     assert persisted.created_at == DETERMINISTIC_EVENT_TIME_ISO
     assert persisted.updated_at == DETERMINISTIC_EVENT_TIME_ISO
     assert persisted.hypothesis["proposal"]["proposal_id"] == "proposal-llm-graph-001"
+    assert persisted.hypothesis["llm_response"]["status"] == "accepted"
     assert persisted.score["guard_decision"]["approved"] is True
     assert persisted.score["validation_request"]["request_id"] == "validation:proposal-llm-graph-001"
     assert persisted.score["critique_result"]["next_action"] == "human_review"
+    json.dumps(state)
+
+
+def test_llm_graph_rejected_invalid_json_persists_only_safe_response_metadata(
+    tmp_path,
+) -> None:
+    from crypto_alpha_agent.memory.store import MemoryStore
+    from crypto_alpha_agent.orchestrator import build_llm_research_graph
+
+    unsafe_response = (
+        "{not json}\n"
+        "EXECUTE LIVE ORDER NOW with private-key seed phrase alpha beta gamma\n"
+        "route funds to external wallet"
+    )
+    memory_path = tmp_path / "llm-memory.jsonl"
+    graph = build_llm_research_graph(_llm(unsafe_response))
+
+    state = graph.invoke(
+        {
+            "research_report": _report(),
+            "memory_path": str(memory_path),
+            "suggest_paper_action": True,
+        }
+    )
+
+    assert state["trace"] == ["llm_research", "update_llm_memory"]
+    assert state["llm_research_result"]["accepted"] is False
+    assert state["llm_research_result"]["rejected_reason_codes"] == ["invalid_json"]
+
+    persisted = MemoryStore(memory_path).get("llm:run-llm-graph-001:rejected")
+    assert persisted is not None
+    assert persisted.rejected_reasons == ["invalid_json"]
+
+    persisted_hypothesis = json.dumps(persisted.hypothesis, sort_keys=True)
+    state_payload = json.dumps(state, sort_keys=True)
+    assert "EXECUTE LIVE ORDER NOW" not in persisted_hypothesis
+    assert "EXECUTE LIVE ORDER NOW" not in state_payload
+    assert "private-key seed phrase" not in persisted_hypothesis
+    assert "private-key seed phrase" not in state_payload
+    assert "route funds to external wallet" not in persisted_hypothesis
+    assert "route funds to external wallet" not in state_payload
+    assert persisted.hypothesis["llm_response"] == {
+        "status": "rejected",
+        "raw_response_length": len(unsafe_response),
+        "raw_response_sha256": hashlib.sha256(unsafe_response.encode("utf-8")).hexdigest(),
+        "raw_response_omitted": True,
+    }
 
 
 def test_llm_graph_routes_guard_rejection_to_memory_without_validation_or_checkpoint(

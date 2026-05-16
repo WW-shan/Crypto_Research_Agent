@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+import hashlib
 from pathlib import Path
 from typing import Any, Literal
 
@@ -196,17 +197,39 @@ def build_llm_research_graph(
 ):
     workflow = StateGraph(dict)
 
+    def _research_report_from_state(value: Any):
+        from crypto_alpha_agent.pipeline.research_loop import ResearchLoopReport
+
+        if isinstance(value, ResearchLoopReport):
+            return value
+        return ResearchLoopReport.model_validate(value)
+
+    def _raw_response_metadata(raw_response: str, *, accepted: bool) -> dict[str, Any]:
+        return {
+            "status": "accepted" if accepted else "rejected",
+            "raw_response_length": len(raw_response),
+            "raw_response_sha256": hashlib.sha256(raw_response.encode("utf-8")).hexdigest(),
+            "raw_response_omitted": True,
+        }
+
     def llm_research(state: AgentState) -> AgentState:
         from crypto_alpha_agent.agents.llm_researcher import run_llm_research_node
 
         next_state = _append_trace(state, "llm_research")
-        report = next_state["research_report"]
+        report = _research_report_from_state(next_state["research_report"])
+        next_state["research_report"] = report.model_dump(mode="python")
         result = run_llm_research_node(
             report,
             llm,
             max_capital_usd=max_capital_usd,
         )
-        next_state["llm_research_result"] = result.model_dump(mode="python")
+        research_result = result.model_dump(mode="python")
+        raw_response = research_result.pop("raw_response")
+        research_result["raw_response_metadata"] = _raw_response_metadata(
+            raw_response,
+            accepted=result.accepted,
+        )
+        next_state["llm_research_result"] = research_result
         if result.proposal is not None:
             next_state["llm_proposal"] = result.proposal.model_dump(mode="python")
         if result.guard_decision is not None:
@@ -217,7 +240,7 @@ def build_llm_research_graph(
         from crypto_alpha_agent.agents.llm_contracts import ValidationRequest
 
         next_state = _append_trace(state, "create_validation_request")
-        report = next_state["research_report"]
+        report = _research_report_from_state(next_state["research_report"])
         proposal = next_state["llm_proposal"]
         request = ValidationRequest(
             request_id=f"validation:{proposal['proposal_id']}",
@@ -269,7 +292,7 @@ def build_llm_research_graph(
         if memory_path is None:
             return next_state
 
-        report = next_state["research_report"]
+        report = _research_report_from_state(next_state["research_report"])
         proposal = next_state.get("llm_proposal")
         research_result = next_state["llm_research_result"]
         proposal_id = proposal["proposal_id"] if proposal is not None else None
@@ -296,7 +319,7 @@ def build_llm_research_graph(
             },
             hypothesis={
                 "proposal": proposal,
-                "raw_response": research_result["raw_response"],
+                "llm_response": research_result["raw_response_metadata"],
                 "prompt_context": research_result["prompt_context"],
             },
             score=score,
