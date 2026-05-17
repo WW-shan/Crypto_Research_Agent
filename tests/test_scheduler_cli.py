@@ -332,3 +332,24 @@ def test_schedule_redacts_dune_api_key_from_json_plan(tmp_path):
 
     assert secret not in json.dumps(payload)
     assert evidence_argv[evidence_argv.index("--dune-api-key") + 1] == "[REDACTED]"
+
+
+def test_schedule_redacts_thegraph_subgraph_url_from_json_plan(tmp_path):
+    secret_url = "https://gateway.thegraph.com/api/SECRET_KEY/subgraphs/id/abc"
+
+    plan = build_daily_schedule_plan(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        report_out=tmp_path / "daily.md",
+        symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        include_thegraph=True,
+        subgraph_url=secret_url,
+        graph_query="{ pools { id } }",
+    )
+    payload = plan.model_dump(mode="json")
+    evidence_argv = payload["planned_commands"][-1]["argv"]
+
+    assert secret_url not in json.dumps(payload)
+    assert "SECRET_KEY" not in json.dumps(payload)
+    assert evidence_argv[evidence_argv.index("--subgraph-url") + 1] == "[REDACTED]"

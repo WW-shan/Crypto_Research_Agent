@@ -22,6 +22,7 @@ RiskReasonCode = Literal[
     "manual_approval_denied",
     "manual_approval_scope_mismatch",
     "rollout_gates_not_passed",
+    "live_execution_disabled_by_charter",
 ]
 
 NonNegativeFiniteFloat = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
@@ -139,10 +140,12 @@ class RiskGuardian:
             _append_reason(reasons, reason)
         for reason in _rollout_reasons(context):
             _append_reason(reasons, reason)
+        if context.execution_mode == "gated_live" and not reasons:
+            _append_reason(reasons, "live_execution_disabled_by_charter")
 
         approved = not reasons
-        execution_allowed = approved and context.execution_mode in {"paper", "gated_live"}
-        live_execution_allowed = approved and context.execution_mode == "gated_live"
+        execution_allowed = approved and context.execution_mode == "paper"
+        live_execution_allowed = False
 
         return RiskDecision(
             opportunity_id=context.opportunity_id,

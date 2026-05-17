@@ -236,7 +236,7 @@ def _optional_evidence_source_args(
     if include_thegraph:
         args.append("--include-thegraph")
     if subgraph_url is not None:
-        args.extend(["--subgraph-url", subgraph_url])
+        args.extend(["--subgraph-url", _REDACTED_SECRET])
     if graph_query is not None:
         args.extend(["--graph-query", graph_query])
     for graph_variable in graph_variables:

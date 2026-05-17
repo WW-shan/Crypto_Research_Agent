@@ -190,6 +190,44 @@ def test_evidence_runner_records_source_health_on_optional_source_failure(tmp_pa
     assert report.paper_outcomes_written > 0
 
 
+class SecretUrlFailingGraphClient:
+    def query(self, subgraph_url, query, *, variables=None):
+        del query, variables
+        raise RuntimeError(f"failed request to {subgraph_url}")
+
+
+def test_evidence_runner_redacts_thegraph_failure_urls(tmp_path):
+    secret_url = "https://gateway.thegraph.com/api/SECRET_KEY/subgraphs/id/abc"
+
+    report = run_daily_evidence_pipeline(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        report_out=tmp_path / "daily.md",
+        allow_network=True,
+        symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        run_id="thegraph-failure",
+        ccxt_collector=DeterministicCcxtCollector(),
+        include_thegraph=True,
+        subgraph_url=secret_url,
+        graph_query="{ pools { id } }",
+        thegraph_client=SecretUrlFailingGraphClient(),
+    )
+
+    payload = report.model_dump(mode="json")
+    payload_json = json.dumps(payload, sort_keys=True)
+    assert "SECRET_KEY" not in payload_json
+    assert secret_url not in payload_json
+    graph_failures = [
+        item
+        for item in report.source_health.items
+        if item.source == "thegraph" and item.status == "failure"
+    ]
+    assert graph_failures
+    assert graph_failures[0].failure == "failed request to [REDACTED_URL]"
+
+
 def test_evidence_runner_replaces_run_scoped_validation_and_research_memory(tmp_path):
     run_id = "rerun-fixture"
     memory_path = tmp_path / "memory.jsonl"

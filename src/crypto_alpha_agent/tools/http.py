@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import time
+import re
 from collections.abc import Callable
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+_URL_PATTERN = re.compile(r"https?://[^\s'\";,)}]+")
 
 
 class SourceHealth(BaseModel):
@@ -66,7 +69,7 @@ class HttpClient:
                 self.last_health = health
                 return response, health
             except Exception as exc:
-                last_failure = str(exc) or exc.__class__.__name__
+                last_failure = _redact_failure(str(exc) or exc.__class__.__name__)
                 if attempt < self.max_attempts and self.backoff_seconds > 0:
                     self.sleep(self.backoff_seconds)
 
@@ -81,3 +84,7 @@ class HttpClient:
             f"{self.source} request failed after {health.attempts} attempts: {health.failure}; "
             f"health={health.model_dump()}"
         )
+
+
+def _redact_failure(message: str) -> str:
+    return _URL_PATTERN.sub("[REDACTED_URL]", message)

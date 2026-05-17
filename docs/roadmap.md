@@ -66,10 +66,11 @@ Implemented:
   - `rollout-review` CLI that preserves the strategy-specific evidence package.
   - External operator-controlled scheduling handoff documented in the runbook.
 
-Known limits:
+Current limits that remain outside the completed safe research-loop milestone:
 
-- Historical validation currently covers only simple baseline validators, not a
-  broad strategy library.
+- Historical validation covers the initial low-capital strategy families and
+  the first executable paper-simulated funding family. A broader strategy
+  library is future expansion, not a blocker for the first milestone.
 - The LLM loop is opt-in and constrained to research contracts; it is not a
   substitute for historical validation or paper evidence.
 - The scheduler remains operator-controlled and dry-run only, but the runbook
@@ -77,8 +78,8 @@ Known limits:
 - External scheduler remains operator-controlled even though the runbook now
   documents complete scheduling handoff details for `evidence-run`.
 - Paper simulation, outcome ledger, evidence reporting, and memory feedback are
-  operational, but longer paper evidence collection is still required before any
-  live review.
+  operational. Longer paper evidence collection is still required before any
+  tiny-live review can even be considered.
 - There is no live execution path, no wallet-key access, no exchange order
   routing, and the system should not deploy capital.
 
@@ -117,7 +118,7 @@ uv run crypto-alpha-agent research-loop \
   --report-out var/reports/daily.md
 ```
 
-## Phase 2 Strategy Validation Expanded - Partly Complete
+## Phase 2 Strategy Validation Expanded - Complete For First Milestone
 
 Goal: Validate simple low-capital strategy families against real historical
 data before any paper proposal.
@@ -142,19 +143,19 @@ Initial strategy families:
 - DEX pair liquidity/volume anomaly watchlist, used for observation rather than
   direct execution.
 
-Completion standard:
+Completion evidence:
 
-- Each initial strategy family has a deterministic validation adapter.
+- Initial strategy families are registered with deterministic validation or
+  research-watchlist adapters.
 - Results include fees, slippage assumptions, trade count, max drawdown, and
   expectancy where applicable.
 - Walk-forward or out-of-sample splits are applied before paper approval.
 - Strategies that fail are persisted with rejection reasons.
 
-Remaining Phase 2 gaps:
+Future Phase 2 expansion:
 
 - Extend combined validators and hard walk-forward gates beyond the first
   funding-plus-price strategy family.
-- Persist validation failures and lessons into memory.
 - Add enough strategy-family evidence before any paper-trading gate is
   considered.
 
@@ -184,7 +185,7 @@ Completion standard:
 - Generated code is sandboxed and cannot access wallets, shell, or unrestricted
   network.
 
-## Phase 4 Evidence Accumulation Operational - Partly Complete
+## Phase 4 Evidence Accumulation Operational - Complete For First Milestone
 
 Goal: Collect paper-trade evidence only for strategy families that passed
 historical validation.
@@ -205,12 +206,11 @@ Delivered:
 - `evidence-run` can drive the daily paper loop, memory feedback, and report
   generation in one operator-controlled command.
 
-Remaining scope:
+Future Phase 4 expansion:
 
 - Add broader charter-compliant strategy families beyond the initial funding
   extremity plus price confirmation slice.
-- Run longer live paper collection for narrow, charter-compliant strategy
-  families.
+- Run longer paper collection for narrow, charter-compliant strategy families.
 - Expand evidence coverage across fees, slippage, liquidity, stale signals, and
   overfit behavior.
 - Optionally add ordinary public data sources when they improve evidence quality
@@ -250,23 +250,28 @@ Completion standard:
 
 ## Active Next Step
 
-The active work is now the complete autonomous evidence system. The first
-strategy family already has a funding-plus-price validator and hard
-walk-forward gate, while the scheduler remains a local dry-run planning surface
-until this plan replaces that gap. The next practical work is to collect more
-evidence over time and expand only where it improves slow-to-medium frequency
-research. Do not pivot to speed arbitrage, MEV, premium infrastructure,
-high-capital strategies, or live trading. The remaining blocked item is
-live execution until future charter revision.
+The first complete safe research-loop milestone is complete. The repository now
+has a tested local loop for public-data ingestion, scanner/anomaly/hypothesis
+generation, deterministic validation, paper simulation, evidence memory,
+daily/weekly reports, bounded experiment planning, degradation stop rules, and
+rollout-review artifacts with live execution disabled.
+
+The next practical work is operational evidence collection over time and
+incremental strategy-library expansion where it improves slow-to-medium
+frequency research. Do not pivot to speed arbitrage, MEV, premium
+infrastructure, high-capital strategies, or live trading. The remaining blocked
+item is live execution until future charter revision, specifically a future
+explicit charter revision by the owner.
 
 Recommended next slice:
 
 1. Broaden strategy-family coverage only after conservative historical
    validation exists for each family.
-2. Run longer live paper collection for low-capital strategy families that
-   already have conservative historical validation evidence.
-3. Maintain the production daily scheduler gap explicitly; the current scheduler
-   remains a local dry-run planning surface.
+2. Run longer paper collection for low-capital strategy families that already
+   have conservative historical validation evidence.
+3. Keep scheduling operator-controlled: cron/systemd may call `evidence-run`,
+   while the agent itself remains a safe one-shot workflow rather than an
+   always-on trading daemon.
 4. Expand ordinary public data coverage where it improves evidence quality:
    additional CCXT venues, funding/open-interest history, DefiLlama
    fundamentals, and DEX liquidity snapshots.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,6 +37,7 @@ from crypto_alpha_agent.strategy import default_strategy_registry
 
 DEFAULT_STRATEGY_FAMILIES = ("funding_extremity_price_confirmation",)
 OPTIONAL_SOURCES = frozenset({"dexscreener", "defillama", "dune", "thegraph"})
+_URL_PATTERN = re.compile(r"https?://[^\s'\";,)}]+")
 
 
 class EvidenceRunnerStep(BaseModel):
@@ -788,8 +790,12 @@ def _optional_failure(source: str, feed: str, exc: Exception) -> SourceHealthSum
         feed=feed,
         status="failure",
         reason_code="optional_source_failed",
-        failure=str(exc),
+        failure=_redact_failure(str(exc)),
     )
+
+
+def _redact_failure(message: str) -> str:
+    return _URL_PATTERN.sub("[REDACTED_URL]", message)
 
 
 def _validation_parameter_kwargs(

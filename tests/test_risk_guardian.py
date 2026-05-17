@@ -116,16 +116,17 @@ def test_policy_guards_emit_stable_reason_codes():
     ]
 
 
-def test_gated_live_executes_only_when_all_guards_and_approval_pass():
+def test_gated_live_remains_execution_blocked_by_current_charter():
     guardian = RiskGuardian(_policy())
 
     decision = guardian.evaluate(_context(rollout_eligible_for_tiny_live=True))
 
-    assert decision.approved is True
-    assert decision.execution_allowed is True
-    assert decision.live_execution_allowed is True
-    assert decision.reason_codes == []
-    assert decision.assert_can_execute() is None
+    assert decision.approved is False
+    assert decision.execution_allowed is False
+    assert decision.live_execution_allowed is False
+    assert decision.reason_codes == ["live_execution_disabled_by_charter"]
+    with pytest.raises(PermissionError, match="live_execution_disabled_by_charter"):
+        decision.assert_can_execute()
 
 
 def test_gated_live_blocks_when_rollout_eligibility_is_missing():
@@ -254,7 +255,7 @@ def test_gated_live_rejects_approval_with_mismatched_required_approval_id():
     assert decision.reason_codes == ["manual_approval_scope_mismatch"]
 
 
-def test_gated_live_allows_approval_with_matching_required_reference():
+def test_gated_live_matching_approval_still_cannot_enable_live_execution():
     guardian = RiskGuardian(_policy())
     context = _context(
         required_approval_id="approval-123",
@@ -264,10 +265,10 @@ def test_gated_live_allows_approval_with_matching_required_reference():
 
     decision = guardian.evaluate(context)
 
-    assert decision.approved is True
-    assert decision.execution_allowed is True
-    assert decision.live_execution_allowed is True
-    assert decision.reason_codes == []
+    assert decision.approved is False
+    assert decision.execution_allowed is False
+    assert decision.live_execution_allowed is False
+    assert decision.reason_codes == ["live_execution_disabled_by_charter"]
 
 
 def test_gated_live_rejects_approval_that_does_not_cover_requested_capital():
