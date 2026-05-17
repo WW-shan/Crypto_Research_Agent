@@ -1,13 +1,13 @@
-# Tiny-live readiness controls
+# Tiny-Live Readiness Controls
 
 This document defines the minimum controls for any future tiny-live test under
 the current project constraints: a few hundred USD of capital, no speed edge,
 ordinary public APIs or RPC, profit-first evaluation, and strict loss limits.
 
 The current system does not execute live trades. It produces review artifacts
-only.
+only. There is no live execution in the current agent.
 
-## Current status
+## Current Status
 
 - No default live execution path exists.
 - No wallet, seed phrase, or private key is required for the current readiness
@@ -17,8 +17,10 @@ only.
 - `live_execution_enabled` must remain `false` in the generated artifact.
 - `required_action_mode` is `gated_live_review_only`, meaning the output is for
   human review and cannot promote itself to live execution.
+- The `rollout-review` CLI must preserve the evidence package used for the
+  review so the audit trail can be reconstructed later.
 
-## Preconditions before any future tiny live test
+## Preconditions Before Any Future Tiny Live Test
 
 All of the following must be true before any future tiny-live test is proposed:
 
@@ -39,19 +41,19 @@ All of the following must be true before any future tiny-live test is proposed:
 10. API permissions are scoped to the minimum needed for the test.
 11. Read, paper, and live credentials are separate.
 12. Any live key is dedicated to the test, cannot withdraw funds, and is not
-    reused for research or paper testing.
-13. No wallet private key, seed phrase, or unrestricted signing key is stored in
-    or passed through the agent.
+   reused for research or paper testing.
+13. No wallet private key, seed phrase, or unrestricted signing key is stored
+   in or passed through the agent.
 14. A kill switch is defined and tested before the live test begins.
 15. A rollback checklist is ready before the live test begins.
 16. Logging and audit evidence are enabled for decisions, approvals, submitted
-    orders if any future live path exists, fills, cancellations, errors, kill
-    switch actions, and rollback actions.
+   orders if any future live path exists, fills, cancellations, errors, kill
+   switch actions, and rollback actions.
 
 These preconditions do not create a live path. They define what must exist
 before a future live path can be reviewed.
 
-## Suggested tiny-live defaults
+## Suggested Tiny-Live Defaults
 
 For the current low-capital charter, suggested defaults are:
 
@@ -67,7 +69,7 @@ For the current low-capital charter, suggested defaults are:
 If these limits are too small for a strategy to be meaningful, the strategy is
 not suitable for tiny-live testing under the current charter.
 
-## Forbidden paths
+## Forbidden Paths
 
 The following paths are out of scope and must not be treated as tiny-live
 readiness:
@@ -76,28 +78,29 @@ readiness:
 - Bridge race strategies.
 - Flash loan strategies.
 - Sub-second CEX-DEX race strategies.
-- Any strategy that depends on premium RPC, colocated infrastructure, or a speed
-  edge.
+- Any strategy that depends on premium RPC, colocated infrastructure, or a
+  speed edge.
 - Any path that requires private keys, seed phrases, or unrestricted wallet
   signing inside the agent.
 - Automatic promotion from paper to live.
 - Any live action triggered only by `eligible_for_tiny_live=true` or
   `ready_for_human_review=true`.
 
-## Permission scope
+## Permission Scope
 
 For any future live test, credentials must be scoped before they are configured:
 
 - Read-only keys are used for market data, balances, and audit checks.
 - Paper keys or simulator credentials are used for paper testing.
 - Live keys, if ever introduced, are separated from read and paper keys.
-- Live keys must be limited to the approved venue allowlist and strategy family.
+- Live keys must be limited to the approved venue allowlist and strategy
+  family.
 - Withdrawals must be disabled.
 - Wallet keys and seed phrases must not be available to the agent.
 - Any live key must have a documented owner, creation date, allowed use, and
   removal procedure.
 
-## Kill switch procedure
+## Kill Switch Procedure
 
 The kill switch must be a manual, documented procedure that can be executed
 without code changes:
@@ -106,8 +109,8 @@ without code changes:
 2. Disable the live credential at the venue or revoke the API key.
 3. Cancel all open orders on the approved venue.
 4. Confirm no new orders can be submitted.
-5. Record the timestamp, operator, reason, affected strategy family, open orders,
-   cancellations, fills, realized PnL, and remaining budget.
+5. Record the timestamp, operator, reason, affected strategy family, open
+   orders, cancellations, fills, realized PnL, and remaining budget.
 6. Mark the strategy family as blocked from further live testing until a new
    human review approves resumption.
 
@@ -115,15 +118,15 @@ Kill switch activation is mandatory if max daily loss is reached, an unexpected
 order is observed, venue permissions differ from the approved scope, logging is
 broken, or the strategy behavior differs from the reviewed artifact.
 
-## Rollback checklist
+## Rollback Checklist
 
 After a kill switch or failed tiny-live test:
 
 1. Confirm all live execution processes are stopped.
 2. Confirm all open orders are canceled or otherwise accounted for.
 3. Revoke or rotate the live credential.
-4. Export venue audit logs, local decision logs, order logs, fill logs, and error
-   logs.
+4. Export venue audit logs, local decision logs, order logs, fill logs, and
+   error logs.
 5. Reconcile realized PnL, fees, slippage, and remaining budget.
 6. Preserve the readiness artifact, rollout evaluation, paper evidence package,
    approval reference, and operator notes.
@@ -131,7 +134,7 @@ After a kill switch or failed tiny-live test:
 8. Require a new evidence package and human approval before any future live
    review.
 
-## Human review checklist
+## Human Review Checklist
 
 Reviewers should map the generated artifact fields to the following checks:
 
@@ -171,3 +174,10 @@ The reviewer must also inspect the rollout evaluation used to generate the
 artifact, including `max_observed_loss_usd`, `observation_count`,
 `walk_forward_split_count`, `cost_adjusted_expectancy_usd`, and `failure_rate`.
 Those fields are part of the rollout evidence, not a live execution command.
+
+## Evidence Package Preservation
+
+Preserve the rollout-review evidence package and readiness artifact together.
+The package should always survive alongside the paper evidence package, because
+tiny-live review depends on the full audit trail and not just the final pass or
+block decision.

@@ -58,6 +58,13 @@ Implemented:
   - Paper evidence aggregation and a paper eligibility gate.
   - Tiny-live readiness artifact generation only, with documented tiny-live
     controls in `docs/tiny-live-readiness.md`.
+- Evidence system operations:
+  - `evidence-run` one-shot pipeline for daily research, paper simulation, and
+    evidence artifact generation.
+  - `plan-experiments` for bounded operator-facing experiment planning.
+  - `evidence-report` daily and weekly Markdown builders.
+  - `rollout-review` CLI that preserves the strategy-specific evidence package.
+  - External operator-controlled scheduling handoff documented in the runbook.
 
 Known limits:
 
@@ -65,13 +72,13 @@ Known limits:
   broad strategy library.
 - The LLM loop is opt-in and constrained to research contracts; it is not a
   substitute for historical validation or paper evidence.
-- The scheduler is dry-run planning only; there is no production daily job,
-  dashboard, or alerting.
-- Paper simulation, outcome ledger, evidence reporting, and memory feedback
-  foundations exist, but longer paper evidence collection is still required
-  before any live review.
-- Before the complete autonomous evidence system plan, the scheduler remains
-  dry-run only.
+- The scheduler remains operator-controlled and dry-run only, but the runbook
+  now documents a complete scheduling handoff for `evidence-run`.
+- External scheduler remains operator-controlled even though the runbook now
+  documents complete scheduling handoff details for `evidence-run`.
+- Paper simulation, outcome ledger, evidence reporting, and memory feedback are
+  operational, but longer paper evidence collection is still required before any
+  live review.
 - There is no live execution path, no wallet-key access, no exchange order
   routing, and the system should not deploy capital.
 
@@ -110,7 +117,7 @@ uv run crypto-alpha-agent research-loop \
   --report-out var/reports/daily.md
 ```
 
-## Phase 2: Real Historical Strategy Validation - Partly Complete
+## Phase 2 Strategy Validation Expanded - Partly Complete
 
 Goal: Validate simple low-capital strategy families against real historical
 data before any paper proposal.
@@ -160,9 +167,9 @@ Delivered:
 
 - Charter-constrained prompt templates for supervisor, scanner, hypothesis
   generator, coder, and reflexion roles.
-- Strict LLM research contract models that default to research-only behavior and
-  reject live-order, private-key, high-capital, MEV, premium-RPC, bridge-race,
-  flash-loan, and speed-edge instructions.
+- Strict LLM research contract models that default to research-only behavior
+  and reject live-order, private-key, high-capital, MEV, premium-RPC,
+  bridge-race, flash-loan, and speed-edge instructions.
 - Fake-LLM research adapter with deterministic tests for valid, invalid, and
   unsafe model output.
 - Opt-in LangGraph LLM research loop that guards proposals, requests
@@ -177,7 +184,7 @@ Completion standard:
 - Generated code is sandboxed and cannot access wallets, shell, or unrestricted
   network.
 
-## Phase 4: Paper Evidence Accumulation - Partly Complete
+## Phase 4 Evidence Accumulation Operational - Partly Complete
 
 Goal: Collect paper-trade evidence only for strategy families that passed
 historical validation.
@@ -194,6 +201,9 @@ Delivered:
 - Failure tracking for paper evidence normalization and eligibility decisions.
 - Paper outcome memory feedback so blocked and failed simulations can inform
   future research filtering.
+- Daily and weekly evidence reports are operational.
+- `evidence-run` can drive the daily paper loop, memory feedback, and report
+  generation in one operator-controlled command.
 
 Remaining scope:
 
@@ -201,11 +211,10 @@ Remaining scope:
   extremity plus price confirmation slice.
 - Run longer live paper collection for narrow, charter-compliant strategy
   families.
-- Produce daily and weekly evidence reports from collected paper outcomes.
 - Expand evidence coverage across fees, slippage, liquidity, stale signals, and
   overfit behavior.
-- Optionally add ordinary public data sources when they improve evidence
-  quality without adding speed-edge, premium infrastructure, or live-trading
+- Optionally add ordinary public data sources when they improve evidence quality
+  without adding speed-edge, premium infrastructure, or live-trading
   dependencies.
 
 Completion standard:
@@ -227,10 +236,11 @@ Delivered:
 
 Remaining scope:
 
-- This phase still does not include live execution, wallet access, order routing,
-  or capital deployment.
+- This phase still does not include live execution, wallet access, order
+  routing, or capital deployment.
 - Live readiness remains blocked until repeated paper evidence passes rollout
-  gates for a narrow low-capital strategy family and a human explicitly approves.
+  gates for a narrow low-capital strategy family and a human explicitly
+  approves.
 
 Completion standard:
 
@@ -246,7 +256,8 @@ walk-forward gate, while the scheduler remains a local dry-run planning surface
 until this plan replaces that gap. The next practical work is to collect more
 evidence over time and expand only where it improves slow-to-medium frequency
 research. Do not pivot to speed arbitrage, MEV, premium infrastructure,
-high-capital strategies, or live trading.
+high-capital strategies, or live trading. The remaining blocked item is
+live execution until future charter revision.
 
 Recommended next slice:
 

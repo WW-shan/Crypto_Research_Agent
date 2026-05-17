@@ -1,121 +1,428 @@
 # Operator Runbook
 
-This system is safe-by-default for local operation. The CLI commands below are deterministic and offline unless a later live gate explicitly changes that behavior.
+This system is safe-by-default for local operation. The current workflow is
+real data ingestion, validation, paper simulation, memory feedback, evidence
+reporting, experiment planning, and rollout review. It uses ordinary public APIs
+and a few hundred USD capital profile only for constraints. It uses no wallet
+keys, no live order routing, and no live execution.
 
-Current implementation status: the first strategy family has an implemented
-funding-plus-price validator and a hard walk-forward gate before paper evidence
-consideration. Before the complete autonomous evidence system plan, the
-scheduler remains dry-run only; active work is now the complete autonomous
-evidence system.
+`evidence-run` is a one-shot command. External operator-controlled scheduling
+may call it without making the agent an always-on daemon.
 
 ## Setup
 
 1. Use Python 3.12.
-2. Install dependencies with `uv sync --dev`.
+2. Install dependencies with `uv sync --extra dev`.
 3. Run commands from the repository root.
-4. Keep event logs under a local path such as `var/events.jsonl`.
+4. Keep durable paths under `var/`: SQLite in `var/research.sqlite`, memory in
+   `var/memory/evidence.jsonl`, reports in `var/reports/`, event artifacts in
+   `var/events/`, logs in `var/log/`, locks in `var/locks/`, and rollout
+   artifacts in `var/rollout/`.
 
 ## Environment
 
-No exchange keys, wallet private keys, RPC secrets, or live API credentials are required for Task 19 operation.
+No exchange keys, wallet private keys, RPC secrets, or live API credentials are
+required for the current operator workflow.
 
-If live credentials exist in your shell, do not rely on them here. The Task 19 CLI does not need them and should be treated as an offline operator surface.
+Dune is optional and credentialed. If used, load `DUNE_API_KEY` from a local
+operator config outside git or from the shell environment. Do not paste real
+keys into docs, commands saved in shell history, reports, or commits.
 
-## Safe Dry Runs
+## Daily Sequence
 
-Use these commands for smoke checks:
+1. Run an offline store check:
+
+   ```bash
+   uv run --extra dev crypto-alpha-agent ingest \
+     --offline-check \
+     --db var/research.sqlite \
+     --current-capital-usd 300
+   ```
+
+2. Run the daily evidence pipeline:
+
+   ```bash
+   uv run --extra dev crypto-alpha-agent evidence-run \
+     --db var/research.sqlite \
+     --memory var/memory/evidence.jsonl \
+     --report-out var/reports/daily/2026-05-18.md \
+     --current-capital-usd 300 \
+     --allow-network \
+     --ccxt-exchange binance \
+     --symbol BTC/USDT \
+     --funding-symbol BTC/USDT:USDT \
+     --timeframe 1h \
+     --limit 200 \
+     --strategy-family funding_extremity_price_confirmation \
+     --run-id 2026-05-18-funding-extremity \
+     --include-defillama \
+     --min-tvl-usd 10000 \
+     --include-dexscreener \
+     --dex-query "ETH USDC"
+   ```
+
+3. Generate or regenerate the daily report if needed:
+
+   ```bash
+   uv run --extra dev crypto-alpha-agent evidence-report --daily \
+     --db var/research.sqlite \
+     --memory var/memory/evidence.jsonl \
+     --out var/reports/daily/2026-05-18.md \
+     --strategy-family funding_extremity_price_confirmation
+   ```
+
+4. Review the report, JSON stdout capture, source health, skipped or failed
+   steps, paper outcomes, validation evidence, memory records, and data quality
+   notes. Preserve the artifacts before manual cleanup.
+
+## Weekly Sequence
+
+1. Build the weekly evidence report:
+
+   ```bash
+   uv run --extra dev crypto-alpha-agent evidence-report --weekly \
+     --db var/research.sqlite \
+     --memory var/memory/evidence.jsonl \
+     --out var/reports/weekly/2026-W21.md
+   ```
+
+2. Run bounded planning for the next experiments:
+
+   ```bash
+   uv run --extra dev crypto-alpha-agent plan-experiments \
+     --db var/research.sqlite \
+     --memory var/memory/evidence.jsonl \
+     --strategy-family funding_extremity_price_confirmation \
+     --max-proposals 3 \
+     --current-capital-usd 300 \
+     --offline-only
+   ```
+
+3. If a strategy has at least 30 paper observations and clean walk-forward
+   evidence, build a review artifact without enabling live execution:
+
+   ```bash
+   uv run --extra dev crypto-alpha-agent rollout-review \
+     --db var/research.sqlite \
+     --strategy-family funding_extremity_price_confirmation \
+     --max-notional-usd 25 \
+     --max-daily-loss-usd 10 \
+     --artifact-out var/rollout/funding-extremity/tiny-live-readiness.json \
+     --evidence-package-out var/rollout/funding-extremity/evidence-package.json
+   ```
+
+4. Preserve the evidence package and readiness artifact for tiny-live review.
+   A passing review artifact is not permission to trade.
+
+## Data Ingestion Workflow
+
+All network ingestion requires `--allow-network`. Ingestion writes research data
+only and does not submit orders or read wallet keys.
+
+Binance Public Data:
 
 ```bash
-uv run crypto-alpha-agent scan --dry-run
-uv run crypto-alpha-agent research --dry-run
-uv run crypto-alpha-agent backtest --dry-run
-uv run crypto-alpha-agent paper --dry-run
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source binance-public \
+  --allow-network
+
+uv run --extra dev crypto-alpha-agent research-loop \
+  --db var/research.sqlite \
+  --source binance-public \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --year 2026 \
+  --month 5 \
+  --allow-network \
+  --report-out var/reports/daily/binance-public.md
 ```
 
-Each command prints one JSON object to stdout. The JSON includes `live_api_calls: false` and `uses_real_capital: false`.
-
-## Safe Ingest
-
-Initialize the local research data store without network access:
+CCXT OHLCV and funding:
 
 ```bash
-uv run crypto-alpha-agent ingest --offline-check --db var/research.sqlite
-uv run crypto-alpha-agent ingest --offline-check --current-capital-usd 300 --db var/research.sqlite
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source ccxt \
+  --allow-network \
+  --ccxt-feed ohlcv \
+  --exchange binance \
+  --symbol BTC/USDT \
+  --timeframe 1h \
+  --limit 200
+
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source ccxt \
+  --allow-network \
+  --ccxt-feed funding-rate-history \
+  --exchange binance \
+  --symbol BTC/USDT:USDT \
+  --limit 200
 ```
 
-To declare real network ingestion sources, the operator must explicitly allow network access:
+DexScreener:
 
 ```bash
-uv run crypto-alpha-agent ingest --db var/research.sqlite --source defillama --allow-network
-uv run crypto-alpha-agent ingest --db var/research.sqlite --source binance-public --source dexscreener --allow-network
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source dexscreener \
+  --allow-network \
+  --query "ETH USDC"
 ```
 
-Real network ingestion is for research and paper validation only. It must not submit orders, route live capital, read wallet keys, or assume any collected opportunity is executable.
-
-With ordinary infrastructure and a few hundred USD, the system prioritizes historical data, funding signals, DEX discovery, and DeFi fundamentals. It does not target speed arbitrage, MEV/mempool extraction, sub-second CEX-DEX opportunities, or strategies that depend on premium RPC.
-
-## Safe Research And Paper Memory Workflow
-
-Use this sequence to collect OHLCV price candles and funding-rate history, run the paper loop so it writes ledger and memory, then generate a research report with validation and paper evidence:
+DefiLlama:
 
 ```bash
-uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source ccxt --allow-network --ccxt-feed ohlcv --symbol BTC/USDT --timeframe 1h --limit 100
-uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source ccxt --allow-network --ccxt-feed funding-rate-history --symbol BTC/USDT:USDT --limit 100
-uv run --extra dev crypto-alpha-agent paper-sim-loop --db var/research.sqlite --strategy-family funding_extremity_price_confirmation --price-symbol BTC/USDT --funding-symbol BTC/USDT:USDT --timeframe 1h --memory var/memory.jsonl
-uv run --extra dev crypto-alpha-agent research-loop --db var/research.sqlite --include-validation --include-paper-evidence --report-out var/reports/daily.md
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source defillama \
+  --allow-network \
+  --min-tvl-usd 10000
 ```
 
-The paper simulation loop needs OHLCV price bars as well as funding history. If you ingest only funding-rate history and skip OHLCV, the paper loop will fail closed or block the candidate, for example with `insufficient_price_bars`. That is the safe behavior, but it will not produce useful closed paper outcomes for the report.
-
-These commands collect public research data, produce local reports, and persist paper-evidence memory records. They do not touch wallets, live order routing, or real capital.
-
-## Reports
-
-Generate a daily report from persisted observability events:
+Dune:
 
 ```bash
-uv run crypto-alpha-agent report --events var/events.jsonl --date 2026-05-16
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source dune \
+  --allow-network \
+  --dune-query-id 123456 \
+  --dune-api-key "$DUNE_API_KEY" \
+  --dune-param chain=ethereum
 ```
 
-The report is regenerated from JSONL events, skips malformed lines, and includes event counts, decision counts, approval/block totals, reason-code counts, metric summaries, and event details. The event file must exist, and `--date` must be a UTC calendar date in `YYYY-MM-DD` format. Events with offset timestamps are grouped by their UTC date.
-
-## Replay Recovery
-
-Use replay after an interrupted run, partial write, or suspicious report:
+The Graph:
 
 ```bash
-uv run crypto-alpha-agent replay --events var/events.jsonl
-uv run crypto-alpha-agent replay --events var/events.jsonl --date 2026-05-16
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source thegraph \
+  --allow-network \
+  --subgraph-url "$THEGRAPH_SUBGRAPH_URL" \
+  --graph-query '{ pools(first: 5) { id totalValueLockedUSD } }'
 ```
 
-Without `--date`, replay reports loaded event counts, skipped malformed lines, and counts by event type. With `--date`, it also regenerates the daily report for that UTC date. Replay requires an existing event file and rejects invalid date values before loading events.
+## Paper Simulation Workflow
 
-If `skipped_event_lines` is greater than zero, inspect the JSONL file around the interrupted write. Preserve the original file before manual cleanup so the recovery trail remains auditable.
+Paper simulation requires stored OHLCV price bars and funding-rate history. Run
+it after ingestion:
 
-## Paper-Only Constraints
+```bash
+uv run --extra dev crypto-alpha-agent paper-sim-loop \
+  --db var/research.sqlite \
+  --strategy-family funding_extremity_price_confirmation \
+  --price-symbol BTC/USDT \
+  --funding-symbol BTC/USDT:USDT \
+  --timeframe 1h \
+  --current-capital-usd 300 \
+  --notional-usd 25 \
+  --memory var/memory/evidence.jsonl \
+  --report-out var/reports/paper/funding-extremity.json
+```
 
-Paper mode is not live trading. It must not:
+Blocked or failed paper outcomes are evidence. Do not delete them because they
+feed degradation detection and future experiment planning.
 
-- Use wallet private keys.
-- Submit live exchange orders.
-- Transfer funds.
-- Depend on live balances.
-- Assume fills are executable in production.
+## Daily Report Workflow
 
-Paper results are evidence for review, not permission to trade.
+The daily report workflow can be run by `evidence-run --report-out` or directly:
 
-## Risk Approval Basics
+```bash
+uv run --extra dev crypto-alpha-agent evidence-report --daily \
+  --db var/research.sqlite \
+  --memory var/memory/evidence.jsonl \
+  --out var/reports/daily/2026-05-18.md \
+  --strategy-family funding_extremity_price_confirmation
+```
 
-Before any candidate moves beyond research or paper simulation, confirm:
+What to inspect:
 
-- Expected value is positive after fees, slippage, latency, and borrow/funding costs.
-- Capital required is within configured opportunity and portfolio limits.
-- Daily loss and drawdown limits are not breached.
-- Evidence references are present and reproducible.
-- A human approval checkpoint exists for any non-paper action.
+- `reason_codes`, `should_continue`, `should_collect_more_data`, and
+  `should_stop_family`.
+- Source health for CCXT, DexScreener, DefiLlama, Dune, and The Graph.
+- Validation evidence count, paper outcome count, and sample progress toward
+  30 paper observations.
+- New or blocked candidates, data quality issues, and next experiment
+  proposals.
 
-Blocks from the risk guardian are final until the underlying reason code is resolved and replayed.
+## Weekly Report Workflow
+
+```bash
+uv run --extra dev crypto-alpha-agent evidence-report --weekly \
+  --db var/research.sqlite \
+  --memory var/memory/evidence.jsonl \
+  --out var/reports/weekly/2026-W21.md
+```
+
+What to inspect:
+
+- Strategy family summaries, top rejected reasons, best improving family, and
+  degraded families.
+- Whether near-paper eligibility or near-tiny-live review is true.
+- Whether artifact retention paths contain the daily Markdown/JSON captures,
+  weekly reports, memory, SQLite, and rollout artifacts needed for audit.
+
+## Replay/Recovery Workflow
+
+Use replay/recovery after an interrupted run, partial write, or suspicious
+report:
+
+```bash
+uv run --extra dev crypto-alpha-agent replay \
+  --events var/events/evidence-run.jsonl
+
+uv run --extra dev crypto-alpha-agent replay \
+  --events var/events/evidence-run.jsonl \
+  --date 2026-05-18
+```
+
+Replay validates the event artifact, counts skipped malformed lines, and can
+regenerate a daily observability report by UTC date. Preserve the original
+event JSONL before manual cleanup. For evidence artifacts, preserve the matching
+daily report, weekly report, memory file, SQLite database snapshot, paper report
+JSON, rollout readiness artifact, and evidence package.
+
+## Failure Reasons And Meanings
+
+| Reason code | Meaning |
+| --- | --- |
+| `missing_config` | Optional source was requested but required Dune or The Graph config was absent. |
+| `source_failure` | Optional public data source failed; prior evidence should remain visible. |
+| `insufficient_price_bars` | Paper simulation lacks enough OHLCV records. |
+| `insufficient_funding_records` | Paper simulation lacks enough funding-rate records. |
+| `insufficient_walk_forward` | Validation evidence is not strong enough for paper or rollout gates. |
+| `stopped_family_skipped` | A degraded family marker exists and the run skipped that family by default. |
+| `stopped_family_override_used` | Operator explicitly used `--allow-stopped-family`; audit this. |
+| `degraded_expectancy` | Recent paper outcomes show negative or weakening expectancy. |
+| `drawdown_breach` | Validation or paper evidence breached the configured drawdown threshold. |
+| `insufficient_sample_size` | Rollout review has fewer than the required observations. |
+| `max_loss_budget_breached` | `max_observed_loss_usd` exceeds the rollout loss budget. |
+
+## How To Stop A Degraded Family
+
+Daily and weekly reports can mark a family degraded automatically. To stop a
+family manually, add a degraded marker to memory:
+
+```bash
+uv run --extra dev python - <<'PY'
+from crypto_alpha_agent.pipeline.evidence_reports import mark_family_degraded
+
+mark_family_degraded(
+    "funding_extremity_price_confirmation",
+    ["operator_stop", "degraded_expectancy"],
+    "var/memory/evidence.jsonl",
+)
+PY
+```
+
+After the marker exists, `evidence-run`, `plan-experiments`, `research-loop`,
+and scheduler plans skip that family by default. Use `--allow-stopped-family`
+only for an explicit, auditable override.
+
+## Evidence Preservation
+
+Evidence package preservation is mandatory for tiny-live review. Keep:
+
+- Daily Markdown/JSON captures from `evidence-run` and `evidence-report`.
+- Weekly reports.
+- `var/memory/evidence.jsonl`.
+- `var/research.sqlite` and dated SQLite backups.
+- Paper simulation JSON reports.
+- Event JSONL used for replay/recovery.
+- `rollout-review` readiness artifacts and evidence packages.
+
+Do not rewrite reports to hide skipped lines, source failures, blocked
+candidates, stopped families, or failed paper outcomes. Preserve original files
+and append operator notes separately.
+
+## External Scheduling Handoff
+
+The agent has no internal daemon. The external operator-controlled scheduling
+handoff is: cron or systemd calls exactly one `evidence-run`, captures stdout
+and stderr log paths, sends a failure notification on nonzero exit (a
+nonzero-exit notification), and applies artifact retention. The command should
+be idempotent for the chosen date/run-id, should preserve idempotency through
+stable artifact paths, and must use one-run-at-a-time locking.
+
+Recommended wrapper shape:
+
+```bash
+#!/usr/bin/env bash
+set -u
+
+repo="/Users/ww/Project/Crypto_Research_Agent"
+run_date="$(date -u +%F)"
+week="$(date -u +%G-W%V)"
+lock="$repo/var/locks/evidence-run.lock"
+stdout_log="$repo/var/log/evidence-run/$run_date.out.log"
+stderr_log="$repo/var/log/evidence-run/$run_date.err.log"
+
+mkdir -p "$repo/var/locks" "$repo/var/log/evidence-run" \
+  "$repo/var/reports/daily" "$repo/var/reports/weekly"
+
+cd "$repo" || exit 1
+
+flock -n "$lock" uv run --extra dev crypto-alpha-agent evidence-run \
+  --db var/research.sqlite \
+  --memory var/memory/evidence.jsonl \
+  --report-out "var/reports/daily/$run_date.md" \
+  --weekly-report-out "var/reports/weekly/$week.md" \
+  --current-capital-usd 300 \
+  --allow-network \
+  --ccxt-exchange binance \
+  --symbol BTC/USDT \
+  --funding-symbol BTC/USDT:USDT \
+  --timeframe 1h \
+  --limit 200 \
+  --strategy-family funding_extremity_price_confirmation \
+  >"$stdout_log" \
+  2>"$stderr_log"
+
+status=$?
+if [ "$status" -ne 0 ]; then
+  /usr/local/bin/notify-crypto-alpha-failure "evidence-run failed: $status"
+fi
+exit "$status"
+```
+
+The wrapper shows log paths and run locking explicitly. It keeps stdout/stderr
+separate; stdout is the command JSON output for review. Adjust the notification
+hook to local email, chat, pager, or ticketing.
+
+Recommended cron shape:
+
+```cron
+15 1 * * * /usr/local/bin/crypto-alpha-evidence-run.sh
+```
+
+Recommended systemd shape:
+
+```ini
+# /etc/systemd/system/crypto-alpha-evidence-run.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/crypto-alpha-evidence-run.sh
+
+# /etc/systemd/system/crypto-alpha-evidence-run.timer
+[Timer]
+OnCalendar=*-*-* 01:15:00 UTC
+Persistent=true
+```
+
+Retention guidance:
+
+- Keep daily Markdown/JSON and stdout/stderr logs for at least 180 days.
+- Keep weekly reports, memory, SQLite backups, and paper JSON for at least 365
+  days.
+- Keep rollout artifacts and evidence packages until the tiny-live review is
+  closed and the operator has archived the decision record.
+- Keep event JSONL used for replay/recovery with the matching daily report.
 
 ## Do Not Do Before Live Gates
 
-Do not add exchange order routing, wallet signing, private-key loading, unrestricted RPC writes, or autonomous live execution in this task. Do not bypass risk approvals, manually edit reports to hide skipped lines, or treat paper fills as proof of executable liquidity.
+Do not add exchange order routing, wallet signing, private-key loading,
+unrestricted RPC writes, or autonomous live execution in this task. Do not
+bypass risk approvals, manually edit reports to hide skipped lines, or treat
+paper fills as proof of executable liquidity.

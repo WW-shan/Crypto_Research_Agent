@@ -1,13 +1,12 @@
-# Rollout gates
+# Rollout Gates
 
-Live execution is not a default mode. A strategy earns tiny-live eligibility only
-after deterministic, local evaluation of paper results and walk-forward evidence.
-The rollout gate produces an eligibility decision and machine-readable reason
-codes; it does not place orders, call exchanges, open wallets, or bypass the
-risk guardian. Tiny-live permission scope, kill switch, rollback, and human
-review requirements are defined in `docs/tiny-live-readiness.md`.
+Live execution is not a default mode. A strategy earns tiny-live eligibility
+only after deterministic, local evaluation of paper results and walk-forward
+evidence. The `rollout-review` CLI produces an eligibility decision, a tiny-live
+readiness artifact, and a strategy-specific evidence package for audit. It does
+not place orders, call exchanges, open wallets, or bypass the risk guardian.
 
-## Default policy
+## Default Policy
 
 The default `RolloutPolicy` is intentionally fail-closed:
 
@@ -22,15 +21,10 @@ The default `RolloutPolicy` is intentionally fail-closed:
 Eligibility requires all gates to pass. Missing data blocks rollout instead of
 being treated as neutral evidence.
 
-A tiny-live readiness artifact may be generated for both passing and blocking
-outcomes by `src/crypto_alpha_agent/evidence/live_readiness.py`. Failed rollout
-gates should still generate a blocking artifact with reason codes for audit and
-rejection tracking. Passing these gates is required before the artifact may
-report `ready_for_human_review=true` or proceed to human live review. The
-artifact is a review artifact only; it keeps `live_execution_enabled=false` and
-does not create an execution path.
+The artifact is review-only. It keeps `live_execution_enabled=false`; there is
+no live execution and it never becomes a live order routing command.
 
-## Evidence requirements
+## Evidence Requirements
 
 Paper evidence is represented as `PaperTradeObservation` records:
 
@@ -45,11 +39,11 @@ Walk-forward evidence is represented as `WalkForwardSplit` records:
 - stable split identifier
 - cost-adjusted expectancy in USD
 
-The evaluator also requires the maximum observed loss in USD from the paper
-period. This must come from offline evidence and is compared to the rollout loss
-budget.
+The evaluator also requires `max_observed_loss_usd` from the paper period. This
+must come from offline evidence and is compared to the rollout loss budget. A
+review cannot be approved if the evidence package is missing or inconsistent.
 
-## Blocking reason codes
+## Blocking Reason Codes
 
 The evaluator returns stable reason codes for automation and review:
 
@@ -65,10 +59,27 @@ The evaluator returns stable reason codes for automation and review:
 | `manual_override_violation` | Paper evidence includes a manual override violation. |
 | `max_loss_budget_breached` | Maximum observed paper loss exceeds the policy budget. |
 
-## Why live is separate
+## Why Live Is Separate
 
-`eligible_for_tiny_live=True` means the paper evidence passed rollout gates. It
+`eligible_for_tiny_live=true` means the paper evidence passed rollout gates. It
 is not an execution command and must not trigger adapters or wallet actions.
 Actual live behavior remains a separate, gated workflow with explicit approvals,
 permission scoping, kill switch controls, rollback procedures, and risk checks
 documented in `docs/tiny-live-readiness.md`.
+
+## Evidence Package Preservation
+
+The `rollout-review` command must preserve the evidence package used for the
+decision. The package should retain:
+
+- the strategy family
+- the observation count, including the 30 observations threshold
+- `max_observed_loss_usd`
+- walk-forward split count
+- paper failures and blocked reasons
+- the generated tiny-live readiness artifact path
+- the generated evidence package path
+
+This preservation is required for later review and for tiny-live readiness
+auditing. A reviewer should always be able to reconstruct why the command
+returned pass or block without rerunning live logic.

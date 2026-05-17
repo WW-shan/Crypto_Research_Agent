@@ -1,40 +1,160 @@
 # Crypto Alpha Agent
 
-Autonomous research agent for crypto market analysis, on-chain signals, and strategy experiments.
+Autonomous research agent for crypto market analysis, on-chain signals, and
+strategy experiments.
 
 ## Setup
 
 ```bash
 uv sync --extra dev
 cp .env.example .env
-uv run pytest
+uv run --extra dev pytest
 ```
 
-The project uses Python 3.12 and a `src` layout package named `crypto_alpha_agent`.
+The project uses Python 3.12 and a `src` layout package named
+`crypto_alpha_agent`.
+
+## Safety Boundary
+
+There is no live execution in this repository. The operator workflow uses
+ordinary public APIs, local SQLite, local JSONL memory, Markdown/JSON artifacts,
+and a few hundred USD capital profile for research constraints only. Commands
+must not read wallet keys, must not require exchange trading keys, and must use
+no live order routing.
 
 ## Project Direction
 
 The persistent project goal and constraints are documented in
-[`docs/project-charter.md`](docs/project-charter.md). The current delivery plan is
-tracked in [`docs/roadmap.md`](docs/roadmap.md).
+[`docs/project-charter.md`](docs/project-charter.md). The current delivery plan
+is tracked in [`docs/roadmap.md`](docs/roadmap.md).
 
 In short: this project optimizes for low-capital crypto alpha research, not
 speed arbitrage. The default workflow is real data ingestion, validation,
 reflection, reporting, and paper evidence before any live trading discussion.
 The first strategy family has an implemented funding-plus-price validator and a
-hard walk-forward gate. Before the complete autonomous evidence system plan, the
-scheduler remains dry-run only; active work is now the complete autonomous
-evidence system.
+hard walk-forward gate. The scheduling boundary is operator-controlled:
+`evidence-run` is a safe one-shot command that an external cron or systemd timer
+may call, while the agent itself does not become an always-on daemon.
+
+## Safe Evidence Run
+
+`evidence-run` is the normal daily operator entry point. It ingests public
+research data, validates the configured strategy family, runs the paper
+simulation loop, updates memory, and writes daily and optional weekly evidence
+reports. It is safe because it records `uses_real_capital=false` and
+`live_order_routing=false`.
+
+```bash
+uv run --extra dev crypto-alpha-agent evidence-run \
+  --db var/research.sqlite \
+  --memory var/memory/evidence.jsonl \
+  --report-out var/reports/daily/2026-05-18.md \
+  --weekly-report-out var/reports/weekly/2026-W21.md \
+  --current-capital-usd 300 \
+  --allow-network \
+  --ccxt-exchange binance \
+  --symbol BTC/USDT \
+  --funding-symbol BTC/USDT:USDT \
+  --timeframe 1h \
+  --limit 200 \
+  --strategy-family funding_extremity_price_confirmation \
+  --include-defillama \
+  --min-tvl-usd 10000 \
+  --include-dexscreener \
+  --dex-query "ETH USDC"
+```
+
+Use explicit date or run-id naming in artifact paths when a run must be
+preserved for replay or rollout review.
 
 ## Low-Capital Real Data Ingestion
 
-The ingest CLI is safe by default for operators with ordinary infrastructure and a few hundred USD of capital. The offline check initializes the local research SQLite store without network calls, live capital, wallet keys, or order routing:
+The ingest CLI is safe by default for operators with ordinary infrastructure
+and a few hundred USD of capital. The offline check initializes the local
+research SQLite store without network calls, live capital, wallet keys, or
+order routing:
 
 ```bash
-uv run crypto-alpha-agent ingest --offline-check --db var/research.sqlite
+uv run --extra dev crypto-alpha-agent ingest --offline-check --db var/research.sqlite
 ```
 
-Real network sources are research and paper-validation inputs only and require an explicit `--allow-network` flag. This project excludes MEV/mempool strategies, sub-second CEX-DEX arbitrage, premium RPC-dependent strategies, and live order routing.
+Real network sources are research and paper-validation inputs only and require
+an explicit `--allow-network` flag. This project excludes MEV/mempool
+strategies, sub-second CEX-DEX arbitrage, premium RPC-dependent strategies, and
+live order routing.
+
+Safe ingestion examples:
+
+```bash
+# Binance Public Data source declaration through ingest.
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source binance-public \
+  --allow-network
+
+# Binance Public Data historical candle pull for the research loop.
+uv run --extra dev crypto-alpha-agent research-loop \
+  --db var/research.sqlite \
+  --source binance-public \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --year 2026 \
+  --month 5 \
+  --current-capital-usd 300 \
+  --allow-network \
+  --report-out var/reports/daily/binance-public.md
+
+# CCXT OHLCV and funding history.
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source ccxt \
+  --allow-network \
+  --ccxt-feed ohlcv \
+  --exchange binance \
+  --symbol BTC/USDT \
+  --timeframe 1h \
+  --limit 200
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source ccxt \
+  --allow-network \
+  --ccxt-feed funding-rate-history \
+  --exchange binance \
+  --symbol BTC/USDT:USDT \
+  --limit 200
+
+# DexScreener discovery snapshots.
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source dexscreener \
+  --allow-network \
+  --query "ETH USDC"
+
+# DefiLlama yield pool snapshots.
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source defillama \
+  --allow-network \
+  --min-tvl-usd 10000
+
+# Dune slow research snapshots. Keep DUNE_API_KEY in a local operator config
+# or environment outside git; never paste a real key into docs or commits.
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source dune \
+  --allow-network \
+  --dune-query-id 123456 \
+  --dune-api-key "$DUNE_API_KEY" \
+  --dune-param chain=ethereum
+
+# TheGraph slow research snapshots.
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source thegraph \
+  --allow-network \
+  --subgraph-url "$THEGRAPH_SUBGRAPH_URL" \
+  --graph-query '{ pools(first: 5) { id totalValueLockedUSD } }'
+```
 
 ## Phase 1 Research Loop
 
@@ -43,7 +163,7 @@ local research records, generate research-only hypotheses, and optionally write
 a Markdown report:
 
 ```bash
-uv run crypto-alpha-agent research-loop \
+uv run --extra dev crypto-alpha-agent research-loop \
   --db var/research.sqlite \
   --source binance-public \
   --symbol BTCUSDT \
@@ -77,3 +197,83 @@ The paper simulation loop needs both OHLCV price bars and funding history. These
 commands collect public research data, produce local reports, and persist paper
 evidence memory records; they do not touch wallets, live order routing, or real
 capital.
+
+## Paper Simulation
+
+Run the paper simulator after CCXT OHLCV and funding history have been ingested:
+
+```bash
+uv run --extra dev crypto-alpha-agent paper-sim-loop \
+  --db var/research.sqlite \
+  --strategy-family funding_extremity_price_confirmation \
+  --price-symbol BTC/USDT \
+  --funding-symbol BTC/USDT:USDT \
+  --timeframe 1h \
+  --current-capital-usd 300 \
+  --notional-usd 25 \
+  --memory var/memory/evidence.jsonl \
+  --report-out var/reports/paper/funding-extremity.json
+```
+
+## Evidence Reports
+
+Generate daily and weekly Markdown reports from SQLite plus memory:
+
+```bash
+uv run --extra dev crypto-alpha-agent evidence-report --daily \
+  --db var/research.sqlite \
+  --memory var/memory/evidence.jsonl \
+  --out var/reports/daily/2026-05-18.md \
+  --strategy-family funding_extremity_price_confirmation
+
+uv run --extra dev crypto-alpha-agent evidence-report --weekly \
+  --db var/research.sqlite \
+  --memory var/memory/evidence.jsonl \
+  --out var/reports/weekly/2026-W21.md
+```
+
+## Experiment Planning
+
+Plan the next bounded research experiments without live capital:
+
+```bash
+uv run --extra dev crypto-alpha-agent plan-experiments \
+  --db var/research.sqlite \
+  --memory var/memory/evidence.jsonl \
+  --strategy-family funding_extremity_price_confirmation \
+  --max-proposals 3 \
+  --current-capital-usd 300 \
+  --offline-only
+```
+
+## Rollout Review
+
+`rollout-review` builds a tiny-live readiness artifact and preserves the
+strategy-specific evidence package used for the review. Fewer than 30 paper
+observations blocks tiny-live review, and the output remains review-only with
+no live execution.
+
+```bash
+uv run --extra dev crypto-alpha-agent rollout-review \
+  --db var/research.sqlite \
+  --strategy-family funding_extremity_price_confirmation \
+  --max-notional-usd 25 \
+  --max-daily-loss-usd 10 \
+  --artifact-out var/rollout/funding-extremity/tiny-live-readiness.json \
+  --evidence-package-out var/rollout/funding-extremity/evidence-package.json
+```
+
+## Replay And Recovery
+
+For observability event artifacts, use replay to recover counts or regenerate a
+daily report after an interrupted run:
+
+```bash
+uv run --extra dev crypto-alpha-agent replay \
+  --events var/events/evidence-run.jsonl \
+  --date 2026-05-18
+```
+
+Preserve the original event JSONL, daily Markdown/JSON output, memory JSONL,
+SQLite database, and rollout artifacts before manual cleanup so the evidence
+package preservation trail remains auditable for tiny-live review.
