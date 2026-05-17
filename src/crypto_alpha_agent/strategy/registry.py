@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 import math
 
 from crypto_alpha_agent.strategy.models import (
@@ -11,10 +12,21 @@ from crypto_alpha_agent.strategy.models import (
     StrategyValidationReport,
     StrategyValidationRequest,
 )
+from crypto_alpha_agent.strategy.funding_mean_reversion import (
+    STRATEGY_FAMILY as FUNDING_MEAN_REVERSION_STRATEGY_FAMILY,
+    validate_funding_mean_reversion_from_records,
+)
 from crypto_alpha_agent.validation.funding_price import validate_funding_price_confirmation_from_records
+from crypto_alpha_agent.validation.funding_price import (
+    FundingPriceTrade,
+    extract_funding_price_trades_from_records,
+    latest_funding_price_observed_at_from_records,
+)
 
 StrategyValidator = Callable[[StrategyValidationRequest], StrategyValidationReport]
 StrategyPaperRunner = Callable[[StrategyPaperRequest], StrategyPaperReport]
+
+_PAPER_SENTINEL_OBSERVED_AT = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,20 +151,44 @@ class StrategyRegistry:
 
 def default_strategy_registry(*, current_capital_usd: float = 300.0) -> StrategyRegistry:
     registry = StrategyRegistry(current_capital_usd=current_capital_usd)
-    spec = StrategyFamilySpec(
-        strategy_family="funding_extremity_price_confirmation",
+    funding_price_spec = StrategyFamilySpec(
+        strategy_family=FUNDING_PRICE_STRATEGY_FAMILY,
         display_name="Funding Extremity With Price Confirmation",
         required_record_types=["market_candle", "funding_rate"],
         required_symbols=["BTC/USDT", "BTC/USDT:USDT"],
-        supports_paper_simulation=False,
+        supports_paper_simulation=True,
         min_capital_usd=25.0,
         max_notional_usd=25.0,
         validator_name="funding_price_confirmation",
         blocked_reasons=[],
         configured_capital_usd=max(current_capital_usd, 25.0),
     )
-    registry.register(spec, _funding_price_validator)
+    registry.register(
+        funding_price_spec,
+        _funding_price_validator,
+        paper_runner=_funding_price_paper_runner,
+    )
+    mean_reversion_spec = StrategyFamilySpec(
+        strategy_family=FUNDING_MEAN_REVERSION_STRATEGY_FAMILY,
+        display_name="Funding Mean Reversion After Extreme",
+        required_record_types=["market_candle", "funding_rate"],
+        required_symbols=["BTC/USDT", "BTC/USDT:USDT"],
+        supports_paper_simulation=True,
+        min_capital_usd=25.0,
+        max_notional_usd=25.0,
+        validator_name="funding_mean_reversion",
+        blocked_reasons=[],
+        configured_capital_usd=max(current_capital_usd, 25.0),
+    )
+    registry.register(
+        mean_reversion_spec,
+        _funding_mean_reversion_validator,
+        paper_runner=_funding_mean_reversion_paper_runner,
+    )
     return registry
+
+
+FUNDING_PRICE_STRATEGY_FAMILY = "funding_extremity_price_confirmation"
 
 
 def _funding_price_validator(request: StrategyValidationRequest) -> StrategyValidationReport:
@@ -186,6 +222,13 @@ def _funding_price_validator(request: StrategyValidationRequest) -> StrategyVali
             fee_rate=float(parameters.get("fee_rate", 0.001)),
             slippage_rate=float(parameters.get("slippage_rate", 0.0005)),
             min_trades=int(parameters.get("min_trades", 3)),
+            require_walk_forward=bool(parameters.get("require_walk_forward", True)),
+            walk_forward_train_size=int(parameters.get("walk_forward_train_size", 24)),
+            walk_forward_test_size=int(parameters.get("walk_forward_test_size", 8)),
+            walk_forward_min_splits=int(parameters.get("walk_forward_min_splits", 3)),
+            walk_forward_min_pass_rate=float(
+                parameters.get("walk_forward_min_pass_rate", 1.0)
+            ),
         )
     except (OverflowError, TypeError, ValueError) as exc:
         return _blocked_funding_price_report(
@@ -224,12 +267,168 @@ def _funding_price_validator(request: StrategyValidationRequest) -> StrategyVali
     )
 
 
+def _funding_mean_reversion_validator(request: StrategyValidationRequest) -> StrategyValidationReport:
+    parameters = request.parameters
+    price_symbol = _nonblank_parameter(parameters, "price_symbol")
+    funding_symbol = _nonblank_parameter(parameters, "funding_symbol")
+    timeframe = _nonblank_parameter(parameters, "timeframe")
+    missing_parameters = [
+        name
+        for name, value in (
+            ("price_symbol", price_symbol),
+            ("funding_symbol", funding_symbol),
+            ("timeframe", timeframe),
+        )
+        if value is None
+    ]
+    if missing_parameters:
+        return _blocked_funding_mean_reversion_report(
+            request,
+            blocked_reasons=["missing_strategy_validation_parameters"],
+            metrics={"missing_parameters": missing_parameters},
+        )
+    try:
+        return validate_funding_mean_reversion_from_records(
+            request.records,
+            price_symbol=price_symbol,
+            funding_symbol=funding_symbol,
+            timeframe=timeframe,
+            threshold_abs=float(parameters.get("threshold_abs", 0.0005)),
+            hold_bars=int(parameters.get("hold_bars", 1)),
+            fee_rate=float(parameters.get("fee_rate", 0.001)),
+            slippage_rate=float(parameters.get("slippage_rate", 0.0005)),
+            min_trades=int(parameters.get("min_trades", 3)),
+            require_walk_forward=bool(parameters.get("require_walk_forward", True)),
+            walk_forward_train_size=int(parameters.get("walk_forward_train_size", 24)),
+            walk_forward_test_size=int(parameters.get("walk_forward_test_size", 8)),
+            walk_forward_min_splits=int(parameters.get("walk_forward_min_splits", 3)),
+            walk_forward_min_pass_rate=float(
+                parameters.get("walk_forward_min_pass_rate", 1.0)
+            ),
+        )
+    except (OverflowError, TypeError, ValueError) as exc:
+        return _blocked_funding_mean_reversion_report(
+            request,
+            blocked_reasons=["strategy_validation_error"],
+            metrics={
+                "symbol": price_symbol,
+                "funding_symbol": funding_symbol,
+                "timeframe": timeframe,
+                "validation_error": str(exc),
+            },
+        )
+
+
+def _funding_price_paper_runner(request: StrategyPaperRequest) -> StrategyPaperReport:
+    validation = _funding_price_validator(_paper_validation_request(request))
+    return _paper_report_from_validation(request, validation)
+
+
+def _funding_mean_reversion_paper_runner(
+    request: StrategyPaperRequest,
+) -> StrategyPaperReport:
+    validation = _funding_mean_reversion_validator(_paper_validation_request(request))
+    return _paper_report_from_validation(request, validation)
+
+
+def _paper_validation_request(request: StrategyPaperRequest) -> StrategyValidationRequest:
+    return StrategyValidationRequest(
+        strategy_family=request.strategy_family,
+        records=request.records,
+        current_capital_usd=request.current_capital_usd,
+        parameters=request.parameters,
+    )
+
+
+def _paper_report_from_validation(
+    request: StrategyPaperRequest,
+    validation: StrategyValidationReport,
+) -> StrategyPaperReport:
+    paper_blocking_reasons = {
+        "missing_strategy_validation_parameters",
+        "strategy_validation_error",
+    }
+    paper_blocked_reasons = [
+        reason
+        for reason in validation.blocked_reasons
+        if reason in paper_blocking_reasons
+    ]
+    paper_trades: list[dict[str, object]] = []
+    observed_at = _PAPER_SENTINEL_OBSERVED_AT
+    if not paper_blocked_reasons:
+        try:
+            price_symbol = _required_nonblank_parameter(request.parameters, "price_symbol")
+            funding_symbol = _required_nonblank_parameter(request.parameters, "funding_symbol")
+            timeframe = _required_nonblank_parameter(request.parameters, "timeframe")
+            paper_trades = [
+                _paper_trade_metrics(trade)
+                for trade in extract_funding_price_trades_from_records(
+                    request.records,
+                    price_symbol=price_symbol,
+                    funding_symbol=funding_symbol,
+                    timeframe=timeframe,
+                    threshold_abs=float(request.parameters.get("threshold_abs", 0.0005)),
+                    hold_bars=int(request.parameters.get("hold_bars", 1)),
+                )
+            ]
+            observed_at = latest_funding_price_observed_at_from_records(
+                request.records,
+                price_symbol=price_symbol,
+                funding_symbol=funding_symbol,
+                timeframe=timeframe,
+            ) or _PAPER_SENTINEL_OBSERVED_AT
+        except (OverflowError, TypeError, ValueError) as exc:
+            paper_blocked_reasons = ["paper_trade_extraction_error"]
+            validation = StrategyValidationReport(
+                strategy_family=validation.strategy_family,
+                validator_name=validation.validator_name,
+                approved=False,
+                blocked_reasons=["paper_trade_extraction_error"],
+                metrics={
+                    **validation.metrics,
+                    "paper_trade_extraction_error": str(exc),
+                },
+            )
+    return StrategyPaperReport(
+        strategy_family=request.strategy_family,
+        status="blocked" if paper_blocked_reasons else "simulated",
+        supports_paper_simulation=True,
+        blocked_reasons=paper_blocked_reasons,
+        metrics={
+            "notional_usd": request.notional_usd,
+            "validation": validation.model_dump(mode="json"),
+            "paper_trades": paper_trades,
+            "observed_at": observed_at.isoformat(),
+        },
+    )
+
+
+def _paper_trade_metrics(trade: FundingPriceTrade) -> dict[str, object]:
+    return {
+        "funding_symbol": trade.funding_symbol,
+        "funding_timestamp": trade.funding_timestamp.isoformat(),
+        "entry_timestamp": trade.entry_timestamp.isoformat(),
+        "exit_timestamp": trade.exit_timestamp.isoformat(),
+        "entry_price": trade.entry_price,
+        "exit_price": trade.exit_price,
+        "raw_return": trade.raw_return,
+        "direction": trade.direction,
+    }
+
+
 def _nonblank_parameter(parameters: dict[str, object], key: str) -> str | None:
     value = parameters.get(key)
     if value is None:
         return None
     stripped = str(value).strip()
     return stripped or None
+
+
+def _required_nonblank_parameter(parameters: dict[str, object], key: str) -> str:
+    value = _nonblank_parameter(parameters, key)
+    if value is None:
+        raise ValueError(f"missing paper trade extraction parameter: {key}")
+    return value
 
 
 def _blocked_funding_price_report(
@@ -241,6 +440,21 @@ def _blocked_funding_price_report(
     return StrategyValidationReport(
         strategy_family=request.strategy_family,
         validator_name="funding_price_confirmation",
+        approved=False,
+        blocked_reasons=blocked_reasons,
+        metrics=metrics,
+    )
+
+
+def _blocked_funding_mean_reversion_report(
+    request: StrategyValidationRequest,
+    *,
+    blocked_reasons: list[str],
+    metrics: dict[str, object],
+) -> StrategyValidationReport:
+    return StrategyValidationReport(
+        strategy_family=request.strategy_family,
+        validator_name="funding_mean_reversion",
         approved=False,
         blocked_reasons=blocked_reasons,
         metrics=metrics,

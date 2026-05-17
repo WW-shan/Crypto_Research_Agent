@@ -71,6 +71,42 @@ def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _approved_validation_payload() -> dict[str, object]:
+    return {
+        "strategy_family": "funding_extremity_price_confirmation",
+        "validator_name": "fake_registry_validator",
+        "approved": True,
+        "blocked_reasons": [],
+        "metrics": {"trade_count": 1},
+    }
+
+
+def _paper_trade_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "funding_symbol": "BTC/USDT:USDT",
+        "funding_timestamp": "2026-05-17T01:00:00+00:00",
+        "entry_timestamp": "2026-05-17T02:00:00+00:00",
+        "exit_timestamp": "2026-05-17T03:00:00+00:00",
+        "entry_price": 100.0,
+        "exit_price": 101.0,
+        "raw_return": 0.01,
+        "direction": "long",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _patch_paper_registry(monkeypatch: pytest.MonkeyPatch, report) -> None:
+    class FakeRegistry:
+        def run_paper(self, request):
+            return report
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.pipeline.paper_sim_loop.default_strategy_registry",
+        lambda **_: FakeRegistry(),
+    )
+
+
 def test_run_paper_sim_loop_writes_outcomes_without_live_capital(tmp_path):
     from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
 
@@ -99,7 +135,7 @@ def test_run_paper_sim_loop_writes_outcomes_without_live_capital(tmp_path):
     assert report.uses_real_capital is False
     assert report.live_order_routing is False
     assert report.notional_usd == 25.0
-    assert report.validation.trade_count == 3
+    assert report.validation.metrics["trade_count"] == 3
     assert report.outcome_count == 3
     assert len(report.outcomes) == report.outcome_count
     assert len(loaded) == report.outcome_count
@@ -511,6 +547,35 @@ def test_run_paper_sim_loop_rejects_unsupported_strategy_family(tmp_path):
         )
 
 
+def test_run_paper_sim_loop_blocks_mean_reversion_when_registry_paper_gate_blocks(tmp_path):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+
+    db_path = _write_happy_path_fixture(tmp_path)
+
+    report = run_paper_sim_loop(
+        db_path,
+        run_id="mean-reversion-registry-blocked",
+        strategy_family="funding_mean_reversion_after_extreme",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        current_capital_usd=24.99,
+        notional_usd=10.0,
+        threshold_abs=0.0005,
+        hold_bars=2,
+        fee_rate=0.001,
+        slippage_rate=0.0005,
+        min_trades=1,
+        require_walk_forward=False,
+    )
+
+    assert report.outcome_count == 1
+    outcome = report.outcomes[0]
+    assert outcome.status == "blocked"
+    assert outcome.failure_reasons == ("insufficient_current_capital",)
+    assert outcome.notional_usd == 0.0
+
+
 def test_cli_paper_sim_loop_outputs_json_and_persists_ledger(tmp_path):
     db_path = _write_happy_path_fixture(tmp_path)
     report_path = tmp_path / "paper-report.json"
@@ -716,7 +781,114 @@ def test_cli_paper_sim_loop_memory_replaces_same_run_records_when_rerun_blocks(t
     assert MemoryStore(memory_path).get("research-loop:keep-me") is not None
 
 
-def test_cli_paper_sim_loop_accepts_zero_capital_and_notional(tmp_path):
+@pytest.mark.parametrize(
+    ("price_field", "run_id"),
+    [
+        ("entry_price", "paper-invalid-zero-entry"),
+        ("exit_price", "paper-invalid-zero-exit"),
+    ],
+)
+def test_run_paper_sim_loop_blocks_simulated_report_with_zero_trade_price(
+    tmp_path,
+    monkeypatch,
+    price_field,
+    run_id,
+):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+    from crypto_alpha_agent.strategy.models import StrategyPaperReport
+
+    db_path = tmp_path / "research.sqlite"
+    ResearchDataStore(db_path)
+    report = StrategyPaperReport(
+        strategy_family="funding_extremity_price_confirmation",
+        status="simulated",
+        supports_paper_simulation=True,
+        blocked_reasons=[],
+        metrics={
+            "validation": _approved_validation_payload(),
+            "paper_trades": [_paper_trade_payload(**{price_field: 0.0})],
+            "observed_at": "2026-05-17T03:00:00+00:00",
+        },
+    )
+    _patch_paper_registry(monkeypatch, report)
+
+    loop_report = run_paper_sim_loop(
+        db_path,
+        run_id=run_id,
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        require_walk_forward=False,
+    )
+
+    loaded = PaperOutcomeLedger(db_path).load_outcomes(run_id=run_id)
+
+    assert loop_report.validation.approved is False
+    assert "paper_report_metrics_invalid" in loop_report.validation.blocked_reasons
+    assert "metrics_error" in loop_report.validation.metrics
+    assert loop_report.outcome_count == 1
+    assert {outcome.status for outcome in loop_report.outcomes} == {"blocked"}
+    assert {outcome.status for outcome in loaded} == {"blocked"}
+    assert not any(outcome.status == "closed" for outcome in loaded)
+    assert "paper_report_metrics_invalid" in loaded[0].failure_reasons
+
+
+@pytest.mark.parametrize(
+    ("metrics_override", "run_id"),
+    [
+        ({"observed_at": {"not": "a timestamp"}}, "paper-invalid-observed-at"),
+        ({"validation": {"approved": True}}, "paper-invalid-validation"),
+    ],
+)
+def test_run_paper_sim_loop_blocks_simulated_report_with_malformed_metrics(
+    tmp_path,
+    monkeypatch,
+    metrics_override,
+    run_id,
+):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+    from crypto_alpha_agent.strategy.models import StrategyPaperReport
+
+    db_path = tmp_path / "research.sqlite"
+    ResearchDataStore(db_path)
+    metrics = {
+        "validation": _approved_validation_payload(),
+        "paper_trades": [_paper_trade_payload()],
+        "observed_at": "2026-05-17T03:00:00+00:00",
+    }
+    metrics.update(metrics_override)
+    report = StrategyPaperReport(
+        strategy_family="funding_extremity_price_confirmation",
+        status="simulated",
+        supports_paper_simulation=True,
+        blocked_reasons=[],
+        metrics=metrics,
+    )
+    _patch_paper_registry(monkeypatch, report)
+
+    loop_report = run_paper_sim_loop(
+        db_path,
+        run_id=run_id,
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        require_walk_forward=False,
+    )
+
+    loaded = PaperOutcomeLedger(db_path).load_outcomes(run_id=run_id)
+
+    assert loop_report.validation.approved is False
+    assert "paper_report_metrics_invalid" in loop_report.validation.blocked_reasons
+    assert "metrics_error" in loop_report.validation.metrics
+    assert loop_report.outcome_count == 1
+    assert len(loaded) == 1
+    assert loaded[0].status == "blocked"
+    assert "paper_report_metrics_invalid" in loaded[0].failure_reasons
+
+
+def test_cli_paper_sim_loop_blocks_zero_capital_and_notional(tmp_path):
     db_path = _write_happy_path_fixture(tmp_path)
 
     result = _run_cli(
@@ -751,16 +923,13 @@ def test_cli_paper_sim_loop_accepts_zero_capital_and_notional(tmp_path):
 
     assert payload["report"]["run_id"] == "cli-paper-zero"
     assert payload["report"]["notional_usd"] == 0.0
-    assert payload["report"]["outcome_count"] == 3
-    assert {
-        outcome["status"] for outcome in payload["report"]["outcomes"]
-    } == {"closed"}
-    assert all(
-        outcome["quantity"] == 0.0
-        and outcome["notional_usd"] == 0.0
-        and outcome["gross_pnl_usd"] == 0.0
-        and outcome["fees_usd"] == 0.0
-        and outcome["slippage_usd"] == 0.0
-        and outcome["net_pnl_usd"] == 0.0
-        for outcome in payload["report"]["outcomes"]
-    )
+    assert payload["report"]["outcome_count"] == 1
+    outcome = payload["report"]["outcomes"][0]
+    assert outcome["status"] == "blocked"
+    assert outcome["failure_reasons"] == ["insufficient_current_capital"]
+    assert outcome["quantity"] == 0.0
+    assert outcome["notional_usd"] == 0.0
+    assert outcome["gross_pnl_usd"] == 0.0
+    assert outcome["fees_usd"] == 0.0
+    assert outcome["slippage_usd"] == 0.0
+    assert outcome["net_pnl_usd"] == 0.0

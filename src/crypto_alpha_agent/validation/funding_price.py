@@ -134,6 +134,62 @@ def extract_funding_price_trades(
     return trades
 
 
+def extract_funding_price_trades_from_records(
+    records: Sequence[Mapping[str, object]],
+    *,
+    price_symbol: str,
+    funding_symbol: str,
+    timeframe: str,
+    threshold_abs: float = 0.0005,
+    hold_bars: int = 1,
+) -> list[FundingPriceTrade]:
+    if not math.isfinite(threshold_abs) or threshold_abs <= 0:
+        raise ValueError("threshold_abs must be finite and greater than 0")
+    _require_positive_int("hold_bars", hold_bars)
+
+    bars, funding_rates = _funding_price_history_from_records(
+        records,
+        price_symbol=price_symbol,
+        funding_symbol=funding_symbol,
+        timeframe=timeframe,
+    )
+    if _has_duplicate_timestamps(bars) or _has_duplicate_timestamps(funding_rates):
+        return []
+
+    extremes = [
+        funding
+        for funding in funding_rates
+        if abs(float(funding.funding_rate)) >= threshold_abs
+    ]
+    if _has_non_positive_trade_price(bars, extremes, hold_bars=hold_bars):
+        return []
+
+    return extract_funding_price_trades(
+        bars,
+        funding_rates,
+        threshold_abs=threshold_abs,
+        hold_bars=hold_bars,
+    )
+
+
+def latest_funding_price_observed_at_from_records(
+    records: Sequence[Mapping[str, object]],
+    *,
+    price_symbol: str,
+    funding_symbol: str,
+    timeframe: str,
+) -> datetime | None:
+    bars, funding_rates = _funding_price_history_from_records(
+        records,
+        price_symbol=price_symbol,
+        funding_symbol=funding_symbol,
+        timeframe=timeframe,
+    )
+    observed = [bar.timestamp for bar in bars]
+    observed.extend(funding.timestamp for funding in funding_rates)
+    return max(observed) if observed else None
+
+
 def validate_funding_price_confirmation(
     db_path: str | Path,
     *,

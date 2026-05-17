@@ -3,30 +3,27 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from crypto_alpha_agent.data.models import FundingRateRecord
+from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
 from crypto_alpha_agent.evidence.models import PaperSimulationOutcome
 from crypto_alpha_agent.evidence.paper import PaperEvidencePackage, aggregate_paper_evidence
-from crypto_alpha_agent.validation.funding_price import (
-    FundingPriceTrade,
-    FundingPriceValidationResult,
-    _has_duplicate_timestamps,
-    _has_non_positive_trade_price,
-    _load_funding_history,
-    extract_funding_price_trades,
-    validate_funding_price_confirmation,
+from crypto_alpha_agent.strategy.models import (
+    StrategyPaperReport,
+    StrategyPaperRequest,
+    StrategyValidationReport,
 )
-from crypto_alpha_agent.validation.market_history import CandleBar, load_candle_history
+from crypto_alpha_agent.strategy.registry import default_strategy_registry
 
-SUPPORTED_STRATEGY_FAMILY = "funding_extremity_price_confirmation"
 _BLOCKED_TIMESTAMP = datetime(1970, 1, 1, tzinfo=UTC)
+_PAPER_REPORT_METRICS_INVALID = "paper_report_metrics_invalid"
 
 
 class PaperSimLoopReport(BaseModel):
@@ -40,7 +37,7 @@ class PaperSimLoopReport(BaseModel):
     timeframe: str = Field(min_length=1)
     current_capital_usd: float = Field(ge=0)
     notional_usd: float = Field(ge=0)
-    validation: FundingPriceValidationResult
+    validation: StrategyValidationReport
     outcome_count: int = Field(ge=0)
     outcomes: list[PaperSimulationOutcome]
     paper_evidence_packages: list[PaperEvidencePackage]
@@ -70,9 +67,6 @@ def run_paper_sim_loop(
     walk_forward_min_splits: int = 3,
     walk_forward_min_pass_rate: float = 1.0,
 ) -> PaperSimLoopReport:
-    if strategy_family != SUPPORTED_STRATEGY_FAMILY:
-        raise ValueError(f"unsupported strategy_family: {strategy_family}")
-
     capital = _require_non_negative_finite("current_capital_usd", current_capital_usd)
     requested_notional = _require_non_negative_finite("notional_usd", notional_usd)
     capped_notional = min(requested_notional, capital, 25.0)
@@ -111,90 +105,109 @@ def run_paper_sim_loop(
         walk_forward_min_pass_rate=walk_forward_min_pass_rate,
     )
 
-    validation = validate_funding_price_confirmation(
-        db_path,
-        price_symbol=price_symbol,
-        funding_symbol=funding_symbol,
-        timeframe=timeframe,
-        threshold_abs=threshold_abs,
-        hold_bars=hold_bars,
-        fee_rate=fee_rate,
-        slippage_rate=slippage_rate,
-        min_trades=min_trades,
-        require_walk_forward=require_walk_forward,
-        walk_forward_train_size=walk_forward_train_size,
-        walk_forward_test_size=walk_forward_test_size,
-        walk_forward_min_splits=walk_forward_min_splits,
-        walk_forward_min_pass_rate=walk_forward_min_pass_rate,
+    strategy_parameters = {
+        "price_symbol": price_symbol,
+        "funding_symbol": funding_symbol,
+        "timeframe": timeframe,
+        "threshold_abs": threshold_abs,
+        "hold_bars": hold_bars,
+        "fee_rate": fee_rate,
+        "slippage_rate": slippage_rate,
+        "min_trades": min_trades,
+        "require_walk_forward": require_walk_forward,
+        "walk_forward_train_size": walk_forward_train_size,
+        "walk_forward_test_size": walk_forward_test_size,
+        "walk_forward_min_splits": walk_forward_min_splits,
+        "walk_forward_min_pass_rate": walk_forward_min_pass_rate,
+    }
+    records = _load_strategy_records(db_path)
+    paper_report = default_strategy_registry(current_capital_usd=capital).run_paper(
+        StrategyPaperRequest(
+            strategy_family=strategy_family,
+            records=records,
+            current_capital_usd=capital,
+            notional_usd=capped_notional,
+            parameters=strategy_parameters,
+        )
     )
+    if "unknown_strategy_family" in paper_report.blocked_reasons:
+        raise ValueError(f"unsupported strategy_family: {strategy_family}")
 
-    bars = load_candle_history(db_path, symbol=price_symbol, timeframe=timeframe)
-    funding_rates = _load_funding_history(db_path, funding_symbol=funding_symbol)
-    extremes = [
-        funding
-        for funding in funding_rates
-        if abs(float(funding.funding_rate)) >= threshold_abs
-    ]
-    duplicate_price_timestamp = _has_duplicate_timestamps(bars)
-    duplicate_funding_timestamp = _has_duplicate_timestamps(funding_rates)
-    non_positive_price = False
-    if not duplicate_price_timestamp and not duplicate_funding_timestamp:
-        non_positive_price = _has_non_positive_trade_price(
-            bars,
-            extremes,
-            hold_bars=hold_bars,
+    if paper_report.status != "simulated":
+        validation, observed_at = _safe_blocked_validation_context(
+            strategy_family,
+            paper_report,
+            records,
         )
-
-    trades: list[FundingPriceTrade] = []
-    if (
-        not duplicate_price_timestamp
-        and not duplicate_funding_timestamp
-        and not non_positive_price
-    ):
-        trades = extract_funding_price_trades(
-            bars,
-            funding_rates,
-            threshold_abs=threshold_abs,
-            hold_bars=hold_bars,
-        )
-
-    if not trades:
-        outcomes = [
-            _blocked_no_signal_outcome(
-                run_id=resolved_run_id,
-                execution_config_id=execution_config_id,
-                strategy_family=strategy_family,
-                symbol=price_symbol,
-                observed_at=_latest_observed_at(bars, funding_rates),
-                failure_reasons=("no_signal", *validation.blocked_reasons),
-            )
-        ]
-    elif not validation.approved:
         outcomes = [
             _blocked_validation_outcome(
                 run_id=resolved_run_id,
                 execution_config_id=execution_config_id,
                 strategy_family=strategy_family,
                 symbol=price_symbol,
-                observed_at=_latest_observed_at(bars, funding_rates),
+                observed_at=observed_at,
                 failure_reasons=validation.blocked_reasons,
             )
         ]
     else:
-        outcomes = _closed_outcomes(
-            run_id=resolved_run_id,
-            execution_config_id=execution_config_id,
-            strategy_family=strategy_family,
-            symbol=price_symbol,
-            funding_symbol=funding_symbol,
-            timeframe=timeframe,
-            trades=trades,
-            notional_usd=capped_notional,
-            threshold_abs=threshold_abs,
-            hold_bars=hold_bars,
-            fee_rate=fee_rate,
-            slippage_rate=slippage_rate,
-        )
+        outcomes = []
+        try:
+            validation = _validation_from_paper_report(strategy_family, paper_report)
+            trades = _paper_trades_from_report(paper_report)
+            observed_at = _observed_at_from_paper_report(paper_report, records)
+        except (TypeError, ValueError) as exc:
+            validation = _metrics_invalid_validation(strategy_family, paper_report, exc)
+            observed_at = _latest_observed_at_from_records(records)
+            outcomes = [
+                _blocked_validation_outcome(
+                    run_id=resolved_run_id,
+                    execution_config_id=execution_config_id,
+                    strategy_family=strategy_family,
+                    symbol=price_symbol,
+                    observed_at=observed_at,
+                    failure_reasons=validation.blocked_reasons,
+                )
+            ]
+            trades = []
+
+        if not outcomes:
+            if not trades:
+                outcomes = [
+                    _blocked_no_signal_outcome(
+                        run_id=resolved_run_id,
+                        execution_config_id=execution_config_id,
+                        strategy_family=strategy_family,
+                        symbol=price_symbol,
+                        observed_at=observed_at,
+                        failure_reasons=("no_signal", *validation.blocked_reasons),
+                    )
+                ]
+            elif not validation.approved:
+                outcomes = [
+                    _blocked_validation_outcome(
+                        run_id=resolved_run_id,
+                        execution_config_id=execution_config_id,
+                        strategy_family=strategy_family,
+                        symbol=price_symbol,
+                        observed_at=observed_at,
+                        failure_reasons=validation.blocked_reasons,
+                    )
+                ]
+            else:
+                outcomes = _closed_outcomes(
+                    run_id=resolved_run_id,
+                    execution_config_id=execution_config_id,
+                    strategy_family=strategy_family,
+                    symbol=price_symbol,
+                    funding_symbol=funding_symbol,
+                    timeframe=timeframe,
+                    trades=trades,
+                    notional_usd=capped_notional,
+                    threshold_abs=threshold_abs,
+                    hold_bars=hold_bars,
+                    fee_rate=fee_rate,
+                    slippage_rate=slippage_rate,
+                )
 
     PaperOutcomeLedger(db_path).replace_run_outcomes(resolved_run_id, outcomes)
     evidence_packages = aggregate_paper_evidence(
@@ -224,6 +237,18 @@ def run_paper_sim_loop(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _PaperTrade:
+    funding_symbol: str
+    funding_timestamp: datetime
+    entry_timestamp: datetime
+    exit_timestamp: datetime
+    entry_price: float
+    exit_price: float
+    raw_return: float
+    direction: str
+
+
 def _closed_outcomes(
     *,
     run_id: str,
@@ -232,7 +257,7 @@ def _closed_outcomes(
     symbol: str,
     funding_symbol: str,
     timeframe: str,
-    trades: list[FundingPriceTrade],
+    trades: list[_PaperTrade],
     notional_usd: float,
     threshold_abs: float,
     hold_bars: int,
@@ -358,6 +383,13 @@ def _paper_evidence_mapping(outcome: PaperSimulationOutcome) -> dict[str, object
     }
 
 
+def _load_strategy_records(db_path: str | Path) -> tuple[dict[str, object], ...]:
+    return tuple(
+        record.model_dump(mode="json")
+        for record in ResearchDataStore(db_path).load_records()
+    )
+
+
 def _stable_run_id(**values: object) -> str:
     digest = _stable_digest(values)
     return f"paper-sim-{digest}"
@@ -370,7 +402,7 @@ def _stable_execution_config_id(**values: object) -> str:
 
 def _stable_candidate_id(
     strategy_family: str,
-    trade: FundingPriceTrade,
+    trade: _PaperTrade,
     *,
     execution_config_id: str,
     price_symbol: str,
@@ -405,15 +437,6 @@ def _stable_digest(values: dict[str, object]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
-def _latest_observed_at(
-    bars: list[CandleBar],
-    funding_rates: list[FundingRateRecord],
-) -> datetime:
-    observed = [bar.timestamp for bar in bars]
-    observed.extend(funding.timestamp for funding in funding_rates)
-    return max(observed) if observed else _BLOCKED_TIMESTAMP
-
-
 def _require_non_negative_finite(name: str, value: float) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ValueError(f"{name} must be finite and non-negative")
@@ -436,7 +459,7 @@ def _dedupe_strings(values: Iterable[str]) -> list[str]:
 
 def _report_notes(
     *,
-    validation: FundingPriceValidationResult,
+    validation: StrategyValidationReport,
     requested_notional: float,
     capped_notional: float,
     outcomes: list[PaperSimulationOutcome],
@@ -451,6 +474,11 @@ def _report_notes(
     if not validation.approved:
         notes.append("validation_not_approved")
         notes.extend(validation.blocked_reasons)
+    validation_metrics = getattr(validation, "metrics", {})
+    if isinstance(validation_metrics, dict):
+        metric_notes = validation_metrics.get("notes", [])
+        if isinstance(metric_notes, list | tuple):
+            notes.extend(str(note) for note in metric_notes)
     if any(
         outcome.status == "blocked" and "no_signal" in outcome.failure_reasons
         for outcome in outcomes
@@ -462,3 +490,151 @@ def _report_notes(
     ):
         notes.append("blocked_validation")
     return _dedupe_strings(notes)
+
+
+def _validation_from_paper_report(
+    strategy_family: str,
+    paper_report: StrategyPaperReport,
+) -> StrategyValidationReport:
+    validation_payload = paper_report.metrics.get("validation")
+    if isinstance(validation_payload, Mapping):
+        return StrategyValidationReport.model_validate(dict(validation_payload))
+
+    return StrategyValidationReport(
+        strategy_family=strategy_family,
+        validator_name="strategy_registry_paper_gate",
+        approved=False,
+        blocked_reasons=paper_report.blocked_reasons,
+        metrics={
+            "paper_status": paper_report.status,
+            "supports_paper_simulation": paper_report.supports_paper_simulation,
+            "paper_metrics": paper_report.metrics,
+        },
+    )
+
+
+def _safe_blocked_validation_context(
+    strategy_family: str,
+    paper_report: StrategyPaperReport,
+    records: tuple[dict[str, object], ...],
+) -> tuple[StrategyValidationReport, datetime]:
+    try:
+        return (
+            _validation_from_paper_report(strategy_family, paper_report),
+            _observed_at_from_paper_report(paper_report, records),
+        )
+    except (TypeError, ValueError) as exc:
+        return (
+            _metrics_invalid_validation(strategy_family, paper_report, exc),
+            _latest_observed_at_from_records(records),
+        )
+
+
+def _metrics_invalid_validation(
+    strategy_family: str,
+    paper_report: StrategyPaperReport,
+    exc: Exception,
+) -> StrategyValidationReport:
+    return StrategyValidationReport(
+        strategy_family=strategy_family,
+        validator_name="strategy_registry_paper_gate",
+        approved=False,
+        blocked_reasons=[_PAPER_REPORT_METRICS_INVALID],
+        metrics={
+            "paper_status": paper_report.status,
+            "supports_paper_simulation": paper_report.supports_paper_simulation,
+            "metrics_error": str(exc),
+        },
+    )
+
+
+def _paper_trades_from_report(paper_report: StrategyPaperReport) -> list[_PaperTrade]:
+    trades_payload = paper_report.metrics.get("paper_trades", [])
+    if not isinstance(trades_payload, list | tuple):
+        raise ValueError("paper_report metrics.paper_trades must be a list")
+
+    return [_paper_trade_from_mapping(item) for item in trades_payload]
+
+
+def _paper_trade_from_mapping(value: object) -> _PaperTrade:
+    if not isinstance(value, Mapping):
+        raise ValueError("paper_report metrics.paper_trades items must be objects")
+
+    return _PaperTrade(
+        funding_symbol=_required_string(value, "funding_symbol"),
+        funding_timestamp=_parse_timestamp(value.get("funding_timestamp")),
+        entry_timestamp=_parse_timestamp(value.get("entry_timestamp")),
+        exit_timestamp=_parse_timestamp(value.get("exit_timestamp")),
+        entry_price=_required_positive_finite_float(value, "entry_price"),
+        exit_price=_required_positive_finite_float(value, "exit_price"),
+        raw_return=_required_finite_float(value, "raw_return"),
+        direction=_required_string(value, "direction"),
+    )
+
+
+def _observed_at_from_paper_report(
+    paper_report: StrategyPaperReport,
+    records: tuple[dict[str, object], ...],
+) -> datetime:
+    observed_at = paper_report.metrics.get("observed_at")
+    if observed_at is not None:
+        return _parse_timestamp(observed_at)
+    return _latest_observed_at_from_records(records)
+
+
+def _latest_observed_at_from_records(records: tuple[dict[str, object], ...]) -> datetime:
+    observed: list[datetime] = []
+    for record in records:
+        if not isinstance(record, Mapping):
+            continue
+        for value in (record.get("observed_at"), _payload_timestamp(record)):
+            if value is None:
+                continue
+            try:
+                observed.append(_parse_timestamp(value))
+            except (TypeError, ValueError):
+                continue
+    return max(observed) if observed else _BLOCKED_TIMESTAMP
+
+
+def _payload_timestamp(record: Mapping[str, object]) -> object | None:
+    payload = record.get("payload")
+    if isinstance(payload, Mapping):
+        return payload.get("timestamp")
+    return None
+
+
+def _parse_timestamp(value: object) -> datetime:
+    if isinstance(value, datetime):
+        timestamp = value
+    elif isinstance(value, str):
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    else:
+        raise TypeError("timestamp must be a datetime or ISO string")
+    if timestamp.tzinfo is None:
+        return timestamp.replace(tzinfo=UTC)
+    return timestamp
+
+
+def _required_string(value: Mapping[str, object], key: str) -> str:
+    raw = value.get(key)
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError(f"paper trade {key} must be a non-empty string")
+    return raw.strip()
+
+
+def _required_finite_float(value: Mapping[str, object], key: str) -> float:
+    raw = value.get(key)
+    if isinstance(raw, bool) or not isinstance(raw, int | float):
+        raise ValueError(f"paper trade {key} must be finite")
+    numeric_value = float(raw)
+    if not math.isfinite(numeric_value):
+        raise ValueError(f"paper trade {key} must be finite")
+    return numeric_value
+
+
+def _required_positive_finite_float(value: Mapping[str, object], key: str) -> float:
+    numeric_value = _required_finite_float(value, key)
+    if numeric_value <= 0:
+        raise ValueError(f"paper trade {key} must be finite and greater than 0")
+    return numeric_value

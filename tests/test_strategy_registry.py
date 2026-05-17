@@ -1,6 +1,9 @@
 import pytest
+from datetime import UTC, datetime
+
 from pydantic import ValidationError
 
+from crypto_alpha_agent.data.models import FundingRateRecord, MarketCandle, SourceRecord
 from crypto_alpha_agent.strategy import (
     StrategyFamilySpec,
     StrategyPaperReport,
@@ -46,6 +49,56 @@ def _paper_runner(request: StrategyPaperRequest) -> StrategyPaperReport:
         blocked_reasons=[],
         metrics={"notional_usd": request.notional_usd},
     )
+
+
+def _candle(hour: int, close: float) -> MarketCandle:
+    return MarketCandle(
+        source="binance_public",
+        venue="binance",
+        symbol="BTC/USDT",
+        timestamp=datetime(2026, 5, 17, hour, tzinfo=UTC),
+        timeframe="1h",
+        open=close,
+        high=close + 1.0,
+        low=max(0.0, close - 1.0),
+        close=close,
+        volume=1000.0,
+    )
+
+
+def _funding(hour: int, rate: float) -> FundingRateRecord:
+    return FundingRateRecord(
+        source="ccxt",
+        venue="binance",
+        symbol="BTC/USDT:USDT",
+        timestamp=datetime(2026, 5, 17, hour, tzinfo=UTC),
+        funding_rate=rate,
+    )
+
+
+def _source_record(record: MarketCandle | FundingRateRecord) -> SourceRecord:
+    if isinstance(record, MarketCandle):
+        return record.to_source_record()
+    safe_symbol = record.symbol.replace("/", "").replace(":", "-")
+    return SourceRecord(
+        record_id=f"{record.source}:{safe_symbol}:funding:{record.timestamp.isoformat()}",
+        source=record.source,
+        record_type="funding_rate",
+        observed_at=record.timestamp,
+        payload=record.model_dump(mode="json"),
+    )
+
+
+def _valid_funding_records() -> tuple[dict[str, object], ...]:
+    records = [
+        _source_record(_candle(0, 100.0)),
+        _source_record(_candle(1, 110.0)),
+        _source_record(_candle(2, 106.0)),
+        _source_record(_candle(3, 104.0)),
+        _source_record(_candle(4, 103.0)),
+        _source_record(_funding(1, 0.0009)),
+    ]
+    return tuple(record.model_dump(mode="json") for record in records)
 
 
 class RecordingPaperRunner:
@@ -226,6 +279,53 @@ def test_default_registry_malformed_funding_parameters_fail_closed():
 
     assert report.approved is False
     assert report.blocked_reasons == ("strategy_validation_error",)
+
+
+@pytest.mark.parametrize(
+    "strategy_family",
+    [
+        "funding_mean_reversion_after_extreme",
+        "funding_extremity_price_confirmation",
+    ],
+)
+def test_default_registry_runs_paper_for_supported_funding_families(strategy_family):
+    registry = default_strategy_registry(current_capital_usd=300.0)
+
+    report = registry.run_paper(
+        StrategyPaperRequest(
+            strategy_family=strategy_family,
+            records=_valid_funding_records(),
+            current_capital_usd=100.0,
+            notional_usd=10.0,
+            parameters={
+                "price_symbol": "BTC/USDT",
+                "funding_symbol": "BTC/USDT:USDT",
+                "timeframe": "1h",
+                "threshold_abs": 0.0005,
+                "hold_bars": 2,
+                "fee_rate": 0.001,
+                "slippage_rate": 0.0005,
+                "min_trades": 1,
+                "require_walk_forward": False,
+            },
+        )
+    )
+
+    assert report.status == "simulated"
+    assert report.supports_paper_simulation is True
+    assert report.blocked_reasons == ()
+    assert report.metrics["validation"]["strategy_family"] == strategy_family
+    assert report.metrics["paper_trades"]
+    assert set(report.metrics["paper_trades"][0]) >= {
+        "funding_symbol",
+        "funding_timestamp",
+        "entry_timestamp",
+        "exit_timestamp",
+        "entry_price",
+        "exit_price",
+        "raw_return",
+        "direction",
+    }
 
 
 @pytest.mark.parametrize(
