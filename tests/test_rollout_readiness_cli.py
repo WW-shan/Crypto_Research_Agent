@@ -108,20 +108,19 @@ def _payload_from_cli(result: subprocess.CompletedProcess[str]) -> dict[str, obj
     return json.loads(result.stdout)
 
 
-def test_rollout_review_cli_blocks_with_insufficient_closed_sample_and_skips_non_closed_outcomes(tmp_path):
+def test_rollout_review_cli_blocks_with_insufficient_closed_sample_and_skips_no_signal_outcomes(tmp_path):
     db_path = tmp_path / "research.sqlite"
     outcomes = [_paper_outcome(index) for index in range(29)]
     outcomes.extend(
         [
             _paper_outcome(
                 29,
-                status="blocked",
+                status="no_signal",
                 gross_pnl_usd=0.0,
                 fees_usd=0.0,
                 slippage_usd=0.0,
                 net_pnl_usd=0.0,
-                max_drawdown_usd=9.0,
-                failure_reasons=("risk_block",),
+                max_drawdown_usd=0.0,
             ),
             _paper_outcome(
                 30,
@@ -149,6 +148,8 @@ def test_rollout_review_cli_blocks_with_insufficient_closed_sample_and_skips_non
     evidence_package = payload["evidence_package"]
 
     assert payload["command"] == "rollout-review"
+    assert payload["decision"] == "blocked"
+    assert "insufficient_sample_size" in payload["blocked_reasons"]
     assert payload["uses_real_capital"] is False
     assert payload["live_order_routing"] is False
     assert rollout["observation_count"] == 29
@@ -156,7 +157,7 @@ def test_rollout_review_cli_blocks_with_insufficient_closed_sample_and_skips_non
     assert evidence_package["sample_size"] == 31
     assert evidence_package["closed_count"] == 29
     assert evidence_package["rollout_observation_count"] == 29
-    assert payload["max_observed_loss_usd"] == pytest.approx(9.0)
+    assert payload["max_observed_loss_usd"] == pytest.approx(0.5)
     assert payload["readiness_artifact"]["ready_for_human_review"] is False
     assert payload["readiness_artifact"]["live_execution_enabled"] is False
 
@@ -185,9 +186,12 @@ def test_rollout_review_cli_builds_review_ready_artifact_and_writes_evidence_pac
     payload = _payload_from_cli(result)
 
     assert payload["readiness_artifact"]["ready_for_human_review"] is True
+    assert payload["decision"] == "ready_for_human_review"
+    assert payload["blocked_reasons"] == []
     assert payload["readiness_artifact"]["live_execution_enabled"] is False
     assert payload["rollout_evaluation"]["eligible_for_tiny_live"] is True
     assert payload["rollout_evaluation"]["walk_forward_split_count"] == 3
+    assert payload["evidence_package_out"] == str(evidence_package_out)
     assert payload["evidence_package"]["evidence_package_path"] == str(evidence_package_out)
     assert payload["max_observed_loss_usd"] == pytest.approx(0.5)
 
@@ -223,12 +227,35 @@ def test_compute_max_observed_loss_uses_worst_negative_net_pnl_or_drawdown():
             max_drawdown_usd=4.0,
             failure_reasons=("paper_error",),
         ),
+        _paper_outcome(
+            3,
+            gross_pnl_usd=-20.0,
+            fees_usd=1.0,
+            slippage_usd=1.0,
+            net_pnl_usd=0.0,
+            max_drawdown_usd=1.0,
+        ),
     ]
 
-    assert compute_max_observed_loss_usd(outcomes) == pytest.approx(12.0)
+    assert compute_max_observed_loss_usd(outcomes) == pytest.approx(22.0)
 
 
-def test_validation_evidence_conversion_keeps_blocked_numeric_walk_forward_evidence():
+def test_rollout_module_public_api_imports_without_evidence_cycle():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from crypto_alpha_agent.risk.rollout import RolloutEvaluation",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_validation_evidence_conversion_excludes_blocked_numeric_walk_forward_evidence():
     blocked = _validation_evidence(
         2,
         approved=False,
@@ -239,14 +266,10 @@ def test_validation_evidence_conversion_keeps_blocked_numeric_walk_forward_evide
 
     splits = validation_evidence_to_walk_forward_splits([blocked])
 
-    assert [split.split_id for split in splits] == [
-        f"{blocked.evidence_id}:split:0",
-        f"{blocked.evidence_id}:split:1",
-    ]
-    assert [split.cost_adjusted_expectancy_usd for split in splits] == [-0.25, -0.25]
+    assert splits == []
 
 
-def test_validation_evidence_conversion_keeps_split_ids_unique_across_duplicate_evidence_ids():
+def test_validation_evidence_conversion_dedupes_canonical_evidence_ids():
     first = _validation_evidence(3, walk_forward_split_count=2)
     second = _validation_evidence(4, walk_forward_split_count=2)
     assert first.evidence_id == second.evidence_id
@@ -256,6 +279,86 @@ def test_validation_evidence_conversion_keeps_split_ids_unique_across_duplicate_
     assert [split.split_id for split in splits] == [
         f"{first.evidence_id}:split:0",
         f"{first.evidence_id}:split:1",
-        f"{first.evidence_id}:split:2",
-        f"{first.evidence_id}:split:3",
     ]
+
+
+def test_rollout_review_cli_blocks_unapproved_positive_walk_forward_evidence(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    _write_fixture(
+        db_path,
+        outcomes=[_paper_outcome(index) for index in range(30)],
+        evidence=[
+            _validation_evidence(
+                5,
+                approved=False,
+                blocked_reasons=("validation_not_approved",),
+                slippage_adjusted_expectancy=1.25,
+                walk_forward_split_count=3,
+            )
+        ],
+    )
+
+    result = _run_cli(
+        "rollout-review",
+        "--db",
+        str(db_path),
+        "--strategy-family",
+        STRATEGY_FAMILY,
+        "--human-approved",
+        "--human-approval-reference",
+        "approval-ticket-16",
+    )
+
+    payload = _payload_from_cli(result)
+
+    assert payload["decision"] == "blocked"
+    assert payload["rollout_evaluation"]["walk_forward_split_count"] == 0
+    assert "insufficient_walk_forward_splits" in payload["blocked_reasons"]
+    assert payload["readiness_artifact"]["ready_for_human_review"] is False
+    assert payload["evidence_package"]["validation_blocked_reasons"] == [
+        "validation_not_approved"
+    ]
+
+
+def test_rollout_review_cli_counts_failed_outcomes_in_failure_rate_gate(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    failed_outcomes = [
+        _paper_outcome(
+            index,
+            status="failed",
+            gross_pnl_usd=0.0,
+            fees_usd=0.0,
+            slippage_usd=0.0,
+            net_pnl_usd=0.0,
+            max_drawdown_usd=0.0,
+            failure_reasons=("paper_error",),
+        )
+        for index in range(30, 34)
+    ]
+    _write_fixture(
+        db_path,
+        outcomes=[*_paper_outcome_list(30), *failed_outcomes],
+    )
+
+    result = _run_cli(
+        "rollout-review",
+        "--db",
+        str(db_path),
+        "--strategy-family",
+        STRATEGY_FAMILY,
+        "--human-approved",
+        "--human-approval-reference",
+        "approval-ticket-16",
+    )
+
+    payload = _payload_from_cli(result)
+
+    assert payload["decision"] == "blocked"
+    assert payload["rollout_evaluation"]["observation_count"] == 34
+    assert payload["rollout_evaluation"]["failure_rate"] == pytest.approx(4 / 34)
+    assert "failure_rate_above_limit" in payload["blocked_reasons"]
+    assert payload["evidence_package"]["failed_count"] == 4
+
+
+def _paper_outcome_list(count: int) -> list[PaperSimulationOutcome]:
+    return [_paper_outcome(index) for index in range(count)]

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
-from crypto_alpha_agent.evidence.models import PaperSimulationOutcome, ValidationEvidence
-from crypto_alpha_agent.evidence.paper import PaperEvidencePackage
-from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+if TYPE_CHECKING:
+    from crypto_alpha_agent.evidence.models import PaperSimulationOutcome, ValidationEvidence
+    from crypto_alpha_agent.evidence.paper import PaperEvidencePackage
 
 RolloutReasonCode = Literal[
     "insufficient_sample_size",
@@ -106,6 +106,8 @@ class StrategyEvidencePackage(BaseModel):
         return normalized
 
     def to_paper_evidence_package(self) -> PaperEvidencePackage:
+        from crypto_alpha_agent.evidence.paper import PaperEvidencePackage
+
         return PaperEvidencePackage(
             strategy_family=self.strategy_family,
             sample_size=self.sample_size,
@@ -123,6 +125,8 @@ class RolloutReviewArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     command: Literal["rollout-review"] = "rollout-review"
+    decision: Literal["blocked", "ready_for_human_review"]
+    blocked_reasons: tuple[str, ...] = Field(default_factory=tuple)
     uses_real_capital: Literal[False] = False
     live_order_routing: Literal[False] = False
     readiness_artifact: dict[str, Any]
@@ -133,20 +137,34 @@ class RolloutReviewArtifact(BaseModel):
 
 def paper_outcomes_to_rollout_observations(
     outcomes: Iterable[PaperSimulationOutcome],
+    *,
+    include_failed_outcomes: bool = False,
 ) -> list[PaperTradeObservation]:
     observations: list[PaperTradeObservation] = []
     for outcome in outcomes:
-        if _outcome_status(outcome) not in _CLOSED_OUTCOME_STATUSES:
-            continue
-        observations.append(
-            PaperTradeObservation(
-                trade_id=outcome.outcome_id,
-                gross_pnl_usd=outcome.gross_pnl_usd,
-                total_cost_usd=outcome.fees_usd + outcome.slippage_usd,
-                failed=False,
-                manual_override_violation=False,
+        status = _outcome_status(outcome)
+        if status in _CLOSED_OUTCOME_STATUSES:
+            observations.append(
+                PaperTradeObservation(
+                    trade_id=outcome.outcome_id,
+                    gross_pnl_usd=outcome.gross_pnl_usd,
+                    total_cost_usd=outcome.fees_usd + outcome.slippage_usd,
+                    failed=False,
+                    manual_override_violation=False,
+                )
             )
-        )
+            continue
+
+        if include_failed_outcomes and status in _FAILED_OUTCOME_STATUSES:
+            observations.append(
+                PaperTradeObservation(
+                    trade_id=outcome.outcome_id,
+                    gross_pnl_usd=outcome.gross_pnl_usd,
+                    total_cost_usd=outcome.fees_usd + outcome.slippage_usd,
+                    failed=True,
+                    manual_override_violation=False,
+                )
+            )
     return observations
 
 
@@ -154,20 +172,20 @@ def validation_evidence_to_walk_forward_splits(
     evidence: Iterable[ValidationEvidence],
 ) -> list[WalkForwardSplit]:
     splits: list[WalkForwardSplit] = []
-    next_split_index_by_evidence_id: dict[str, int] = {}
+    seen_evidence_ids: set[str] = set()
     for item in evidence:
-        next_split_index = next_split_index_by_evidence_id.get(item.evidence_id, 0)
+        if item.evidence_id in seen_evidence_ids:
+            continue
+        seen_evidence_ids.add(item.evidence_id)
+        if not item.approved or item.blocked_reasons:
+            continue
         for split_index in range(item.walk_forward_split_count):
-            unique_split_index = next_split_index + split_index
             splits.append(
                 WalkForwardSplit(
-                    split_id=f"{item.evidence_id}:split:{unique_split_index}",
+                    split_id=f"{item.evidence_id}:split:{split_index}",
                     cost_adjusted_expectancy_usd=item.slippage_adjusted_expectancy,
                 )
             )
-        next_split_index_by_evidence_id[item.evidence_id] = (
-            next_split_index + item.walk_forward_split_count
-        )
     return splits
 
 
@@ -181,6 +199,9 @@ def compute_max_observed_loss_usd(
         max_loss = max(max_loss, outcome.max_drawdown_usd)
         if outcome.net_pnl_usd < 0:
             max_loss = max(max_loss, abs(outcome.net_pnl_usd))
+        derived_net_pnl = outcome.gross_pnl_usd - outcome.fees_usd - outcome.slippage_usd
+        if derived_net_pnl < 0:
+            max_loss = max(max_loss, abs(derived_net_pnl))
     return float(max_loss)
 
 
@@ -188,11 +209,17 @@ def build_strategy_evidence_package(
     db_path: str | Path,
     strategy_family: str,
 ) -> StrategyEvidencePackage:
+    from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
+    from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
+
     outcomes = PaperOutcomeLedger(db_path).load_outcomes(strategy_family=strategy_family)
     validation_evidence = ValidationEvidenceLedger(db_path).load_evidence(
         strategy_family=strategy_family
     )
-    observations = paper_outcomes_to_rollout_observations(outcomes)
+    observations = paper_outcomes_to_rollout_observations(
+        outcomes,
+        include_failed_outcomes=True,
+    )
     walk_forward_splits = validation_evidence_to_walk_forward_splits(validation_evidence)
     closed_outcomes = [
         outcome
@@ -243,15 +270,20 @@ def build_rollout_review_artifact(
     max_notional_usd: float = 25.0,
     max_daily_loss_usd: float = 10.0,
 ) -> RolloutReviewArtifact:
+    from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
     from crypto_alpha_agent.evidence.live_readiness import (
         generate_tiny_live_readiness_artifact,
     )
+    from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
 
     outcomes = PaperOutcomeLedger(db_path).load_outcomes(strategy_family=strategy_family)
     validation_evidence = ValidationEvidenceLedger(db_path).load_evidence(
         strategy_family=strategy_family
     )
-    observations = paper_outcomes_to_rollout_observations(outcomes)
+    observations = paper_outcomes_to_rollout_observations(
+        outcomes,
+        include_failed_outcomes=True,
+    )
     walk_forward_splits = validation_evidence_to_walk_forward_splits(validation_evidence)
     evidence_package = build_strategy_evidence_package(db_path, strategy_family)
     rollout_evaluation = evaluate_rollout(
@@ -271,6 +303,17 @@ def build_rollout_review_artifact(
     )
 
     return RolloutReviewArtifact(
+        decision=(
+            "ready_for_human_review"
+            if readiness_artifact.ready_for_human_review
+            else "blocked"
+        ),
+        blocked_reasons=_dedupe_nonempty_strings(
+            [
+                *rollout_evaluation.reason_codes,
+                *readiness_artifact.reason_codes,
+            ]
+        ),
         readiness_artifact=readiness_artifact.model_dump(mode="json"),
         rollout_evaluation=rollout_evaluation,
         evidence_package=evidence_package,

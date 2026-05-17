@@ -1080,6 +1080,7 @@ def _handle_rollout_review(args: argparse.Namespace) -> dict[str, Any]:
         payload["readiness_artifact_path"] = str(args.artifact_out)
         payload["evidence_package"]["artifact_path"] = str(args.artifact_out)
     if args.evidence_package_out is not None:
+        payload["evidence_package_out"] = str(args.evidence_package_out)
         payload["evidence_package"]["evidence_package_path"] = str(args.evidence_package_out)
 
     if args.artifact_out is not None:
