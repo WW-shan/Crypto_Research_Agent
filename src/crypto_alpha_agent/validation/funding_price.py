@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import math
 from bisect import bisect_left
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from crypto_alpha_agent.data.models import FundingRateRecord
+from crypto_alpha_agent.data.models import FundingRateRecord, MarketCandle, SourceRecord
 from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.validation.gates import evaluate_walk_forward_gate
 from crypto_alpha_agent.validation.market_history import CandleBar, load_candle_history
@@ -162,6 +162,94 @@ def validate_funding_price_confirmation(
 
     bars = load_candle_history(db_path, symbol=price_symbol, timeframe=timeframe)
     funding_rates = _load_funding_history(db_path, funding_symbol=funding_symbol)
+    return _validate_funding_price_confirmation_from_history(
+        bars,
+        funding_rates,
+        price_symbol=price_symbol,
+        funding_symbol=funding_symbol,
+        timeframe=timeframe,
+        threshold_abs=threshold_abs,
+        hold_bars=hold_bars,
+        fee_rate=fee_rate,
+        slippage_rate=slippage_rate,
+        min_trades=min_trades,
+        require_walk_forward=require_walk_forward,
+        walk_forward_train_size=walk_forward_train_size,
+        walk_forward_test_size=walk_forward_test_size,
+        walk_forward_min_splits=walk_forward_min_splits,
+        walk_forward_min_pass_rate=walk_forward_min_pass_rate,
+    )
+
+
+def validate_funding_price_confirmation_from_records(
+    records: Sequence[Mapping[str, object]],
+    *,
+    price_symbol: str,
+    funding_symbol: str,
+    timeframe: str,
+    threshold_abs: float = 0.0005,
+    hold_bars: int = 1,
+    fee_rate: float = 0.001,
+    slippage_rate: float = 0.0005,
+    min_trades: int = 3,
+    require_walk_forward: bool = True,
+    walk_forward_train_size: int = 24,
+    walk_forward_test_size: int = 8,
+    walk_forward_min_splits: int = 3,
+    walk_forward_min_pass_rate: float = 1.0,
+) -> FundingPriceValidationResult:
+    if not math.isfinite(threshold_abs) or threshold_abs <= 0:
+        raise ValueError("threshold_abs must be finite and greater than 0")
+    _require_positive_int("hold_bars", hold_bars)
+    _require_non_negative_int("min_trades", min_trades)
+    if not math.isfinite(fee_rate) or fee_rate < 0:
+        raise ValueError("fee_rate must be finite and non-negative")
+    if not math.isfinite(slippage_rate) or slippage_rate < 0:
+        raise ValueError("slippage_rate must be finite and non-negative")
+
+    bars, funding_rates = _funding_price_history_from_records(
+        records,
+        price_symbol=price_symbol,
+        funding_symbol=funding_symbol,
+        timeframe=timeframe,
+    )
+    return _validate_funding_price_confirmation_from_history(
+        bars,
+        funding_rates,
+        price_symbol=price_symbol,
+        funding_symbol=funding_symbol,
+        timeframe=timeframe,
+        threshold_abs=threshold_abs,
+        hold_bars=hold_bars,
+        fee_rate=fee_rate,
+        slippage_rate=slippage_rate,
+        min_trades=min_trades,
+        require_walk_forward=require_walk_forward,
+        walk_forward_train_size=walk_forward_train_size,
+        walk_forward_test_size=walk_forward_test_size,
+        walk_forward_min_splits=walk_forward_min_splits,
+        walk_forward_min_pass_rate=walk_forward_min_pass_rate,
+    )
+
+
+def _validate_funding_price_confirmation_from_history(
+    bars: list[CandleBar],
+    funding_rates: list[FundingRateRecord],
+    *,
+    price_symbol: str,
+    funding_symbol: str,
+    timeframe: str,
+    threshold_abs: float,
+    hold_bars: int,
+    fee_rate: float,
+    slippage_rate: float,
+    min_trades: int,
+    require_walk_forward: bool,
+    walk_forward_train_size: int,
+    walk_forward_test_size: int,
+    walk_forward_min_splits: int,
+    walk_forward_min_pass_rate: float,
+) -> FundingPriceValidationResult:
     duplicate_price_timestamp = _has_duplicate_timestamps(bars)
     duplicate_funding_timestamp = _has_duplicate_timestamps(funding_rates)
     extremes = [
@@ -262,6 +350,57 @@ def validate_funding_price_confirmation(
         approved=not blocked_reasons,
         blocked_reasons=blocked_reasons,
     )
+
+
+def _funding_price_history_from_records(
+    records: Sequence[Mapping[str, object]],
+    *,
+    price_symbol: str,
+    funding_symbol: str,
+    timeframe: str,
+) -> tuple[list[CandleBar], list[FundingRateRecord]]:
+    bars: list[CandleBar] = []
+    funding_rates: list[FundingRateRecord] = []
+    for record in records:
+        source_record = SourceRecord.model_validate_json(json.dumps(record))
+        if source_record.record_type == "market_candle":
+            candle = MarketCandle.model_validate_json(json.dumps(source_record.payload))
+            if candle.symbol != price_symbol or candle.timeframe != timeframe:
+                continue
+            bars.append(
+                CandleBar(
+                    source=candle.source,
+                    venue=candle.venue,
+                    symbol=candle.symbol,
+                    timestamp=candle.timestamp,
+                    timeframe=candle.timeframe,
+                    open=candle.open,
+                    high=candle.high,
+                    low=candle.low,
+                    close=candle.close,
+                    volume=candle.volume,
+                )
+            )
+            continue
+        if source_record.record_type == "funding_rate":
+            funding = FundingRateRecord.model_validate_json(json.dumps(source_record.payload))
+            if funding.symbol != funding_symbol:
+                continue
+            funding_rate = float(funding.funding_rate)
+            if not math.isfinite(funding_rate):
+                raise ValueError("funding_rate must be finite")
+            funding_rates.append(funding)
+
+    bars.sort(key=lambda bar: (bar.timestamp, bar.source, bar.venue, bar.symbol))
+    funding_rates.sort(
+        key=lambda funding: (
+            funding.timestamp,
+            funding.source,
+            funding.venue,
+            funding.symbol,
+        )
+    )
+    return bars, funding_rates
 
 
 def _require_positive_int(name: str, value: int) -> int:

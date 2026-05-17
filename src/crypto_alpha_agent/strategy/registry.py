@@ -11,6 +11,7 @@ from crypto_alpha_agent.strategy.models import (
     StrategyValidationReport,
     StrategyValidationRequest,
 )
+from crypto_alpha_agent.validation.funding_price import validate_funding_price_confirmation_from_records
 
 StrategyValidator = Callable[[StrategyValidationRequest], StrategyValidationReport]
 StrategyPaperRunner = Callable[[StrategyPaperRequest], StrategyPaperReport]
@@ -40,8 +41,6 @@ class StrategyRegistry:
     ) -> None:
         if spec.strategy_family in self._registrations:
             raise ValueError(f"strategy family already registered: {spec.strategy_family}")
-        if spec.min_capital_usd > self._current_capital_usd:
-            raise ValueError("strategy spec is not low-capital paper safe: min_capital_exceeds_configured_capital")
         self._registrations[spec.strategy_family] = _StrategyRegistration(
             spec=spec,
             validator=validator,
@@ -140,29 +139,109 @@ class StrategyRegistry:
 
 def default_strategy_registry(*, current_capital_usd: float = 300.0) -> StrategyRegistry:
     registry = StrategyRegistry(current_capital_usd=current_capital_usd)
-    if current_capital_usd < 25.0:
-        return registry
     spec = StrategyFamilySpec(
-        strategy_family="placeholder_low_capital_research",
-        display_name="Placeholder Low-Capital Research Strategy",
-        required_record_types=["market_candle"],
-        required_symbols=["BTC/USDT"],
+        strategy_family="funding_extremity_price_confirmation",
+        display_name="Funding Extremity With Price Confirmation",
+        required_record_types=["market_candle", "funding_rate"],
+        required_symbols=["BTC/USDT", "BTC/USDT:USDT"],
         supports_paper_simulation=False,
         min_capital_usd=25.0,
-        max_notional_usd=10.0,
-        validator_name="placeholder_safe_validator",
-        blocked_reasons=["validator_not_integrated"],
-        configured_capital_usd=current_capital_usd,
+        max_notional_usd=25.0,
+        validator_name="funding_price_confirmation",
+        blocked_reasons=[],
+        configured_capital_usd=max(current_capital_usd, 25.0),
     )
-    registry.register(spec, _placeholder_validator)
+    registry.register(spec, _funding_price_validator)
     return registry
 
 
-def _placeholder_validator(request: StrategyValidationRequest) -> StrategyValidationReport:
+def _funding_price_validator(request: StrategyValidationRequest) -> StrategyValidationReport:
+    parameters = request.parameters
+    price_symbol = _nonblank_parameter(parameters, "price_symbol")
+    funding_symbol = _nonblank_parameter(parameters, "funding_symbol")
+    timeframe = _nonblank_parameter(parameters, "timeframe")
+    missing_parameters = [
+        name
+        for name, value in (
+            ("price_symbol", price_symbol),
+            ("funding_symbol", funding_symbol),
+            ("timeframe", timeframe),
+        )
+        if value is None
+    ]
+    if missing_parameters:
+        return _blocked_funding_price_report(
+            request,
+            blocked_reasons=["missing_strategy_validation_parameters"],
+            metrics={"missing_parameters": missing_parameters},
+        )
+    try:
+        result = validate_funding_price_confirmation_from_records(
+            request.records,
+            price_symbol=price_symbol,
+            funding_symbol=funding_symbol,
+            timeframe=timeframe,
+            threshold_abs=float(parameters.get("threshold_abs", 0.0005)),
+            hold_bars=int(parameters.get("hold_bars", 1)),
+            fee_rate=float(parameters.get("fee_rate", 0.001)),
+            slippage_rate=float(parameters.get("slippage_rate", 0.0005)),
+            min_trades=int(parameters.get("min_trades", 3)),
+        )
+    except (OverflowError, TypeError, ValueError) as exc:
+        return _blocked_funding_price_report(
+            request,
+            blocked_reasons=["strategy_validation_error"],
+            metrics={
+                "symbol": price_symbol,
+                "funding_symbol": funding_symbol,
+                "timeframe": timeframe,
+                "validation_error": str(exc),
+            },
+        )
     return StrategyValidationReport(
         strategy_family=request.strategy_family,
-        validator_name="placeholder_safe_validator",
+        validator_name="funding_price_confirmation",
+        approved=result.approved,
+        blocked_reasons=result.blocked_reasons,
+        metrics={
+            "symbol": result.symbol,
+            "funding_symbol": result.funding_symbol,
+            "timeframe": result.timeframe,
+            "bar_count": result.bar_count,
+            "funding_sample_count": result.funding_sample_count,
+            "extreme_count": result.extreme_count,
+            "trade_count": result.trade_count,
+            "gross_expectancy": result.gross_expectancy,
+            "net_return": result.net_return,
+            "max_drawdown": result.max_drawdown,
+            "fee_adjusted_expectancy": result.fee_adjusted_expectancy,
+            "slippage_adjusted_expectancy": result.slippage_adjusted_expectancy,
+            "walk_forward_split_count": result.walk_forward_split_count,
+            "walk_forward_pass_rate": result.walk_forward_pass_rate,
+            "fee_rate": float(parameters.get("fee_rate", 0.001)),
+            "slippage_rate": float(parameters.get("slippage_rate", 0.0005)),
+        },
+    )
+
+
+def _nonblank_parameter(parameters: dict[str, object], key: str) -> str | None:
+    value = parameters.get(key)
+    if value is None:
+        return None
+    stripped = str(value).strip()
+    return stripped or None
+
+
+def _blocked_funding_price_report(
+    request: StrategyValidationRequest,
+    *,
+    blocked_reasons: list[str],
+    metrics: dict[str, object],
+) -> StrategyValidationReport:
+    return StrategyValidationReport(
+        strategy_family=request.strategy_family,
+        validator_name="funding_price_confirmation",
         approved=False,
-        blocked_reasons=["validator_not_integrated"],
-        metrics={},
+        blocked_reasons=blocked_reasons,
+        metrics=metrics,
     )

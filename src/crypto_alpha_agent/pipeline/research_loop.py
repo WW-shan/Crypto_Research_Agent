@@ -18,6 +18,8 @@ from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
 from crypto_alpha_agent.evidence.models import PaperSimulationOutcome
 from crypto_alpha_agent.evidence.paper import PaperEvidencePackage, aggregate_paper_evidence
+from crypto_alpha_agent.strategy import StrategyValidationRequest, default_strategy_registry
+from crypto_alpha_agent.strategy.models import StrategyValidationReport
 from crypto_alpha_agent.validation.market_history import CandleBar
 from crypto_alpha_agent.validation.momentum import MomentumValidationResult, validate_close_momentum
 
@@ -30,10 +32,18 @@ class ValidationSummary(BaseModel):
     timeframe: str
     status: Literal["passed", "blocked"]
     trade_count: int
+    funding_symbol: str | None = None
+    validator_name: str | None = None
+    baseline_only: bool = False
+    gross_expectancy: float | None = None
     net_return: float | None = None
     max_drawdown: float | None = None
     fee_adjusted_expectancy: float | None = None
     slippage_adjusted_expectancy: float | None = None
+    walk_forward_split_count: int | None = None
+    walk_forward_pass_rate: float | None = None
+    fees: float | None = None
+    slippage: float | None = None
     blocked_reasons: list[str] = Field(default_factory=list)
 
 
@@ -72,6 +82,15 @@ def run_stored_research_loop(
     limit: int | None = None,
     run_id: str | None = None,
     include_validation: bool = False,
+    strategy_family: str | None = None,
+    price_symbol: str | None = None,
+    funding_symbol: str | None = None,
+    validation_timeframe: str | None = None,
+    threshold_abs: float = 0.0005,
+    hold_bars: int = 1,
+    fee_rate: float = 0.001,
+    slippage_rate: float = 0.0005,
+    min_trades: int = 3,
     include_paper_evidence: bool = False,
     data_quality_now: datetime | None = None,
 ) -> ResearchLoopReport:
@@ -106,7 +125,24 @@ def run_stored_research_loop(
         anomalies=anomalies,
         hypotheses=hypotheses,
         notes=notes,
-        validation_summaries=_validation_summaries(records) if include_validation else [],
+        validation_summaries=(
+            _validation_summaries(
+                records,
+                db_path=db_path,
+                current_capital_usd=current_capital_usd,
+                strategy_family=strategy_family,
+                price_symbol=price_symbol,
+                funding_symbol=funding_symbol,
+                validation_timeframe=validation_timeframe,
+                threshold_abs=threshold_abs,
+                hold_bars=hold_bars,
+                fee_rate=fee_rate,
+                slippage_rate=slippage_rate,
+                min_trades=min_trades,
+            )
+            if include_validation
+            else []
+        ),
         paper_evidence_packages=(
             _paper_evidence_packages(db_path) if include_paper_evidence else []
         ),
@@ -125,7 +161,71 @@ def _notes(records: list[SourceRecord], signals: list[ScannerSignal]) -> list[st
     return notes
 
 
-def _validation_summaries(records: list[SourceRecord]) -> list[ValidationSummary]:
+def _validation_summaries(
+    records: list[SourceRecord],
+    *,
+    db_path: str | Path,
+    current_capital_usd: float,
+    strategy_family: str | None,
+    price_symbol: str | None,
+    funding_symbol: str | None,
+    validation_timeframe: str | None,
+    threshold_abs: float,
+    hold_bars: int,
+    fee_rate: float,
+    slippage_rate: float,
+    min_trades: int,
+) -> list[ValidationSummary]:
+    if strategy_family is not None:
+        normalized_price_symbol = _nonblank_or_none(price_symbol)
+        normalized_funding_symbol = _nonblank_or_none(funding_symbol)
+        normalized_timeframe = _nonblank_or_none(validation_timeframe)
+        if (
+            normalized_price_symbol is None
+            or normalized_funding_symbol is None
+            or normalized_timeframe is None
+        ):
+            return [
+                _blocked_strategy_validation_summary(
+                    strategy_family=strategy_family,
+                    asset=normalized_price_symbol,
+                    funding_symbol=normalized_funding_symbol,
+                    timeframe=normalized_timeframe,
+                    blocked_reasons=["missing_strategy_validation_parameters"],
+                )
+            ]
+
+        try:
+            report = default_strategy_registry(current_capital_usd=current_capital_usd).validate(
+                StrategyValidationRequest(
+                    strategy_family=strategy_family,
+                    records=[record.model_dump(mode="json") for record in records],
+                    current_capital_usd=current_capital_usd,
+                    parameters={
+                        "db_path": str(db_path),
+                        "price_symbol": normalized_price_symbol,
+                        "funding_symbol": normalized_funding_symbol,
+                        "timeframe": normalized_timeframe,
+                        "threshold_abs": threshold_abs,
+                        "hold_bars": hold_bars,
+                        "fee_rate": fee_rate,
+                        "slippage_rate": slippage_rate,
+                        "min_trades": min_trades,
+                    },
+                )
+            )
+        except ValueError:
+            return [
+                _blocked_strategy_validation_summary(
+                    strategy_family=strategy_family,
+                    asset=normalized_price_symbol,
+                    funding_symbol=normalized_funding_symbol,
+                    timeframe=normalized_timeframe,
+                    blocked_reasons=["strategy_validation_error"],
+                )
+            ]
+        return [_summary_from_strategy_validation_report(report)]
+
     groups: dict[tuple[str, str], list[CandleBar]] = defaultdict(list)
     for record in records:
         if record.record_type != "market_candle":
@@ -194,4 +294,82 @@ def _summary_from_momentum_result(result: MomentumValidationResult) -> Validatio
         fee_adjusted_expectancy=result.fee_adjusted_expectancy,
         slippage_adjusted_expectancy=result.slippage_adjusted_expectancy,
         blocked_reasons=result.blocked_reasons,
+        baseline_only=True,
+        validator_name="close_momentum_baseline",
+    )
+
+
+def _summary_from_strategy_validation_report(
+    report: StrategyValidationReport,
+) -> ValidationSummary:
+    metrics = report.metrics
+    asset = _optional_string_metric(metrics, "symbol") or report.strategy_family
+    timeframe = _optional_string_metric(metrics, "timeframe") or "unknown"
+    return ValidationSummary(
+        strategy_family=report.strategy_family,
+        asset=asset,
+        funding_symbol=_optional_string_metric(metrics, "funding_symbol"),
+        timeframe=timeframe,
+        status="passed" if report.approved else "blocked",
+        trade_count=_int_metric(metrics, "trade_count"),
+        validator_name=report.validator_name,
+        gross_expectancy=_float_metric(metrics, "gross_expectancy"),
+        net_return=_float_metric(metrics, "net_return"),
+        max_drawdown=_float_metric(metrics, "max_drawdown"),
+        fee_adjusted_expectancy=_float_metric(metrics, "fee_adjusted_expectancy"),
+        slippage_adjusted_expectancy=_float_metric(metrics, "slippage_adjusted_expectancy"),
+        walk_forward_split_count=_int_metric_or_none(metrics, "walk_forward_split_count"),
+        walk_forward_pass_rate=_float_metric(metrics, "walk_forward_pass_rate"),
+        fees=_float_metric(metrics, "fee_rate"),
+        slippage=_float_metric(metrics, "slippage_rate"),
+        blocked_reasons=list(report.blocked_reasons),
+    )
+
+
+def _optional_string_metric(metrics: dict[str, object], key: str) -> str | None:
+    value = metrics.get(key)
+    if value is None:
+        return None
+    return str(value)
+
+
+def _int_metric(metrics: dict[str, object], key: str) -> int:
+    value = metrics.get(key)
+    return int(value) if value is not None else 0
+
+
+def _int_metric_or_none(metrics: dict[str, object], key: str) -> int | None:
+    value = metrics.get(key)
+    return int(value) if value is not None else None
+
+
+def _float_metric(metrics: dict[str, object], key: str) -> float | None:
+    value = metrics.get(key)
+    return float(value) if value is not None else None
+
+
+def _nonblank_or_none(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _blocked_strategy_validation_summary(
+    *,
+    strategy_family: str,
+    asset: str | None,
+    funding_symbol: str | None,
+    timeframe: str | None,
+    blocked_reasons: list[str],
+) -> ValidationSummary:
+    return ValidationSummary(
+        strategy_family=strategy_family,
+        asset=asset or strategy_family,
+        funding_symbol=funding_symbol,
+        timeframe=timeframe or "unknown",
+        status="blocked",
+        trade_count=0,
+        validator_name="strategy_registry",
+        blocked_reasons=blocked_reasons,
     )

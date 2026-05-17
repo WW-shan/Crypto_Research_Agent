@@ -133,6 +133,40 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include historical validation summaries from stored market candles.",
     )
+    research_loop_parser.add_argument("--strategy-family", help="Optional registered strategy validator family.")
+    research_loop_parser.add_argument("--price-symbol", help="Stored market candle symbol for strategy validation.")
+    research_loop_parser.add_argument("--funding-symbol", help="Stored funding-rate symbol for strategy validation.")
+    research_loop_parser.add_argument("--validation-timeframe", help="Stored market candle timeframe for strategy validation.")
+    research_loop_parser.add_argument(
+        "--threshold-abs",
+        type=_positive_finite_float,
+        default=0.0005,
+        help="Absolute funding-rate threshold for strategy validation.",
+    )
+    research_loop_parser.add_argument(
+        "--hold-bars",
+        type=_positive_int,
+        default=1,
+        help="Number of price bars to hold for strategy validation.",
+    )
+    research_loop_parser.add_argument(
+        "--fee-rate",
+        type=_non_negative_finite_float,
+        default=0.001,
+        help="One-way fee rate for strategy validation.",
+    )
+    research_loop_parser.add_argument(
+        "--slippage-rate",
+        type=_non_negative_finite_float,
+        default=0.0005,
+        help="One-way slippage rate for strategy validation.",
+    )
+    research_loop_parser.add_argument(
+        "--min-trades",
+        type=_non_negative_int,
+        default=3,
+        help="Minimum generated trade count required by strategy validation.",
+    )
     research_loop_parser.add_argument(
         "--include-paper-evidence",
         action="store_true",
@@ -522,6 +556,7 @@ def _handle_replay(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _handle_research_loop(args: argparse.Namespace) -> dict[str, Any]:
+    _validate_research_loop_strategy_args(args)
     ingestion = None
     source = _normalize_research_loop_source(args.source)
     if source == "binance_public" and _has_binance_ingestion_intent(args):
@@ -545,6 +580,15 @@ def _handle_research_loop(args: argparse.Namespace) -> dict[str, Any]:
         limit=args.limit,
         run_id=args.run_id,
         include_validation=args.include_validation,
+        strategy_family=args.strategy_family,
+        price_symbol=args.price_symbol,
+        funding_symbol=args.funding_symbol,
+        validation_timeframe=args.validation_timeframe,
+        threshold_abs=args.threshold_abs,
+        hold_bars=args.hold_bars,
+        fee_rate=args.fee_rate,
+        slippage_rate=args.slippage_rate,
+        min_trades=args.min_trades,
         include_paper_evidence=args.include_paper_evidence,
     )
     payload = {
@@ -600,6 +644,31 @@ def _validate_binance_research_loop_ingestion_args(args: argparse.Namespace) -> 
     ]
     if missing:
         args.parser.error(f"{', '.join(missing)} required when --source binance-public is provided")
+
+
+def _validate_research_loop_strategy_args(args: argparse.Namespace) -> None:
+    strategy_options = [
+        args.price_symbol,
+        args.funding_symbol,
+        args.validation_timeframe,
+    ]
+    if args.strategy_family is None and any(value is not None for value in strategy_options):
+        args.parser.error("--strategy-family is required when strategy validation symbols are provided")
+    if args.strategy_family is None:
+        return
+    if not args.include_validation:
+        args.parser.error("--include-validation is required when --strategy-family is provided")
+    missing = [
+        option
+        for option, value in (
+            ("--price-symbol", args.price_symbol),
+            ("--funding-symbol", args.funding_symbol),
+            ("--validation-timeframe", args.validation_timeframe),
+        )
+        if value is None
+    ]
+    if missing:
+        args.parser.error(f"{', '.join(missing)} required when --strategy-family is provided")
 
 
 def _handle_ingest(args: argparse.Namespace) -> dict[str, Any]:

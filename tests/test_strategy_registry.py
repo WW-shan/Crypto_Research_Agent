@@ -186,6 +186,48 @@ def test_request_capital_below_strategy_minimum_fails_closed():
     assert runner.calls == 0
 
 
+def test_default_registry_keeps_known_strategy_family_below_min_capital():
+    registry = default_strategy_registry(current_capital_usd=24.99)
+
+    report = registry.validate(
+        StrategyValidationRequest(
+            strategy_family="funding_extremity_price_confirmation",
+            records=[],
+            current_capital_usd=24.99,
+            parameters={
+                "price_symbol": "BTC/USDT",
+                "funding_symbol": "BTC/USDT:USDT",
+                "timeframe": "1h",
+            },
+        )
+    )
+
+    assert report.approved is False
+    assert report.blocked_reasons == ("insufficient_current_capital",)
+    assert "funding_extremity_price_confirmation" in registry.list_families()
+
+
+def test_default_registry_malformed_funding_parameters_fail_closed():
+    registry = default_strategy_registry(current_capital_usd=300.0)
+
+    report = registry.validate(
+        StrategyValidationRequest(
+            strategy_family="funding_extremity_price_confirmation",
+            records=[],
+            current_capital_usd=300.0,
+            parameters={
+                "price_symbol": "BTC/USDT",
+                "funding_symbol": "BTC/USDT:USDT",
+                "timeframe": "1h",
+                "threshold_abs": "not-a-number",
+            },
+        )
+    )
+
+    assert report.approved is False
+    assert report.blocked_reasons == ("strategy_validation_error",)
+
+
 @pytest.mark.parametrize(
     "field,value,reason",
     [

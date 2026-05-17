@@ -77,8 +77,8 @@ def render_research_loop_markdown(report: ResearchLoopReport) -> str:
     if report.validation_summaries:
         lines.extend(
             [
-                "| Strategy | Asset | Timeframe | Status | Trade count | Net return | Max drawdown | Fee-adjusted expectancy | Slippage-adjusted expectancy | Blocked reasons |",
-                "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
+                "| Strategy | Asset | Funding symbol | Timeframe | Status | Trade count | Net return | Max drawdown | Gross expectancy | Fee-adjusted expectancy | Slippage-adjusted expectancy | Walk-forward splits | Walk-forward pass rate | Blocked reasons |",
+                "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
             ]
         )
         for summary in report.validation_summaries:
@@ -88,13 +88,17 @@ def render_research_loop_markdown(report: ResearchLoopReport) -> str:
                     [
                         _escape_table_cell(summary.strategy_family),
                         _escape_table_cell(summary.asset),
+                        _escape_table_cell(summary.funding_symbol or "n/a"),
                         _escape_table_cell(summary.timeframe),
                         _escape_table_cell(summary.status),
                         f"{summary.trade_count:g}",
                         _optional_number(summary.net_return),
                         _optional_number(summary.max_drawdown),
+                        _optional_number(summary.gross_expectancy),
                         _optional_number(summary.fee_adjusted_expectancy),
                         _optional_number(summary.slippage_adjusted_expectancy),
+                        _optional_number(summary.walk_forward_split_count),
+                        _optional_number(summary.walk_forward_pass_rate),
                         _escape_table_cell(", ".join(summary.blocked_reasons) or "none"),
                     ]
                 )
