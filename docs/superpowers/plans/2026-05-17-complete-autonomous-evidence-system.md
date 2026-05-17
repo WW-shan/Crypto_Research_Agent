@@ -33,20 +33,54 @@ Already implemented:
 - Safety: charter guard, risk guardian, rollout gates, tiny-live readiness artifact, paper-only Hummingbot/Freqtrade adapter boundary.
 - LLM research foundation: strict task/proposal contracts, guarded LLM research node, LangGraph routing, memory persistence for LLM output.
 
-Observed gaps from docs/code comparison:
+Historical gaps addressed by Tasks 1-14:
 
-- Scheduler is only a dry-run plan and does not execute the daily evidence sequence.
-- `research-loop --include-validation` currently summarizes only close momentum over candles; it does not run the funding-plus-price validator or strategy registry.
-- Only one paper-sim strategy family is implemented: `funding_extremity_price_confirmation`.
-- DexScreener and DefiLlama clients exist, but their network results are not persisted by `ingest`.
-- Dune and TheGraph clients exist as tools, but they are not part of stored-data evidence production. This plan adds them only as optional slow research evidence sources; they must never become execution or speed edges.
-- There is no unified strategy registry, validator selector, or strategy-family report contract.
-- There is no daily/weekly evidence trend report, degradation detector, or automatic "stop testing this" decision.
-- Research hypotheses are persistable through `persist_research_loop_memory`, but `research-loop` CLI has no `--memory` option.
-- LLMs do not yet read paper evidence and memory to propose bounded next experiments.
-- Rollout gates exist, but there is no command that converts accumulated `PaperSimulationOutcome` rows into rollout observations and readiness artifacts.
-- README/runbook/roadmap are partially behind the current paper evidence factory.
-- Local hygiene is incomplete: `.DS_Store` files are untracked and `.gitignore` does not ignore them.
+- Scheduler planning now points at the daily evidence runner while remaining a
+  dry-run operator surface.
+- `research-loop --include-validation` can use the registered funding-plus-price
+  validator and strategy registry.
+- Funding mean reversion, DeFi yield regime watchlist, and DEX
+  liquidity/volume watchlist strategy families are registered.
+- DexScreener, DefiLlama, optional Dune, and optional TheGraph research
+  snapshots can be persisted as ordinary-infrastructure evidence.
+- Strategy registry, validation evidence ledger, validation memory feedback,
+  evidence runner, research memory CLI, bounded experiment planner, and
+  daily/weekly evidence report foundations exist.
+- Local hygiene and initial documentation alignment were completed in Task 1.
+
+Remaining gaps from the current docs/code comparison:
+
+- Degradation and stop rules exist only as report/planner markers; they must
+  prevent repeated testing across `evidence-run`, `research-loop`, scheduler
+  plans, and experiment planning by default.
+- Rollout gates exist, but there is no command that converts accumulated
+  `PaperSimulationOutcome` rows into rollout observations and readiness
+  artifacts.
+- README/runbook/roadmap still need the complete operator workflow for the
+  current evidence system.
+- A final end-to-end acceptance test must prove the complete workflow across
+  CLI commands and tie source-support coverage to focused ingestion tests.
+- The final Goal contract also requires secret-safety review, clean git state,
+  public GitHub publication, and durable updates to
+  `docs/goals/project-completion-state.md`; those are project completion tasks,
+  not optional operator notes.
+- Operator-controlled scheduling is intentional, but the docs must still
+  describe a complete cron/systemd or GitHub Actions handoff, including logs,
+  locking/idempotency, failure notification, and artifact retention.
+- Tiny-live review must preserve the paper evidence package used by the
+  readiness artifact and must surface `max_observed_loss_usd`; a readiness JSON
+  alone is not enough evidence bookkeeping.
+- Optional credentialed sources such as Dune must accept secrets through local
+  operator configuration only, redact them from JSON/log/report artifacts, and
+  be covered by staged secret-safety checks.
+
+## Current Execution Status
+
+As of the 2026-05-17 audit, this remains the master plan for the whole project,
+not a partial slice. The implementation has already completed Tasks 1 through
+14 in earlier commits. The remaining work starts at Task 15 and continues
+through the final completion task. Do not create a separate narrower plan for
+only the next task unless a blocker forces this master plan to be revised.
 
 ## Completion Target
 
@@ -137,6 +171,7 @@ Modify:
 - `docs/runbook.md`
 - `docs/rollout-gates.md`
 - `docs/tiny-live-readiness.md`
+- `docs/goals/project-completion-state.md`
 - `README.md`
 - `.gitignore`
 - `tests/test_cli_smoke.py`
@@ -452,6 +487,11 @@ Add:
 Rules:
 
 - Dune is optional and may require an API key; absence of a key must block with a clear error, not fall back to scraping.
+- `--dune-api-key` may be accepted for local CLI use, but the value must never
+  appear in returned JSON, Markdown, logs, memory records, SQLite payloads, or
+  test snapshots. Prefer `DUNE_API_KEY` from the local shell or `.env` when the
+  operator runs the command manually. Tests must assert the key is redacted from
+  command output and persisted artifacts.
 - TheGraph is optional and must be used for slow research snapshots only.
 - Both sources require `--allow-network`.
 
@@ -1500,6 +1540,19 @@ Decision fields:
 - CLI JSON output includes `daily_report_out` when `--daily` is used and `weekly_report_out` when `--weekly` is used.
 - Also teach `evidence-run` to call the same report builders when `--report-out` or `--weekly-report-out` is provided, so the runner can emit both artifacts in one pass.
 
+Final report artifact contract:
+
+- `evidence-run --report-out` writes the operator-facing daily evidence report
+  rendered from `build_daily_evidence_report`, not the older research-loop-only
+  Markdown.
+- `EvidenceRunnerReport.report_artifact` remains the runner's internal artifact
+  reference for backward compatibility.
+- CLI JSON includes top-level `daily_report_out`, optional
+  `weekly_report_out`, top-level `steps`, and the full nested runner model under
+  `report`.
+- The nested `report` is the source for `research_milestone` and
+  `source_health` in end-to-end tests.
+
 The builder functions must exist before `evidence-run` consumes them. Do not wire the optional weekly output in Task 10; wire it here after the builder exists.
 
 - [ ] **Step 4: Verify and commit**
@@ -1526,6 +1579,10 @@ git commit -m "feat: summarize daily and weekly evidence"
 **Files:**
 - Modify: `src/crypto_alpha_agent/pipeline/evidence_reports.py`
 - Modify: `src/crypto_alpha_agent/pipeline/experiment_planner.py`
+- Modify: `src/crypto_alpha_agent/pipeline/evidence_runner.py`
+- Modify: `src/crypto_alpha_agent/pipeline/research_loop.py`
+- Modify: `src/crypto_alpha_agent/scheduler.py`
+- Modify: `src/crypto_alpha_agent/cli.py`
 - Modify: `src/crypto_alpha_agent/risk/paper_gate.py`
 - Test: `tests/test_evidence_degradation.py`
 
@@ -1538,6 +1595,15 @@ Tests must cover:
 - Fee/slippage killing the edge triggers `fee_killed_edge` or `slippage_killed_edge`.
 - Degraded families are excluded from next experiment proposals unless explicitly requested.
 - The experiment planner must receive the degraded-family decision and exclude it by default.
+- `evidence-run` skips stopped/degraded strategy families by default and records
+  `stopped_family_skipped` in the runner decision codes.
+- `research-loop --include-validation` refuses stopped/degraded families by
+  default and records `stopped_family_blocked` instead of generating fresh
+  validation evidence.
+- `schedule --dry-run` marks stopped/degraded families as skipped in the planned
+  `evidence-run` command unless an explicit override flag is supplied.
+- Any explicit override is named, visible, and recorded as
+  `stopped_family_override_used` in JSON output and memory/report metadata.
 
 - [ ] **Step 2: Implement detector**
 
@@ -1545,6 +1611,11 @@ Create:
 
 - `detect_strategy_degradation(outcomes, validation_evidence, window=10)`
 - `mark_family_degraded(strategy_family, reason_codes, memory_path=None)` or equivalent state helper that the planner can read.
+- `load_stopped_strategy_families(memory_path)` or equivalent helper used by
+  `experiment_planner`, `evidence_runner`, `research_loop`, and scheduler
+  planning.
+- CLI override flag `--allow-stopped-family` for `evidence-run`,
+  `research-loop`, and `schedule`, defaulting to `False`.
 
 Reason codes:
 
@@ -1561,18 +1632,19 @@ Run:
 
 ```bash
 uv run --extra dev pytest tests/test_evidence_degradation.py tests/test_evidence_reports.py tests/test_ai_experiment_planner.py -q
-uv run --extra dev ruff check src/crypto_alpha_agent/pipeline/evidence_reports.py src/crypto_alpha_agent/pipeline/experiment_planner.py src/crypto_alpha_agent/risk/paper_gate.py tests/test_evidence_degradation.py
+uv run --extra dev pytest tests/test_evidence_runner.py tests/test_scheduler_cli.py tests/test_cli_research_loop.py -q
+uv run --extra dev ruff check src/crypto_alpha_agent/pipeline/evidence_reports.py src/crypto_alpha_agent/pipeline/experiment_planner.py src/crypto_alpha_agent/pipeline/evidence_runner.py src/crypto_alpha_agent/pipeline/research_loop.py src/crypto_alpha_agent/scheduler.py src/crypto_alpha_agent/cli.py src/crypto_alpha_agent/risk/paper_gate.py tests/test_evidence_degradation.py
 git diff --check
 ```
 
 Commit:
 
 ```bash
-git add src/crypto_alpha_agent/pipeline/evidence_reports.py src/crypto_alpha_agent/pipeline/experiment_planner.py src/crypto_alpha_agent/risk/paper_gate.py tests/test_evidence_degradation.py
+git add src/crypto_alpha_agent/pipeline/evidence_reports.py src/crypto_alpha_agent/pipeline/experiment_planner.py src/crypto_alpha_agent/pipeline/evidence_runner.py src/crypto_alpha_agent/pipeline/research_loop.py src/crypto_alpha_agent/scheduler.py src/crypto_alpha_agent/cli.py src/crypto_alpha_agent/risk/paper_gate.py tests/test_evidence_degradation.py
 git commit -m "feat: detect degraded paper evidence"
 ```
 
-**Exit criteria:** The system stops wasting time on strategy families whose evidence is getting worse.
+**Exit criteria:** The system stops wasting time on strategy families whose evidence is getting worse. Stopped families are skipped by default across planner, daily runner, research loop, and scheduler plans, and every override is explicit and auditable.
 
 ---
 
@@ -1593,6 +1665,11 @@ Tests must cover:
 - `rollout-review --db ... --strategy-family funding_extremity_price_confirmation` loads paper outcomes and validation evidence.
 - It converts closed outcomes into `PaperTradeObservation`.
 - It converts walk-forward validation into `WalkForwardSplit`.
+- It computes and surfaces `max_observed_loss_usd` from accumulated paper
+  outcomes using the worst observed net PnL/drawdown evidence, with zero as the
+  default when no loss evidence exists.
+- It writes or links the strategy-specific paper evidence package used for the
+  review, so the readiness artifact can be audited later.
 - Fewer than 30 observations blocks with `insufficient_sample_size`.
 - Passing data can generate `ready_for_human_review=True` only when human approval reference is supplied.
 - The artifact always has `live_execution_enabled=False`.
@@ -1604,7 +1681,27 @@ Create functions:
 
 - `paper_outcomes_to_rollout_observations(outcomes)`
 - `validation_evidence_to_walk_forward_splits(evidence)`
+- `compute_max_observed_loss_usd(outcomes)`
+- `build_strategy_evidence_package(db_path, strategy_family)`
 - `build_rollout_review_artifact(db_path, strategy_family, human_approved=False, human_approval_reference=None, max_notional_usd=25.0, max_daily_loss_usd=10.0)`
+
+`compute_max_observed_loss_usd` must consider:
+
+- negative `net_pnl_usd` from closed paper outcomes
+- `max_drawdown_usd` when present
+- blocked or failed outcomes with recorded drawdown or loss fields in payloads
+
+It must return a non-negative USD loss number and must be included in both the
+rollout evaluation payload and the operator-facing CLI JSON.
+
+The evidence package must include:
+
+- strategy family
+- validation evidence ids and blocked reasons
+- paper outcome ids and failure reasons
+- sample size, closed count, failed count, net PnL, hit rate, max drawdown
+- rollout observations and walk-forward split count
+- generated artifact path when `--artifact-out` is supplied
 
 - [ ] **Step 3: Wire CLI**
 
@@ -1617,6 +1714,7 @@ Add command `rollout-review`:
 - `--max-notional-usd`
 - `--max-daily-loss-usd`
 - `--artifact-out`
+- `--evidence-package-out`
 
 No live execution flags.
 
@@ -1638,6 +1736,8 @@ git commit -m "feat: build rollout review from evidence"
 ```
 
 **Exit criteria:** Tiny-live review artifacts can be generated from accumulated evidence, but still cannot execute trades.
+The artifact and evidence package expose the exact paper evidence,
+walk-forward evidence, and `max_observed_loss_usd` used by the review.
 
 ---
 
@@ -1660,11 +1760,21 @@ Create tests that assert docs mention:
 - `evidence-run`
 - `plan-experiments`
 - `rollout-review`
+- `ingest`
+- `paper-sim-loop`
+- `evidence-report`
+- `replay` or replay/recovery
+- cron or systemd external scheduling
+- log paths
+- run locking or idempotency
+- failure notification
+- artifact retention
 - no wallet keys
 - no live order routing
 - ordinary public APIs
 - few hundred USD
 - 30 paper observations before tiny-live review
+- evidence package preservation for tiny-live review
 
 - [ ] **Step 2: Update README**
 
@@ -1672,8 +1782,14 @@ README must include:
 
 - setup
 - safe evidence-run example
+- safe ingestion example for Binance Public Data, CCXT, DexScreener, DefiLlama,
+  Dune, and TheGraph, with optional credential handling for Dune
+- safe paper simulation example
+- safe daily and weekly evidence-report examples
 - safe experiment planning example
 - safe rollout-review example
+- evidence package export example
+- replay/recovery example
 - explicit no-live statement
 
 - [ ] **Step 3: Update runbook**
@@ -1682,10 +1798,19 @@ Runbook must include:
 
 - daily sequence
 - weekly sequence
+- data ingestion workflow for each ordinary-infrastructure source
+- paper simulation workflow
+- daily and weekly report workflow
+- replay/recovery workflow for persisted event and evidence artifacts
 - what to inspect
 - failure reasons and what they mean
 - how to stop a degraded family
 - how to preserve evidence
+- how to call `evidence-run` from an external operator-controlled scheduler
+  without making the agent an always-on daemon
+- recommended cron/systemd shape, including one-run-at-a-time locking, stdout
+  and stderr log paths, nonzero-exit notification, and retention for daily
+  Markdown/JSON reports, weekly reports, memory, SQLite, and rollout artifacts
 
 - [ ] **Step 4: Update roadmap**
 
@@ -1693,6 +1818,8 @@ Roadmap must mark:
 
 - Phase 2 strategy validation expanded.
 - Phase 4 evidence accumulation operational.
+- External scheduler remains operator-controlled, but the runbook documents the
+  complete scheduling handoff.
 - Remaining blocked item: live execution until future charter revision.
 
 - [ ] **Step 5: Verify and commit**
@@ -1738,11 +1865,19 @@ Assert:
 
 - SQLite has source records, validation evidence, paper outcomes.
 - Optional Dune/TheGraph sources are represented as `skipped/not_configured` when not configured; when explicitly configured and failing, they become source-health failures instead of hidden crashes.
+- Source support is proven by this acceptance test plus focused source tests:
+  Binance Public Data, CCXT, DexScreener, DefiLlama, Dune, and TheGraph.
 - Memory has research-loop records, validation lesson records, paper evidence records, and experiment proposal records.
 - The research milestone includes non-zero signal, anomaly, hypothesis, reflection, and accept/reject reason counts.
+- `evidence-run` CLI keeps operator metadata at the top level and the full
+  `EvidenceRunnerReport` under `report`; acceptance checks nested
+  `report.research_milestone` and `report.source_health`.
 - Daily and weekly reports exist.
 - The AI experiment planner excludes degraded strategy families and does not repeat parameter sets already blocked by validation memory.
 - Rollout review blocks before 30 observations.
+- Rollout review payload includes `max_observed_loss_usd`.
+- Rollout review writes a strategy-specific evidence package when
+  `--evidence-package-out` is supplied.
 - Every payload has `uses_real_capital=False` and `live_order_routing=False`.
 
 Use this acceptance shape:
@@ -1831,6 +1966,7 @@ def test_complete_safe_autonomous_evidence_system(tmp_path, monkeypatch, fake_cc
     daily_path = tmp_path / "daily.md"
     weekly_path = tmp_path / "weekly.md"
     rollout_path = tmp_path / "rollout.json"
+    evidence_package_path = tmp_path / "rollout-evidence-package.json"
 
     monkeypatch.setattr(
         "crypto_alpha_agent.pipeline.evidence_runner.build_ccxt_collector",
@@ -1885,17 +2021,19 @@ def test_complete_safe_autonomous_evidence_system(tmp_path, monkeypatch, fake_cc
         "--db", str(db_path),
         "--strategy-family", "funding_extremity_price_confirmation",
         "--artifact-out", str(rollout_path),
+        "--evidence-package-out", str(evidence_package_path),
     ])
 
     assert run_result["uses_real_capital"] is False
     assert run_result["live_order_routing"] is False
-    assert run_result["research_milestone"]["signal_count"] > 0
-    assert run_result["research_milestone"]["anomaly_count"] > 0
-    assert run_result["research_milestone"]["hypothesis_count"] > 0
-    assert run_result["research_milestone"]["reflection_count"] > 0
-    assert run_result["research_milestone"]["accept_reject_reason_count"] > 0
-    assert run_result["source_health"]["optional_source_skipped"] >= 0
-    assert run_result["source_health"]["optional_source_failures"] >= 0
+    runner_report = run_result["report"]
+    assert runner_report["research_milestone"]["signal_count"] > 0
+    assert runner_report["research_milestone"]["anomaly_count"] > 0
+    assert runner_report["research_milestone"]["hypothesis_count"] > 0
+    assert runner_report["research_milestone"]["reflection_count"] > 0
+    assert runner_report["research_milestone"]["accept_reject_reason_count"] > 0
+    assert runner_report["source_health"]["optional_source_skipped"] >= 0
+    assert runner_report["source_health"]["optional_source_failures"] >= 0
 
     assert sqlite_count(db_path, "source_records") > 0
     assert sqlite_count(db_path, "validation_evidence") > 0
@@ -1915,6 +2053,9 @@ def test_complete_safe_autonomous_evidence_system(tmp_path, monkeypatch, fake_cc
     assert report_result["weekly_report_out"] == str(weekly_path)
     assert rollout_result["decision"] == "blocked"
     assert "insufficient_sample_size" in rollout_result["blocked_reasons"]
+    assert rollout_result["max_observed_loss_usd"] >= 0
+    assert rollout_result["evidence_package_out"] == str(evidence_package_path)
+    assert evidence_package_path.exists()
     assert rollout_result["uses_real_capital"] is False
     assert rollout_result["live_order_routing"] is False
     for payload in [run_result, research_result, planner_result, report_result, rollout_result]:
@@ -1946,6 +2087,7 @@ Run:
 uv run --extra dev pytest -q
 uv run --extra dev ruff check .
 git diff --check
+uv run --extra dev pytest tests/test_binance_public_ingestion.py tests/test_ccxt_ingestion_service.py tests/test_defillama_dex_ingestion_service.py tests/test_onchain_ingestion_service.py -q
 rg -n "create_order|private_key|seed phrase|send_transaction|live_order_routing.*True|touched_real_capital.*True" src tests docs
 ```
 
@@ -1962,6 +2104,132 @@ git commit -m "test: cover complete evidence system"
 If Step 3 fixed integration mismatches in production code, stage only the exact production files changed in Step 3 before the commit. Do not stage unrelated dirty files.
 
 **Exit criteria:** The repository proves the complete safe autonomous evidence workflow locally.
+
+---
+
+## Phase K: Final Goal Closure And Publication
+
+### Task 19: Completion State, Secret Safety, And Public GitHub Publish
+
+**Files:**
+- Modify: `docs/goals/project-completion-state.md`
+- Modify: `docs/roadmap.md`
+- Modify: `README.md` only if Task 18 exposed an operator workflow mismatch
+- Test: no new test file unless the final audit exposes a missing contract test
+
+- [ ] **Step 1: Run final project verification**
+
+Run:
+
+```bash
+uv run --extra dev pytest -q
+uv run --extra dev ruff check .
+git diff --check
+```
+
+Expected: all commands pass. If any command fails, fix only the failing
+integration or documentation mismatch, then rerun the same command before
+continuing.
+
+- [ ] **Step 2: Run forbidden-path and secret-safety checks**
+
+Run:
+
+```bash
+rg -n "create_order|private_key|seed phrase|send_transaction|live_order_routing.*True|touched_real_capital.*True" src tests docs README.md
+git status --short
+git diff --cached --check
+git diff --cached --name-only
+git diff --cached --no-ext-diff --unified=0
+```
+
+Expected:
+
+- `rg` returns only tests or documentation that assert forbidden paths are
+  blocked, never production live execution authority.
+- `git status --short` shows only intentional source, test, and documentation
+  files, with no `.env`, SQLite database, `var/`, cache, report artifact, or
+  credential file staged or tracked.
+- The staged diff contains no API keys, bearer tokens, private keys, seed
+  phrases, wallet material, local database dumps, or generated report artifacts.
+
+- [ ] **Step 3: Update persistent completion state**
+
+Update `docs/goals/project-completion-state.md` with:
+
+- the final round number and date
+- completed slices since the previous state update
+- exact verification commands and pass/fail evidence
+- secret-safety review result
+- final commit hash field set to `pending until final commit`
+- public GitHub repository URL field set to `pending until push`
+- remaining gaps set to `none for the first complete research-loop milestone`
+  if every final definition-of-done item passes
+
+Update `docs/roadmap.md` so the active next step no longer says the complete
+autonomous evidence system is pending. It must say the first complete safe
+research-loop milestone is complete, while live execution remains outside the
+current charter.
+
+- [ ] **Step 4: Final subagent review**
+
+Dispatch a final review subagent with this scope:
+
+```text
+Review the complete repository against docs/goals/project-completion-goal.md,
+docs/project-charter.md, and docs/superpowers/plans/2026-05-17-complete-autonomous-evidence-system.md.
+Do not implement changes. Report any Critical or Important issue that prevents
+the final definition of done from passing, including secret exposure, live
+execution authority, missing docs, missing tests, or public-data evidence gaps.
+```
+
+Fix all Critical or Important findings, rerun the focused and full verification
+commands, and request a re-review until the final reviewer approves.
+
+- [ ] **Step 5: Commit final completion state**
+
+Run:
+
+```bash
+git add docs/goals/project-completion-state.md docs/roadmap.md README.md tests/test_complete_evidence_system.py
+git diff --cached --check
+git diff --cached --name-only
+git diff --cached --no-ext-diff --unified=0
+git commit -m "docs: mark evidence system completion"
+```
+
+If Task 18 required production integration fixes, also stage those exact files.
+Do not stage `.env`, databases, reports under `var/`, caches, local artifacts,
+or unrelated dirty files.
+
+- [ ] **Step 6: Publish to GitHub**
+
+Run:
+
+```bash
+git remote -v
+git status --short
+git push
+git rev-parse HEAD
+gh repo view --json nameWithOwner,url,visibility
+```
+
+If no remote exists, create the public GitHub repository first, add it as
+`origin`, and push the current branch. The `gh repo view` output must show
+`visibility=PUBLIC`; if `gh` is unavailable, verify the public URL in a browser
+or with the GitHub API and record the command used in the final response.
+
+Do not try to write the current commit hash into the same committed file that
+defines that hash; that creates an impossible self-reference. Report the pushed
+`git rev-parse HEAD` value and public repository URL in the final response. If
+the owner explicitly requires the pushed hash inside
+`docs/goals/project-completion-state.md`, create a follow-up state-only commit
+that records the previously pushed hash, then push that follow-up commit and
+report the new final hash in the response.
+
+**Exit criteria:** The final Goal contract is satisfied, the repository is
+clean, no secrets or local artifacts are staged, and the complete project is
+pushed to a public GitHub repository.
 
 ---
 
@@ -1990,6 +2258,7 @@ Recommended phase order:
 10. Task 16
 11. Task 17
 12. Task 18
+13. Task 19
 
 ## Global Stop Conditions
 
@@ -2015,6 +2284,9 @@ The plan is complete only when:
 8. `rollout-review` can build a blocking or passing readiness artifact from accumulated evidence.
 9. No production code path loads wallet keys, submits live exchange orders, signs transactions, or routes real capital.
 10. Docs match the implemented workflow.
+11. `docs/goals/project-completion-state.md` and `docs/roadmap.md` record the final verified state.
+12. Secret-safety checks show no credentials, local databases, caches, generated reports, or local artifacts are staged or committed.
+13. The repository has been pushed to a public GitHub repository.
 
 ## What Remains Outside This Plan
 
