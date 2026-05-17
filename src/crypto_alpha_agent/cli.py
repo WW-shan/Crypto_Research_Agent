@@ -38,6 +38,7 @@ from crypto_alpha_agent.pipeline.memory import (
     persist_research_loop_memory,
     persist_validation_evidence_memory,
 )
+from crypto_alpha_agent.risk.rollout import build_rollout_review_artifact
 from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
 from crypto_alpha_agent.pipeline.experiment_planner import plan_next_experiments
 from crypto_alpha_agent.pipeline.research_loop import run_stored_research_loop
@@ -271,6 +272,43 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional JSONL memory path for paper outcome feedback records.",
     )
     paper_sim_loop_parser.set_defaults(handler=_handle_paper_sim_loop, parser=paper_sim_loop_parser)
+
+    rollout_review_parser = subparsers.add_parser(
+        "rollout-review",
+        help="Build rollout gate evidence and tiny-live readiness review artifacts.",
+    )
+    rollout_review_parser.add_argument(
+        "--db",
+        required=True,
+        type=_existing_sqlite_db_path,
+        help="Path to an existing SQLite research data store.",
+    )
+    rollout_review_parser.add_argument("--strategy-family", required=True, help="Strategy family to review.")
+    rollout_review_parser.add_argument(
+        "--human-approved",
+        action="store_true",
+        help="Record that a human approved this rollout review package.",
+    )
+    rollout_review_parser.add_argument("--human-approval-reference", help="Human approval ticket or record reference.")
+    rollout_review_parser.add_argument(
+        "--max-notional-usd",
+        type=_non_negative_finite_float,
+        default=25.0,
+        help="Maximum tiny-live notional considered by the readiness review.",
+    )
+    rollout_review_parser.add_argument(
+        "--max-daily-loss-usd",
+        type=_non_negative_finite_float,
+        default=10.0,
+        help="Maximum tiny-live daily loss budget considered by the readiness review.",
+    )
+    rollout_review_parser.add_argument("--artifact-out", type=Path, help="Optional readiness artifact JSON path.")
+    rollout_review_parser.add_argument(
+        "--evidence-package-out",
+        type=Path,
+        help="Optional rollout evidence package JSON path.",
+    )
+    rollout_review_parser.set_defaults(handler=_handle_rollout_review)
 
     plan_experiments_parser = subparsers.add_parser(
         "plan-experiments",
@@ -1024,6 +1062,38 @@ def _handle_paper_sim_loop(args: argparse.Namespace) -> dict[str, Any]:
         payload["report_artifact"] = str(args.report_out)
         args.report_out.parent.mkdir(parents=True, exist_ok=True)
         args.report_out.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
+
+
+def _handle_rollout_review(args: argparse.Namespace) -> dict[str, Any]:
+    review = build_rollout_review_artifact(
+        db_path=args.db,
+        strategy_family=args.strategy_family,
+        human_approved=args.human_approved,
+        human_approval_reference=args.human_approval_reference,
+        max_notional_usd=args.max_notional_usd,
+        max_daily_loss_usd=args.max_daily_loss_usd,
+    )
+    payload = review.model_dump(mode="json")
+
+    if args.artifact_out is not None:
+        payload["readiness_artifact_path"] = str(args.artifact_out)
+        payload["evidence_package"]["artifact_path"] = str(args.artifact_out)
+    if args.evidence_package_out is not None:
+        payload["evidence_package"]["evidence_package_path"] = str(args.evidence_package_out)
+
+    if args.artifact_out is not None:
+        args.artifact_out.parent.mkdir(parents=True, exist_ok=True)
+        args.artifact_out.write_text(
+            json.dumps(payload["readiness_artifact"], sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    if args.evidence_package_out is not None:
+        args.evidence_package_out.parent.mkdir(parents=True, exist_ok=True)
+        args.evidence_package_out.write_text(
+            json.dumps(payload["evidence_package"], sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
     return payload
 
 
