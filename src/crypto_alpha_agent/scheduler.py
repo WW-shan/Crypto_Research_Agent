@@ -6,6 +6,8 @@ from typing import Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from crypto_alpha_agent.pipeline.evidence_reports import load_stopped_strategy_families
+
 
 class ScheduledCommand(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
@@ -28,6 +30,10 @@ class DailySchedulePlan(BaseModel):
     network_allowed: bool = False
     planned_commands: list[ScheduledCommand] = Field(default_factory=list)
     memory_path: str | None = None
+    strategy_families: list[str] = Field(default_factory=list)
+    skipped_strategy_families: list[str] = Field(default_factory=list)
+    decision_reason_codes: list[str] = Field(default_factory=list)
+    stopped_family_override_used: bool = False
 
 
 def build_daily_schedule_plan(
@@ -58,6 +64,7 @@ def build_daily_schedule_plan(
     subgraph_url: str | None = None,
     graph_query: str | None = None,
     graph_variables: Sequence[str] = (),
+    allow_stopped_family: bool = False,
 ) -> DailySchedulePlan:
     if not math.isfinite(current_capital_usd) or current_capital_usd <= 0:
         raise ValueError("current_capital_usd must be finite and positive")
@@ -76,6 +83,26 @@ def build_daily_schedule_plan(
     memory = str(memory_path) if memory_path is not None else str(Path(report_out).with_suffix(".memory.jsonl"))
     report = str(report_out)
     capital = str(current_capital_usd)
+    requested_families = _normalize_strategy_families(strategy_families)
+    stopped_families = set(load_stopped_strategy_families(memory))
+    skipped_families = (
+        []
+        if allow_stopped_family
+        else [family for family in requested_families if family in stopped_families]
+    )
+    active_families = (
+        requested_families
+        if allow_stopped_family
+        else [family for family in requested_families if family not in stopped_families]
+    )
+    stopped_family_override_used = allow_stopped_family and any(
+        family in stopped_families for family in requested_families
+    )
+    decision_reason_codes: list[str] = []
+    if skipped_families:
+        decision_reason_codes.append("stopped_family_skipped")
+    if stopped_family_override_used:
+        decision_reason_codes.append("stopped_family_override_used")
     ingest_argv = [
         "crypto-alpha-agent",
         "ingest",
@@ -99,6 +126,8 @@ def build_daily_schedule_plan(
     ]
     if allow_network:
         evidence_argv.append("--allow-network")
+    if allow_stopped_family:
+        evidence_argv.append("--allow-stopped-family")
     evidence_argv.extend(
         [
             "--ccxt-exchange",
@@ -113,7 +142,7 @@ def build_daily_schedule_plan(
             str(limit),
         ]
     )
-    for strategy_family in strategy_families:
+    for strategy_family in active_families:
         evidence_argv.extend(["--strategy-family", strategy_family])
     if run_id is not None:
         evidence_argv.extend(["--run-id", run_id])
@@ -141,8 +170,33 @@ def build_daily_schedule_plan(
     return DailySchedulePlan(
         network_allowed=allow_network,
         memory_path=memory,
+        strategy_families=active_families,
+        skipped_strategy_families=skipped_families,
+        decision_reason_codes=_dedupe(decision_reason_codes),
+        stopped_family_override_used=stopped_family_override_used,
         planned_commands=planned_commands,
     )
+
+
+def _normalize_strategy_families(strategy_families: Sequence[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for family in strategy_families:
+        stripped = family.strip()
+        if stripped and stripped not in seen:
+            normalized.append(stripped)
+            seen.add(stripped)
+    return normalized
+
+
+def _dedupe(values: Sequence[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value and value not in seen:
+            deduped.append(value)
+            seen.add(value)
+    return deduped
 
 
 def _optional_evidence_source_args(

@@ -19,6 +19,7 @@ from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
 from crypto_alpha_agent.evidence.models import PaperSimulationOutcome, ValidationEvidence
 from crypto_alpha_agent.evidence.paper import PaperEvidencePackage, aggregate_paper_evidence
 from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
+from crypto_alpha_agent.pipeline.evidence_reports import load_stopped_strategy_families
 from crypto_alpha_agent.strategy import StrategyValidationRequest, default_strategy_registry
 from crypto_alpha_agent.strategy.models import StrategyValidationReport
 from crypto_alpha_agent.validation.market_history import CandleBar
@@ -69,6 +70,7 @@ class ResearchLoopReport(BaseModel):
     anomalies: list[RankedAnomaly]
     hypotheses: list[AlphaHypothesis]
     notes: list[str]
+    decision_reason_codes: list[str] = Field(default_factory=list)
     validation_summaries: list[ValidationSummary] = Field(default_factory=list)
     paper_evidence_packages: list[PaperEvidencePackage] = Field(default_factory=list)
     data_quality_reports: list[DataQualityReport] = Field(default_factory=list)
@@ -94,6 +96,8 @@ def run_stored_research_loop(
     min_trades: int = 3,
     include_paper_evidence: bool = False,
     data_quality_now: datetime | None = None,
+    memory_path: str | Path | None = None,
+    allow_stopped_family: bool = False,
 ) -> ResearchLoopReport:
     store = ResearchDataStore(db_path)
     records = store.load_records(record_type=record_type, source=source)
@@ -105,8 +109,30 @@ def run_stored_research_loop(
     hypotheses = HypothesisGenerator().generate(anomalies)
     notes = _notes(records, signals)
     resolved_run_id = run_id or "stored-research-loop"
+    decision_reason_codes: list[str] = []
+    stopped_families = set(load_stopped_strategy_families(memory_path))
+    normalized_strategy_family = _nonblank_or_none(strategy_family)
+    stopped_family_requested = (
+        include_validation
+        and normalized_strategy_family is not None
+        and normalized_strategy_family in stopped_families
+    )
+    if stopped_family_requested and allow_stopped_family:
+        decision_reason_codes.append("stopped_family_override_used")
+    elif stopped_family_requested:
+        decision_reason_codes.append("stopped_family_blocked")
     validation_summaries = (
-        _validation_summaries(
+        [
+            _blocked_strategy_validation_summary(
+                strategy_family=normalized_strategy_family or strategy_family or "unknown",
+                asset=price_symbol,
+                funding_symbol=funding_symbol,
+                timeframe=validation_timeframe,
+                blocked_reasons=["stopped_family_blocked"],
+            )
+        ]
+        if stopped_family_requested and not allow_stopped_family
+        else _validation_summaries(
             records,
             db_path=db_path,
             current_capital_usd=current_capital_usd,
@@ -123,6 +149,7 @@ def run_stored_research_loop(
         if include_validation
         else []
     )
+    notes.extend(decision_reason_codes)
     if include_validation:
         validation_evidence = [
             _validation_evidence_from_summary(summary, run_id=resolved_run_id)
@@ -155,6 +182,7 @@ def run_stored_research_loop(
         anomalies=anomalies,
         hypotheses=hypotheses,
         notes=notes,
+        decision_reason_codes=_dedupe(decision_reason_codes),
         validation_summaries=validation_summaries,
         paper_evidence_packages=(
             _paper_evidence_packages(db_path) if include_paper_evidence else []
@@ -449,3 +477,13 @@ def _blocked_strategy_validation_summary(
         validator_name="strategy_registry",
         blocked_reasons=blocked_reasons,
     )
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value and value not in seen:
+            deduped.append(value)
+            seen.add(value)
+    return deduped

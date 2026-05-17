@@ -194,6 +194,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Optional JSONL memory path for research-loop feedback records.",
     )
+    research_loop_parser.add_argument(
+        "--allow-stopped-family",
+        action="store_true",
+        help="Explicitly allow validation for a stopped strategy family.",
+    )
     research_loop_parser.set_defaults(handler=_handle_research_loop, parser=research_loop_parser)
 
     paper_sim_loop_parser = subparsers.add_parser(
@@ -345,6 +350,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         help="Strategy family to validate and paper-simulate. Repeat to run multiple families.",
+    )
+    evidence_run_parser.add_argument(
+        "--allow-stopped-family",
+        action="store_true",
+        help="Explicitly allow validation and paper simulation for stopped strategy families.",
     )
     evidence_run_parser.add_argument("--run-id", help="Optional evidence run identifier.")
     evidence_run_parser.add_argument(
@@ -527,6 +537,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         help="Strategy family to validate and paper-simulate. Repeat to run multiple families.",
+    )
+    schedule_parser.add_argument(
+        "--allow-stopped-family",
+        action="store_true",
+        help="Explicitly plan stopped strategy families for evidence-run.",
     )
     schedule_parser.add_argument(
         "--include-defillama",
@@ -801,6 +816,8 @@ def _handle_research_loop(args: argparse.Namespace) -> dict[str, Any]:
         slippage_rate=args.slippage_rate,
         min_trades=args.min_trades,
         include_paper_evidence=args.include_paper_evidence,
+        memory_path=args.memory,
+        allow_stopped_family=args.allow_stopped_family,
     )
     memory_records = []
     validation_memory_records = []
@@ -823,6 +840,7 @@ def _handle_research_loop(args: argparse.Namespace) -> dict[str, Any]:
         "uses_real_capital": False,
         "live_order_routing": False,
         "report": report.model_dump(mode="json"),
+        "stopped_family_override_used": "stopped_family_override_used" in report.decision_reason_codes,
     }
     if args.memory is not None:
         payload["memory_records_written"] = len(memory_records)
@@ -1089,6 +1107,7 @@ def _handle_evidence_run(args: argparse.Namespace) -> dict[str, Any]:
             subgraph_url=args.subgraph_url,
             graph_query=args.graph_query,
             graph_variables=_key_value_pairs_to_dict(args.graph_variable) if args.graph_variable else None,
+            allow_stopped_family=args.allow_stopped_family,
         )
     except ValueError as exc:
         args.parser.error(str(exc))
@@ -1113,6 +1132,7 @@ def _handle_evidence_run(args: argparse.Namespace) -> dict[str, Any]:
         "daily_report_out": str(args.report_out),
         "steps": [step.model_dump(mode="json") for step in report.steps],
         "report": report.model_dump(mode="json"),
+        "stopped_family_override_used": report.stopped_family_override_used,
     }
     if args.weekly_report_out is not None:
         weekly_evidence_report = build_weekly_evidence_report(
@@ -1400,6 +1420,7 @@ def _handle_schedule(args: argparse.Namespace) -> dict[str, Any]:
             subgraph_url=args.subgraph_url,
             graph_query=args.graph_query,
             graph_variables=[f"{key}={value}" for key, value in args.graph_variable],
+            allow_stopped_family=args.allow_stopped_family,
         )
     except ValueError as exc:
         args.parser.error(str(exc))

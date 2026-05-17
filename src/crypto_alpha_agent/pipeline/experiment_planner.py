@@ -74,6 +74,7 @@ class ExperimentPlannerInput(_PlannerModel):
     max_proposals: int = Field(default=3, ge=1)
     current_capital_usd: float = Field(ge=0)
     offline_only: bool = True
+    allow_stopped_family: bool = False
 
 
 class ExperimentPlannerMemoryContext(_PlannerModel):
@@ -101,9 +102,11 @@ class ExperimentPlannerResult(_PlannerModel):
     accepted: bool
     proposals: list[ExperimentProposal]
     degraded_strategy_families: list[str]
+    decision_reason_codes: list[str] = Field(default_factory=list)
     rejected_reason_codes: list[str]
     validation_evidence_count: int = 0
     paper_evidence_count: int = 0
+    stopped_family_override_used: bool = False
     uses_real_capital: Literal[False] = False
     live_order_routing: Literal[False] = False
 
@@ -117,6 +120,7 @@ def plan_next_experiments(
     current_capital_usd: float = 300.0,
     llm: PlannerLLM | None = None,
     offline_only: bool = True,
+    allow_stopped_family: bool = False,
 ) -> ExperimentPlannerResult:
     planner_input = ExperimentPlannerInput(
         db_path=str(db_path),
@@ -125,13 +129,22 @@ def plan_next_experiments(
         max_proposals=max_proposals,
         current_capital_usd=float(current_capital_usd),
         offline_only=offline_only,
+        allow_stopped_family=allow_stopped_family,
     )
     batch_id = _batch_id(planner_input)
     validation_evidence = ValidationEvidenceLedger(db_path).load_evidence(strategy_family=strategy_family)
     paper_outcomes = PaperOutcomeLedger(db_path).load_outcomes(strategy_family=strategy_family)
     paper_evidence = aggregate_paper_evidence(_paper_mapping(outcome) for outcome in paper_outcomes)
     memory_records = MemoryStore(memory_path).list_records()
-    degraded_families = _degraded_strategy_families(memory_records)
+    stopped_families = _load_stopped_strategy_families(memory_path)
+    degraded_families = _safe_degraded_families(
+        _dedupe(
+            [
+                *_degraded_strategy_families(memory_records),
+                *stopped_families,
+            ]
+        )
+    )
     blocked_parameter_sets = _blocked_parameter_sets(memory_records)
 
     if llm is not None:
@@ -162,6 +175,17 @@ def plan_next_experiments(
             rejected_reason_codes=[] if accepted else ["no_safe_registered_proposals"],
             validation_evidence_count=len(validation_evidence),
             paper_evidence_count=len(paper_evidence),
+        )
+
+    stopped_family_override_used = _stopped_family_override_used(
+        planner_input=planner_input,
+        degraded_families=degraded_families,
+        proposals=result.proposals,
+    )
+    result.stopped_family_override_used = stopped_family_override_used
+    if stopped_family_override_used:
+        result.decision_reason_codes = _dedupe(
+            [*result.decision_reason_codes, "stopped_family_override_used"]
         )
 
     should_persist_deterministic_result = bool(result.proposals) and not _is_no_evidence_deterministic_fallback(
@@ -462,7 +486,9 @@ def _candidate_families(
     families = [planner_input.strategy_family] if planner_input.strategy_family else list(registry.list_families())
     registered: list[str] = []
     for family in families:
-        if family is None or family in degraded_families:
+        if family is None:
+            continue
+        if family in degraded_families and not planner_input.allow_stopped_family:
             continue
         try:
             spec = registry.get(family)
@@ -692,6 +718,33 @@ def _safe_degraded_families(families: Iterable[str]) -> list[str]:
     return [family for family in families if family in registered_families]
 
 
+def _load_stopped_strategy_families(memory_path: str | Path) -> list[str]:
+    from crypto_alpha_agent.pipeline.evidence_reports import load_stopped_strategy_families
+
+    return load_stopped_strategy_families(memory_path)
+
+
+def _stopped_family_override_used(
+    *,
+    planner_input: ExperimentPlannerInput,
+    degraded_families: list[str],
+    proposals: list[ExperimentProposal],
+) -> bool:
+    if not planner_input.allow_stopped_family or not degraded_families:
+        return False
+    proposed_stopped = {
+        proposal.strategy_family
+        for proposal in proposals
+        if proposal.strategy_family in degraded_families
+    }
+    if proposed_stopped:
+        return True
+    return (
+        planner_input.strategy_family is not None
+        and planner_input.strategy_family in degraded_families
+    )
+
+
 def _batch_id(planner_input: ExperimentPlannerInput) -> str:
     payload = planner_input.model_dump(mode="json")
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()[:12]
@@ -751,3 +804,13 @@ def _json_safe(value: Any) -> None:
             _json_safe(item)
         return
     raise ValueError("parameters must be JSON safe")
+
+
+def _dedupe(values: Iterable[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value and value not in seen:
+            deduped.append(value)
+            seen.add(value)
+    return deduped

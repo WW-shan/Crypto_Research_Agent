@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import json
 
+from crypto_alpha_agent.cli import build_parser, main
+from crypto_alpha_agent.data.models import FundingRateRecord, MarketCandle
+from crypto_alpha_agent.data.store import ResearchDataStore
+from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
 from crypto_alpha_agent.evidence.models import PaperSimulationOutcome, ValidationEvidence
+from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
 from crypto_alpha_agent.memory.store import MemoryStore
 from crypto_alpha_agent.pipeline import evidence_reports
+from crypto_alpha_agent.pipeline.evidence_runner import run_daily_evidence_pipeline
 from crypto_alpha_agent.pipeline.experiment_planner import plan_next_experiments
+from crypto_alpha_agent.pipeline.research_loop import run_stored_research_loop
+from crypto_alpha_agent.scheduler import build_daily_schedule_plan
 
 
 STRATEGY_FAMILY = "funding_extremity_price_confirmation"
@@ -177,6 +186,254 @@ def test_mark_family_degraded_persists_memory_record_planner_can_read(tmp_path):
     assert stopped == [STRATEGY_FAMILY]
     assert planner_result.proposals == []
     assert planner_result.degraded_strategy_families == [STRATEGY_FAMILY]
+
+
+def test_planner_excludes_stopped_family_from_memory_by_default(tmp_path):
+    memory_path = tmp_path / "memory.jsonl"
+    evidence_reports.mark_family_degraded(
+        STRATEGY_FAMILY,
+        ["degraded_expectancy"],
+        memory_path=memory_path,
+    )
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=memory_path,
+        strategy_family=STRATEGY_FAMILY,
+        max_proposals=1,
+    )
+
+    assert evidence_reports.load_stopped_strategy_families(memory_path) == [STRATEGY_FAMILY]
+    assert result.proposals == []
+    assert result.degraded_strategy_families == [STRATEGY_FAMILY]
+    assert result.stopped_family_override_used is False
+
+
+def test_planner_allow_stopped_family_returns_override_metadata(tmp_path):
+    memory_path = tmp_path / "memory.jsonl"
+    evidence_reports.mark_family_degraded(
+        STRATEGY_FAMILY,
+        ["degraded_expectancy"],
+        memory_path=memory_path,
+    )
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=memory_path,
+        strategy_family=STRATEGY_FAMILY,
+        max_proposals=1,
+        allow_stopped_family=True,
+    )
+
+    assert [proposal.strategy_family for proposal in result.proposals] == [STRATEGY_FAMILY]
+    assert result.degraded_strategy_families == [STRATEGY_FAMILY]
+    assert result.stopped_family_override_used is True
+    assert "stopped_family_override_used" in result.decision_reason_codes
+
+
+def test_daily_evidence_pipeline_skips_stopped_family_validation_and_paper_by_default(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "memory.jsonl"
+    evidence_reports.mark_family_degraded(
+        STRATEGY_FAMILY,
+        ["degraded_expectancy"],
+        memory_path=memory_path,
+    )
+
+    report = run_daily_evidence_pipeline(
+        db_path=db_path,
+        memory_path=memory_path,
+        report_out=tmp_path / "daily.md",
+        allow_network=True,
+        symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        run_id="stopped-family-run",
+        strategy_families=[STRATEGY_FAMILY],
+        ccxt_collector=_DeterministicCcxtCollector(),
+    )
+
+    assert "stopped_family_skipped" in report.decision_reason_codes
+    assert report.validation_evidence_written == 0
+    assert report.paper_outcomes_written == 0
+    assert ValidationEvidenceLedger(db_path).load_evidence(strategy_family=STRATEGY_FAMILY) == []
+    assert PaperOutcomeLedger(db_path).load_outcomes(strategy_family=STRATEGY_FAMILY) == []
+
+
+def test_research_loop_blocks_stopped_family_validation_by_default(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "memory.jsonl"
+    ResearchDataStore(db_path)
+    evidence_reports.mark_family_degraded(
+        STRATEGY_FAMILY,
+        ["degraded_expectancy"],
+        memory_path=memory_path,
+    )
+
+    report = run_stored_research_loop(
+        db_path,
+        include_validation=True,
+        strategy_family=STRATEGY_FAMILY,
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        validation_timeframe="1h",
+        memory_path=memory_path,
+    )
+
+    assert report.validation_summaries[0].status == "blocked"
+    assert report.validation_summaries[0].blocked_reasons == ["stopped_family_blocked"]
+    assert "stopped_family_blocked" in report.decision_reason_codes
+
+
+def test_daily_schedule_plan_skips_stopped_family_unless_override_requested(tmp_path):
+    memory_path = tmp_path / "memory.jsonl"
+    evidence_reports.mark_family_degraded(
+        STRATEGY_FAMILY,
+        ["degraded_expectancy"],
+        memory_path=memory_path,
+    )
+
+    plan = build_daily_schedule_plan(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=memory_path,
+        report_out=tmp_path / "daily.md",
+        symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        strategy_families=[STRATEGY_FAMILY],
+    )
+    evidence_argv = plan.planned_commands[-1].argv
+
+    assert plan.skipped_strategy_families == [STRATEGY_FAMILY]
+    assert "stopped_family_skipped" in plan.decision_reason_codes
+    assert "--strategy-family" not in evidence_argv
+    assert "--allow-stopped-family" not in evidence_argv
+
+    override_plan = build_daily_schedule_plan(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=memory_path,
+        report_out=tmp_path / "daily.md",
+        symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        strategy_families=[STRATEGY_FAMILY],
+        allow_stopped_family=True,
+    )
+    override_argv = override_plan.planned_commands[-1].argv
+
+    assert override_plan.skipped_strategy_families == []
+    assert override_plan.stopped_family_override_used is True
+    assert override_argv[override_argv.index("--strategy-family") + 1] == STRATEGY_FAMILY
+    assert "--allow-stopped-family" in override_argv
+
+
+def test_cli_allow_stopped_family_flags_and_research_loop_json(tmp_path, capsys):
+    parser = build_parser()
+    for command, extra in (
+        (
+            "evidence-run",
+            [
+                "--report-out",
+                str(tmp_path / "daily.md"),
+                "--symbol",
+                "BTC/USDT",
+                "--funding-symbol",
+                "BTC/USDT:USDT",
+                "--timeframe",
+                "1h",
+            ],
+        ),
+        ("research-loop", []),
+        (
+            "schedule",
+            [
+                "--dry-run",
+                "--report-out",
+                str(tmp_path / "schedule.md"),
+                "--symbol",
+                "BTC/USDT",
+                "--funding-symbol",
+                "BTC/USDT:USDT",
+            ],
+        ),
+    ):
+        args = parser.parse_args(
+            [
+                command,
+                "--db",
+                str(tmp_path / f"{command}.sqlite"),
+                "--memory",
+                str(tmp_path / f"{command}.jsonl"),
+                *extra,
+                "--allow-stopped-family",
+            ]
+        )
+        assert args.allow_stopped_family is True
+
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "memory.jsonl"
+    ResearchDataStore(db_path)
+    evidence_reports.mark_family_degraded(
+        STRATEGY_FAMILY,
+        ["degraded_expectancy"],
+        memory_path=memory_path,
+    )
+
+    exit_code = main(
+        [
+            "research-loop",
+            "--db",
+            str(db_path),
+            "--memory",
+            str(memory_path),
+            "--include-validation",
+            "--strategy-family",
+            STRATEGY_FAMILY,
+            "--price-symbol",
+            "BTC/USDT",
+            "--funding-symbol",
+            "BTC/USDT:USDT",
+            "--validation-timeframe",
+            "1h",
+            "--allow-stopped-family",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["stopped_family_override_used"] is True
+    assert payload["report"]["decision_reason_codes"] == ["stopped_family_override_used"]
+
+
+class _DeterministicCcxtCollector:
+    def fetch_ohlcv(self, symbol, timeframe, since=None, limit=None, params=None):
+        start = datetime(2026, 5, 17, tzinfo=UTC)
+        return [
+            MarketCandle(
+                source="ccxt",
+                venue="binance",
+                symbol=symbol,
+                timestamp=start + timedelta(hours=index),
+                timeframe=timeframe,
+                open=100.0,
+                high=101.0,
+                low=99.0,
+                close=100.0 + (index % 5),
+                volume=1000.0,
+            )
+            for index in range(24)
+        ]
+
+    def fetch_funding_rate_history(self, symbol, since=None, limit=None, params=None):
+        start = datetime(2026, 5, 17, tzinfo=UTC)
+        return [
+            FundingRateRecord(
+                source="ccxt",
+                venue="binance",
+                symbol=symbol,
+                timestamp=start + timedelta(hours=hour),
+                funding_rate=0.0008,
+            )
+            for hour in (8, 16)
+        ]
 
 
 def _paper_outcome(

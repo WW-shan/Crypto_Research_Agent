@@ -20,6 +20,7 @@ from crypto_alpha_agent.data.onchain_ingestion import (
 )
 from crypto_alpha_agent.evidence.models import PaperSimulationOutcome
 from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
+from crypto_alpha_agent.pipeline.evidence_reports import load_stopped_strategy_families
 from crypto_alpha_agent.pipeline.markdown import render_research_loop_markdown
 from crypto_alpha_agent.pipeline.memory import (
     replace_paper_outcome_memory,
@@ -82,6 +83,7 @@ class EvidenceRunnerReport(BaseModel):
     db_path: str
     memory_path: str
     strategy_families: list[str]
+    skipped_strategy_families: list[str] = Field(default_factory=list)
     steps: list[EvidenceRunnerStep]
     records_written: int = Field(ge=0)
     validation_evidence_written: int = Field(ge=0)
@@ -91,6 +93,7 @@ class EvidenceRunnerReport(BaseModel):
     research_milestone: ResearchMilestone
     source_health: SourceHealthReport
     decision_reason_codes: list[str]
+    stopped_family_override_used: bool = False
     uses_real_capital: Literal[False] = False
     live_order_routing: Literal[False] = False
 
@@ -130,6 +133,7 @@ def run_daily_evidence_pipeline(
     subgraph_url: str | None = None,
     graph_query: str | None = None,
     graph_variables: dict[str, Any] | None = None,
+    allow_stopped_family: bool = False,
 ) -> EvidenceRunnerReport:
     started_at = datetime.now(tz=UTC)
     resolved_run_id = run_id or f"daily-evidence-{started_at.strftime('%Y%m%dT%H%M%SZ')}"
@@ -137,6 +141,20 @@ def run_daily_evidence_pipeline(
     db = Path(db_path)
     memory = Path(memory_path)
     artifact = Path(report_out)
+    stopped_family_set = set(load_stopped_strategy_families(memory))
+    skipped_family_list = (
+        []
+        if allow_stopped_family
+        else [family for family in family_list if family in stopped_family_set]
+    )
+    active_family_list = (
+        family_list
+        if allow_stopped_family
+        else [family for family in family_list if family not in stopped_family_set]
+    )
+    stopped_family_override_used = allow_stopped_family and any(
+        family in stopped_family_set for family in family_list
+    )
 
     if not allow_network:
         return _blocked_network_report(
@@ -146,11 +164,25 @@ def run_daily_evidence_pipeline(
             started_at=started_at,
             run_id=resolved_run_id,
             strategy_families=family_list,
+            skipped_strategy_families=skipped_family_list,
+            stopped_family_override_used=stopped_family_override_used,
         )
 
     steps: list[EvidenceRunnerStep] = []
     source_health: list[SourceHealthSummary] = []
     decision_reason_codes: list[str] = []
+    if skipped_family_list:
+        decision_reason_codes.append("stopped_family_skipped")
+        steps.append(
+            EvidenceRunnerStep(
+                name="stopped_strategy_family",
+                status="skipped",
+                records_written=len(skipped_family_list),
+                reason_code="stopped_family_skipped",
+            )
+        )
+    if stopped_family_override_used:
+        decision_reason_codes.append("stopped_family_override_used")
     records_written = 0
 
     collector = ccxt_collector or build_ccxt_collector(ccxt_exchange)
@@ -219,6 +251,7 @@ def run_daily_evidence_pipeline(
             db_path=db,
             memory_path=memory,
             strategy_families=family_list,
+            skipped_strategy_families=skipped_family_list,
             steps=steps,
             records_written=records_written,
             validation_evidence_written=0,
@@ -228,6 +261,7 @@ def run_daily_evidence_pipeline(
             research_milestone=_empty_research_milestone(),
             source_health=source_health,
             decision_reason_codes=decision_reason_codes,
+            stopped_family_override_used=stopped_family_override_used,
         )
 
     optional_records = _run_optional_sources(
@@ -258,6 +292,8 @@ def run_daily_evidence_pipeline(
         db,
         current_capital_usd=current_capital_usd,
         run_id=resolved_run_id,
+        memory_path=memory,
+        allow_stopped_family=allow_stopped_family,
     )
     steps.append(EvidenceRunnerStep(name="research_loop", status="completed"))
 
@@ -268,7 +304,7 @@ def run_daily_evidence_pipeline(
     paper_outcomes: list[PaperSimulationOutcome] = []
     registry = default_strategy_registry(current_capital_usd=current_capital_usd)
 
-    for family in family_list:
+    for family in active_family_list:
         family_run_id = _family_run_id(resolved_run_id, family, family_list)
         validation_kwargs = _validation_parameter_kwargs(
             registry=registry,
@@ -283,8 +319,11 @@ def run_daily_evidence_pipeline(
             run_id=family_run_id,
             include_validation=True,
             strategy_family=family,
+            memory_path=memory,
+            allow_stopped_family=allow_stopped_family,
             **validation_kwargs,
         )
+        decision_reason_codes.extend(validation_report.decision_reason_codes)
         validation_summaries.extend(validation_report.validation_summaries)
         evidence_items = ValidationEvidenceLedger(db).load_evidence(run_id=family_run_id)
         validation_evidence_written += len(evidence_items)
@@ -331,7 +370,7 @@ def run_daily_evidence_pipeline(
             records_written=len(paper_outcomes),
         )
     )
-    paper_run_ids = [_family_run_id(resolved_run_id, family, family_list) for family in family_list]
+    paper_run_ids = [_family_run_id(resolved_run_id, family, family_list) for family in active_family_list]
     paper_memory_records = replace_paper_outcome_memory(
         paper_outcomes,
         memory,
@@ -369,6 +408,7 @@ def run_daily_evidence_pipeline(
         db_path=db,
         memory_path=memory,
         strategy_families=family_list,
+        skipped_strategy_families=skipped_family_list,
         steps=steps,
         records_written=records_written,
         validation_evidence_written=validation_evidence_written,
@@ -382,6 +422,7 @@ def run_daily_evidence_pipeline(
         research_milestone=milestone,
         source_health=source_health,
         decision_reason_codes=_dedupe(decision_reason_codes),
+        stopped_family_override_used=stopped_family_override_used,
     )
 
 
@@ -603,13 +644,21 @@ def _blocked_network_report(
     started_at: datetime,
     run_id: str,
     strategy_families: list[str],
+    skipped_strategy_families: list[str],
+    stopped_family_override_used: bool,
 ) -> EvidenceRunnerReport:
+    decision_reason_codes = ["network_not_allowed"]
+    if skipped_strategy_families:
+        decision_reason_codes.append("stopped_family_skipped")
+    if stopped_family_override_used:
+        decision_reason_codes.append("stopped_family_override_used")
     return _report(
         run_id=run_id,
         started_at=started_at,
         db_path=db_path,
         memory_path=memory_path,
         strategy_families=strategy_families,
+        skipped_strategy_families=skipped_strategy_families,
         steps=[
             EvidenceRunnerStep(
                 name="network_gate",
@@ -635,7 +684,8 @@ def _blocked_network_report(
             _not_configured("dune", "dune_query_result"),
             _not_configured("thegraph", "thegraph_query_result"),
         ],
-        decision_reason_codes=["network_not_allowed"],
+        decision_reason_codes=decision_reason_codes,
+        stopped_family_override_used=stopped_family_override_used,
     )
 
 
@@ -646,6 +696,7 @@ def _report(
     db_path: Path,
     memory_path: Path,
     strategy_families: list[str],
+    skipped_strategy_families: list[str] | None = None,
     steps: list[EvidenceRunnerStep],
     records_written: int,
     validation_evidence_written: int,
@@ -655,6 +706,7 @@ def _report(
     research_milestone: ResearchMilestone,
     source_health: list[SourceHealthSummary],
     decision_reason_codes: list[str],
+    stopped_family_override_used: bool = False,
 ) -> EvidenceRunnerReport:
     return EvidenceRunnerReport(
         run_id=run_id,
@@ -662,6 +714,7 @@ def _report(
         db_path=str(db_path),
         memory_path=str(memory_path),
         strategy_families=strategy_families,
+        skipped_strategy_families=skipped_strategy_families or [],
         steps=steps,
         records_written=records_written,
         validation_evidence_written=validation_evidence_written,
@@ -671,6 +724,7 @@ def _report(
         research_milestone=research_milestone,
         source_health=_source_health_report(source_health),
         decision_reason_codes=_dedupe(decision_reason_codes),
+        stopped_family_override_used=stopped_family_override_used,
     )
 
 
