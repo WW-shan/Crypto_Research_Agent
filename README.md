@@ -65,7 +65,7 @@ uv run --extra dev crypto-alpha-agent evidence-run \
 ```
 
 Use explicit date or run-id naming in artifact paths when a run must be
-preserved for replay or rollout review.
+preserved for recovery or rollout review.
 
 ## Low-Capital Real Data Ingestion
 
@@ -265,15 +265,19 @@ uv run --extra dev crypto-alpha-agent rollout-review \
 
 ## Replay And Recovery
 
-For observability event artifacts, use replay to recover counts or regenerate a
-daily report after an interrupted run:
+For existing observability event artifacts, use replay to recover counts or
+regenerate a daily observability report after an interrupted run. `evidence-run`
+writes stdout JSON and Markdown/JSON evidence artifacts; it does not create this
+observability JSONL unless an operator wrapper or older observability pipeline
+explicitly writes one.
 
 ```bash
 uv run --extra dev crypto-alpha-agent replay \
-  --events var/events/evidence-run.jsonl \
+  --events var/events/research-observability.jsonl \
   --date 2026-05-18
 ```
 
-Preserve the original event JSONL, daily Markdown/JSON output, memory JSONL,
-SQLite database, and rollout artifacts before manual cleanup so the evidence
-package preservation trail remains auditable for tiny-live review.
+If no observability JSONL exists, recover from the `evidence-run` stdout JSON,
+daily Markdown/JSON output, weekly report, memory JSONL, SQLite database, and
+rollout artifacts instead. Preserve originals before manual cleanup so the
+evidence package preservation trail remains auditable for tiny-live review.

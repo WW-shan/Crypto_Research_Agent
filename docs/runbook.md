@@ -5,6 +5,7 @@ real data ingestion, validation, paper simulation, memory feedback, evidence
 reporting, experiment planning, and rollout review. It uses ordinary public APIs
 and a few hundred USD capital profile only for constraints. It uses no wallet
 keys, no live order routing, and no live execution.
+No wallet keys are required or read by the current workflow.
 
 `evidence-run` is a one-shot command. External operator-controlled scheduling
 may call it without making the agent an always-on daemon.
@@ -266,23 +267,27 @@ What to inspect:
 
 ## Replay/Recovery Workflow
 
-Use replay/recovery after an interrupted run, partial write, or suspicious
-report:
+Use replay/recovery only when an observability JSONL artifact already exists,
+for example from `EventLogger` or an operator wrapper that deliberately writes
+observability events. `evidence-run` itself writes stdout JSON plus daily and
+weekly evidence artifacts; it does not automatically create
+`var/events/research-observability.jsonl`.
 
 ```bash
 uv run --extra dev crypto-alpha-agent replay \
-  --events var/events/evidence-run.jsonl
+  --events var/events/research-observability.jsonl
 
 uv run --extra dev crypto-alpha-agent replay \
-  --events var/events/evidence-run.jsonl \
+  --events var/events/research-observability.jsonl \
   --date 2026-05-18
 ```
 
 Replay validates the event artifact, counts skipped malformed lines, and can
 regenerate a daily observability report by UTC date. Preserve the original
-event JSONL before manual cleanup. For evidence artifacts, preserve the matching
-daily report, weekly report, memory file, SQLite database snapshot, paper report
-JSON, rollout readiness artifact, and evidence package.
+event JSONL before manual cleanup. If no observability JSONL exists, recover
+from the command stdout JSON, daily report, weekly report, memory file, SQLite
+database snapshot, paper report JSON, rollout readiness artifact, and evidence
+package.
 
 ## Failure Reasons And Meanings
 
@@ -352,7 +357,7 @@ Recommended wrapper shape:
 #!/usr/bin/env bash
 set -u
 
-repo="/Users/ww/Project/Crypto_Research_Agent"
+repo="${CRYPTO_ALPHA_AGENT_REPO:-/path/to/Crypto_Research_Agent}"
 run_date="$(date -u +%F)"
 week="$(date -u +%G-W%V)"
 lock="$repo/var/locks/evidence-run.lock"

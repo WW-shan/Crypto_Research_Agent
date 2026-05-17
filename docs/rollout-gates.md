@@ -5,6 +5,8 @@ only after deterministic, local evaluation of paper results and walk-forward
 evidence. The `rollout-review` CLI produces an eligibility decision, a tiny-live
 readiness artifact, and a strategy-specific evidence package for audit. It does
 not place orders, call exchanges, open wallets, or bypass the risk guardian.
+There is no live execution in this rollout review path.
+The rollout review path does not place orders.
 
 ## Default Policy
 
