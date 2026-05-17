@@ -50,6 +50,8 @@ def test_dexscreener_pair_normalizes_liquidity_and_volume():
     assert pairs[0].chain == "base"
     assert pairs[0].liquidity_usd == 120000
     assert pairs[0].suitability.latency_dependency == "medium"
+    assert pairs[0].suitability.execution_role == "research_only"
+    assert pairs[0].suitability.unsuitable_reasons == []
 
 
 def test_dexscreener_low_liquidity_pair_is_research_only():

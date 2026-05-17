@@ -21,6 +21,17 @@ from crypto_alpha_agent.strategy.defi_yield_regime import (
     STRATEGY_FAMILY as DEFI_YIELD_REGIME_STRATEGY_FAMILY,
     validate_defi_yield_regime,
 )
+from crypto_alpha_agent.strategy.dex_liquidity_watchlist import (
+    DEFAULT_MAX_AGE_HOURS as DEX_DEFAULT_MAX_AGE_HOURS,
+    DEFAULT_MIN_LIQUIDITY_CHANGE_PCT,
+    DEFAULT_MIN_LIQUIDITY_USD,
+    DEFAULT_MIN_OBSERVATIONS as DEX_DEFAULT_MIN_OBSERVATIONS,
+    DEFAULT_MIN_VOLUME_24H_USD,
+    DEFAULT_MIN_VOLUME_CHANGE_PCT,
+    DEFAULT_SUPPORTED_CHAINS as DEX_DEFAULT_SUPPORTED_CHAINS,
+    STRATEGY_FAMILY as DEX_LIQUIDITY_WATCHLIST_STRATEGY_FAMILY,
+    validate_dex_liquidity_watchlist,
+)
 from crypto_alpha_agent.strategy.funding_mean_reversion import (
     STRATEGY_FAMILY as FUNDING_MEAN_REVERSION_STRATEGY_FAMILY,
     validate_funding_mean_reversion_from_records,
@@ -208,6 +219,20 @@ def default_strategy_registry(*, current_capital_usd: float = 300.0) -> Strategy
         configured_capital_usd=current_capital_usd,
     )
     registry.register(defi_yield_regime_spec, _defi_yield_regime_validator)
+    dex_liquidity_watchlist_spec = StrategyFamilySpec(
+        strategy_family=DEX_LIQUIDITY_WATCHLIST_STRATEGY_FAMILY,
+        display_name="DEX Liquidity And Volume Regime Watchlist",
+        required_record_types=["dex_pair"],
+        required_symbols=["*dex_pair"],
+        execution_role="research_only",
+        supports_paper_simulation=False,
+        min_capital_usd=0.0,
+        max_notional_usd=0.0,
+        validator_name="dex_liquidity_watchlist",
+        blocked_reasons=[],
+        configured_capital_usd=current_capital_usd,
+    )
+    registry.register(dex_liquidity_watchlist_spec, _dex_liquidity_watchlist_validator)
     return registry
 
 
@@ -384,6 +409,68 @@ def _defi_yield_regime_validator(request: StrategyValidationRequest) -> Strategy
         )
 
 
+def _dex_liquidity_watchlist_validator(
+    request: StrategyValidationRequest,
+) -> StrategyValidationReport:
+    parameters = request.parameters
+    try:
+        return validate_dex_liquidity_watchlist(
+            request.records,
+            min_liquidity_usd=_strict_non_negative_float_parameter(
+                parameters,
+                "min_liquidity_usd",
+                DEFAULT_MIN_LIQUIDITY_USD,
+            ),
+            min_volume_24h_usd=_strict_non_negative_float_parameter(
+                parameters,
+                "min_volume_24h_usd",
+                DEFAULT_MIN_VOLUME_24H_USD,
+            ),
+            min_liquidity_change_pct=_strict_non_negative_float_parameter(
+                parameters,
+                "min_liquidity_change_pct",
+                DEFAULT_MIN_LIQUIDITY_CHANGE_PCT,
+            ),
+            min_volume_change_pct=_strict_non_negative_float_parameter(
+                parameters,
+                "min_volume_change_pct",
+                DEFAULT_MIN_VOLUME_CHANGE_PCT,
+            ),
+            min_observations=_strict_min_observations_parameter(
+                parameters,
+                "min_observations",
+                DEX_DEFAULT_MIN_OBSERVATIONS,
+            ),
+            supported_chains=_supported_chains_parameter(
+                parameters,
+                default=DEX_DEFAULT_SUPPORTED_CHAINS,
+            ),
+            now=_optional_datetime_parameter(parameters, "now"),
+            max_age_hours=_strict_positive_float_parameter(
+                parameters,
+                "max_age_hours",
+                DEX_DEFAULT_MAX_AGE_HOURS,
+            ),
+            require_research_only=_strict_bool_parameter(
+                parameters,
+                "require_research_only",
+                True,
+            ),
+        )
+    except (OverflowError, TypeError, ValueError) as exc:
+        return StrategyValidationReport(
+            strategy_family=request.strategy_family,
+            validator_name="dex_liquidity_watchlist",
+            approved=False,
+            blocked_reasons=["strategy_validation_error"],
+            metrics={
+                "execution_role": "research_only",
+                "paper_watchlist_only": True,
+                "validation_error": str(exc),
+            },
+        )
+
+
 def _funding_price_paper_runner(request: StrategyPaperRequest) -> StrategyPaperReport:
     validation = _funding_price_validator(_paper_validation_request(request))
     return _paper_report_from_validation(request, validation)
@@ -481,9 +568,13 @@ def _paper_trade_metrics(trade: FundingPriceTrade) -> dict[str, object]:
     }
 
 
-def _supported_chains_parameter(parameters: dict[str, object]) -> tuple[str, ...]:
+def _supported_chains_parameter(
+    parameters: dict[str, object],
+    *,
+    default: Sequence[str] = DEFAULT_SUPPORTED_CHAINS,
+) -> tuple[str, ...]:
     if "supported_chains" not in parameters:
-        return DEFAULT_SUPPORTED_CHAINS
+        return tuple(default)
 
     value = parameters["supported_chains"]
     if isinstance(value, str) or not isinstance(value, Sequence):
@@ -572,6 +663,17 @@ def _strict_integer(value: object, key: str) -> int:
             raise ValueError(f"{key} must be an integer")
         return int(stripped)
     raise ValueError(f"{key} must be an integer")
+
+
+def _strict_bool_parameter(
+    parameters: dict[str, object],
+    key: str,
+    default: bool,
+) -> bool:
+    value = parameters.get(key, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"{key} must be boolean")
+    return value
 
 
 def _optional_datetime_parameter(

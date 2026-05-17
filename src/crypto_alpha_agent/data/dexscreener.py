@@ -68,16 +68,14 @@ def _pair_to_snapshot(pair: dict[str, Any], observed_at: datetime) -> DexPairSna
 
 def _dex_suitability(liquidity_usd: float) -> DataSuitability:
     unsuitable_reasons = []
-    execution_role = "research_and_paper"
     if liquidity_usd < 10_000:
-        execution_role = "research_only"
         unsuitable_reasons.append("liquidity_too_low")
 
     return DataSuitability(
         min_capital_usd=25.0,
         latency_dependency="medium",
         rpc_dependency="none",
-        execution_role=execution_role,
+        execution_role="research_only",
         unsuitable_reasons=unsuitable_reasons,
     )
 
