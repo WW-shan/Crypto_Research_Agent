@@ -41,28 +41,55 @@ def persist_research_loop_memory(
 
 
 def persist_paper_outcome_memory(
+    outcomes: Iterable[PaperSimulationOutcome],
+    memory_path: str | Path,
+    *,
+    replace_run: bool = False,
+) -> list[MemoryRecord]:
+    outcome_list = list(outcomes)
+    if not outcome_list:
+        return []
+    if replace_run:
+        return replace_paper_outcome_memory(outcome_list, memory_path)
+
+    store = MemoryStore(memory_path)
+    stored_records: list[MemoryRecord] = []
+    for outcome in outcome_list:
+        stored_records.append(store.upsert(_paper_memory_record(outcome)))
+    return stored_records
+
+
+def replace_paper_outcome_memory(
     outcomes: Iterable[PaperSimulationOutcome], memory_path: str | Path
 ) -> list[MemoryRecord]:
     outcome_list = list(outcomes)
     if not outcome_list:
         return []
 
+    run_prefixes = tuple(
+        f"paper-outcome:{run_id}:"
+        for run_id in sorted({outcome.run_id for outcome in outcome_list})
+    )
+    records = [_paper_memory_record(outcome) for outcome in outcome_list]
     store = MemoryStore(memory_path)
-    stored_records: list[MemoryRecord] = []
-    for outcome in outcome_list:
-        record = MemoryRecord(
-            record_id=f"paper-outcome:{outcome.run_id}:{outcome.outcome_id}",
-            created_at=DETERMINISTIC_EVENT_TIME_ISO,
-            updated_at=DETERMINISTIC_EVENT_TIME_ISO,
-            opportunity=_paper_opportunity(outcome),
-            hypothesis=_paper_hypothesis(outcome),
-            score=_paper_score(outcome),
-            rejected_reasons=_paper_rejected_reasons(outcome),
-            paper_trade_outcome=outcome.model_dump(mode="json"),
-            tags=_paper_tags(outcome),
-        )
-        stored_records.append(store.upsert(record))
-    return stored_records
+    return store.replace_matching(
+        lambda record: record.record_id.startswith(run_prefixes),
+        records,
+    )
+
+
+def _paper_memory_record(outcome: PaperSimulationOutcome) -> MemoryRecord:
+    return MemoryRecord(
+        record_id=f"paper-outcome:{outcome.run_id}:{outcome.outcome_id}",
+        created_at=DETERMINISTIC_EVENT_TIME_ISO,
+        updated_at=DETERMINISTIC_EVENT_TIME_ISO,
+        opportunity=_paper_opportunity(outcome),
+        hypothesis=_paper_hypothesis(outcome),
+        score=_paper_score(outcome),
+        rejected_reasons=_paper_rejected_reasons(outcome),
+        paper_trade_outcome=outcome.model_dump(mode="json"),
+        tags=_paper_tags(outcome),
+    )
 
 
 def _record_id(

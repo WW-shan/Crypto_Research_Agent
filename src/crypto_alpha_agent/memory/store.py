@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable, Iterable
 from datetime import datetime, timezone
 import hashlib
 import math
@@ -187,6 +188,27 @@ class MemoryStore:
 
     def upsert(self, record: MemoryRecord) -> MemoryRecord:
         return self.append(record)
+
+    def replace_matching(
+        self,
+        should_replace: Callable[[MemoryRecord], bool],
+        records: Iterable[MemoryRecord],
+    ) -> list[MemoryRecord]:
+        stored_records = [self._prepare_record(record) for record in records]
+        records_to_keep = [record for record in self._records if not should_replace(record)]
+        indexes = {record.record_id: index for index, record in enumerate(records_to_keep)}
+
+        for record in stored_records:
+            if record.record_id in indexes:
+                records_to_keep[indexes[record.record_id]] = record
+                continue
+            indexes[record.record_id] = len(records_to_keep)
+            records_to_keep.append(record)
+
+        self._persist(records_to_keep)
+        self._records = records_to_keep
+        self._rebuild_index()
+        return stored_records
 
     def list_records(self) -> list[MemoryRecord]:
         return list(self._records)

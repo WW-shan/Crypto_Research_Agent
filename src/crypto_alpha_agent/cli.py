@@ -615,7 +615,11 @@ def _handle_paper_sim_loop(args: argparse.Namespace) -> dict[str, Any]:
 
     memory_records = []
     if args.memory is not None:
-        memory_records = persist_paper_outcome_memory(report.outcomes, args.memory)
+        memory_records = persist_paper_outcome_memory(
+            report.outcomes,
+            args.memory,
+            replace_run=True,
+        )
 
     payload = {
         "command": "paper-sim-loop",

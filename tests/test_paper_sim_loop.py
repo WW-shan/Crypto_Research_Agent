@@ -10,7 +10,7 @@ import pytest
 from crypto_alpha_agent.data.models import FundingRateRecord, MarketCandle, SourceRecord
 from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
-from crypto_alpha_agent.memory.store import MemoryStore
+from crypto_alpha_agent.memory.store import MemoryRecord, MemoryStore
 
 
 def _candle(hour: int, close: float) -> MarketCandle:
@@ -612,6 +612,108 @@ def test_cli_paper_sim_loop_memory_writes_records_and_outputs_metadata(tmp_path)
     assert len(records) == payload["memory_records_written"]
     assert {record.paper_trade_outcome["run_id"] for record in records} == {"cli-paper-memory"}
     assert all(record.opportunity["notional"] == 25.0 for record in records)
+
+
+def test_cli_paper_sim_loop_memory_replaces_same_run_records_when_rerun_blocks(tmp_path):
+    db_path = _write_happy_path_fixture(tmp_path)
+    memory_path = tmp_path / "paper-memory.jsonl"
+    MemoryStore(memory_path).upsert(
+        MemoryRecord(
+            record_id="research-loop:keep-me",
+            hypothesis={"thesis": "unrelated memory must survive paper replacement"},
+            tags=["research-loop"],
+        )
+    )
+
+    common_args = [
+        "paper-sim-loop",
+        "--db",
+        str(db_path),
+        "--strategy-family",
+        "funding_extremity_price_confirmation",
+        "--price-symbol",
+        "BTC/USDT",
+        "--funding-symbol",
+        "BTC/USDT:USDT",
+        "--timeframe",
+        "1h",
+        "--current-capital-usd",
+        "30",
+        "--notional-usd",
+        "100",
+        "--threshold-abs",
+        "0.0005",
+        "--hold-bars",
+        "2",
+        "--fee-rate",
+        "0.001",
+        "--slippage-rate",
+        "0.0005",
+        "--min-trades",
+        "2",
+        "--memory",
+        str(memory_path),
+    ]
+
+    closed_result = _run_cli(
+        *common_args,
+        "--run-id",
+        "cli-paper-memory-rerun",
+        "--no-require-walk-forward",
+    )
+    assert closed_result.returncode == 0, closed_result.stderr
+    closed_payload = json.loads(closed_result.stdout)
+    closed_records = [
+        record
+        for record in MemoryStore(memory_path).list_records()
+        if record.paper_trade_outcome is not None
+        and record.paper_trade_outcome["run_id"] == "cli-paper-memory-rerun"
+    ]
+    assert {outcome["status"] for outcome in closed_payload["report"]["outcomes"]} == {"closed"}
+    assert len(closed_records) == 3
+    assert all(record.rejected_reasons == [] for record in closed_records)
+
+    other_result = _run_cli(
+        *common_args,
+        "--run-id",
+        "cli-paper-memory-other",
+        "--no-require-walk-forward",
+    )
+    assert other_result.returncode == 0, other_result.stderr
+
+    blocked_result = _run_cli(
+        *common_args,
+        "--run-id",
+        "cli-paper-memory-rerun",
+    )
+    assert blocked_result.returncode == 0, blocked_result.stderr
+    blocked_payload = json.loads(blocked_result.stdout)
+    records = MemoryStore(memory_path).list_records()
+    rerun_records = [
+        record
+        for record in records
+        if record.paper_trade_outcome is not None
+        and record.paper_trade_outcome["run_id"] == "cli-paper-memory-rerun"
+    ]
+    other_records = [
+        record
+        for record in records
+        if record.paper_trade_outcome is not None
+        and record.paper_trade_outcome["run_id"] == "cli-paper-memory-other"
+    ]
+
+    assert {outcome["status"] for outcome in blocked_payload["report"]["outcomes"]} == {
+        "blocked"
+    }
+    assert len(rerun_records) == 1
+    assert rerun_records[0].paper_trade_outcome["status"] == "blocked"
+    assert "insufficient_walk_forward_splits" in rerun_records[0].rejected_reasons
+    assert "insufficient_walk_forward_splits" in rerun_records[0].paper_trade_outcome[
+        "failure_reasons"
+    ]
+    assert len(other_records) == 3
+    assert {record.paper_trade_outcome["status"] for record in other_records} == {"closed"}
+    assert MemoryStore(memory_path).get("research-loop:keep-me") is not None
 
 
 def test_cli_paper_sim_loop_accepts_zero_capital_and_notional(tmp_path):
