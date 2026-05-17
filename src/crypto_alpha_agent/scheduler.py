@@ -8,6 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from crypto_alpha_agent.pipeline.evidence_reports import load_stopped_strategy_families
 
+DEFAULT_STRATEGY_FAMILIES = ("funding_extremity_price_confirmation",)
+_REDACTED_SECRET = "[REDACTED]"
+
 
 class ScheduledCommand(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
@@ -83,17 +86,12 @@ def build_daily_schedule_plan(
     memory = str(memory_path) if memory_path is not None else str(Path(report_out).with_suffix(".memory.jsonl"))
     report = str(report_out)
     capital = str(current_capital_usd)
-    requested_families = _normalize_strategy_families(strategy_families)
+    requested_families = _normalize_strategy_families(strategy_families) or list(DEFAULT_STRATEGY_FAMILIES)
     stopped_families = set(load_stopped_strategy_families(memory))
     skipped_families = (
         []
         if allow_stopped_family
         else [family for family in requested_families if family in stopped_families]
-    )
-    active_families = (
-        requested_families
-        if allow_stopped_family
-        else [family for family in requested_families if family not in stopped_families]
     )
     stopped_family_override_used = allow_stopped_family and any(
         family in stopped_families for family in requested_families
@@ -174,7 +172,7 @@ def build_daily_schedule_plan(
     return DailySchedulePlan(
         network_allowed=allow_network,
         memory_path=memory,
-        strategy_families=active_families,
+        strategy_families=requested_families,
         skipped_strategy_families=skipped_families,
         decision_reason_codes=_dedupe(decision_reason_codes),
         stopped_family_override_used=stopped_family_override_used,
@@ -232,7 +230,7 @@ def _optional_evidence_source_args(
     if dune_query_id is not None:
         args.extend(["--dune-query-id", str(dune_query_id)])
     if dune_api_key is not None:
-        args.extend(["--dune-api-key", dune_api_key])
+        args.extend(["--dune-api-key", _REDACTED_SECRET])
     for dune_param in dune_params:
         args.extend(["--dune-param", dune_param])
     if include_thegraph:

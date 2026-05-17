@@ -68,7 +68,7 @@ def test_daily_report_counts_candidates_outcomes_quality_and_next_experiments(tm
     assert report.validation_evidence_count == 2
     assert report.paper_outcome_count == 2
     assert report.paper_evidence_count == 1
-    assert report.memory_record_count == 3
+    assert report.memory_record_count == len(MemoryStore(memory_path).list_records())
     assert report.new_candidate_count == 1
     assert report.blocked_candidate_count == 1
     assert report.data_quality_issue_count >= 1
@@ -113,6 +113,21 @@ def test_daily_report_marks_fresh_degraded_evidence_as_stopped_memory(tmp_path):
         and "drawdown_breach" in record.rejected_reasons
         for record in memory_records
     )
+
+
+def test_daily_report_memory_count_includes_planner_side_effect_records(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "memory.jsonl"
+    _seed_daily_fixture(db_path, memory_path)
+
+    report = build_daily_evidence_report(
+        db_path=db_path,
+        memory_path=memory_path,
+        strategy_families=[STRATEGY_FAMILY],
+    )
+
+    assert report.next_experiments.proposals
+    assert report.memory_record_count == len(MemoryStore(memory_path).list_records())
 
 
 def test_weekly_report_summarizes_rejections_improvement_degradation_and_sample_progress(tmp_path):

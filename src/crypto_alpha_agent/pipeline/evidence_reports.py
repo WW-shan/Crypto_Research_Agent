@@ -133,6 +133,7 @@ def build_daily_evidence_report(
         strategy_family=families[0] if len(families) == 1 else None,
         offline_only=True,
     )
+    memory_records = _filtered_memory_records(MemoryStore(memory_path).list_records(), families)
 
     near_paper_eligibility = _near_paper_eligibility(validation_evidence)
     near_tiny_live_review = any(

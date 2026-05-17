@@ -5,6 +5,7 @@ import json
 import pytest
 
 from crypto_alpha_agent.cli import main
+from crypto_alpha_agent.pipeline.evidence_reports import mark_family_degraded
 from crypto_alpha_agent.scheduler import build_daily_schedule_plan
 
 
@@ -291,3 +292,43 @@ def test_schedule_cli_allows_explicit_network_plan_without_live_capital_or_routi
     assert evidence_argv[evidence_argv.index("--limit") + 1] == "150"
     assert "--include-defillama" in evidence_argv
     assert evidence_argv[evidence_argv.index("--min-tvl-usd") + 1] == "1000000.0"
+
+
+def test_schedule_plans_default_family_stopped_status_when_no_family_supplied(tmp_path):
+    memory_path = tmp_path / "memory.jsonl"
+    default_family = "funding_extremity_price_confirmation"
+    mark_family_degraded(default_family, ["degraded_expectancy"], memory_path=memory_path)
+
+    plan = build_daily_schedule_plan(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=memory_path,
+        report_out=tmp_path / "daily.md",
+        symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+    )
+    evidence_argv = plan.planned_commands[-1].argv
+
+    assert plan.strategy_families == [default_family]
+    assert plan.skipped_strategy_families == [default_family]
+    assert "stopped_family_skipped" in plan.decision_reason_codes
+    assert evidence_argv[evidence_argv.index("--strategy-family") + 1] == default_family
+
+
+def test_schedule_redacts_dune_api_key_from_json_plan(tmp_path):
+    secret = "dune-secret-token"
+
+    plan = build_daily_schedule_plan(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        report_out=tmp_path / "daily.md",
+        symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        include_dune=True,
+        dune_query_id=123,
+        dune_api_key=secret,
+    )
+    payload = plan.model_dump(mode="json")
+    evidence_argv = payload["planned_commands"][-1]["argv"]
+
+    assert secret not in json.dumps(payload)
+    assert evidence_argv[evidence_argv.index("--dune-api-key") + 1] == "[REDACTED]"
