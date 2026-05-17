@@ -2,7 +2,10 @@ import pytest
 
 from crypto_alpha_agent.evidence.models import ValidationEvidence
 from crypto_alpha_agent.memory.store import MemoryStore
-from crypto_alpha_agent.pipeline.memory import persist_validation_evidence_memory
+from crypto_alpha_agent.pipeline.memory import (
+    persist_validation_evidence_memory,
+    replace_validation_evidence_memory,
+)
 
 
 def _validation_evidence(**overrides: object) -> ValidationEvidence:
@@ -140,3 +143,30 @@ def test_validation_evidence_without_run_id_uses_supplied_run_id(tmp_path):
     assert stored[0].record_id == f"validation:validation-run:{evidence.evidence_id}"
     assert stored[0].opportunity["run_id"] == "validation-run"
     assert "validation-run" in stored[0].tags
+
+
+def test_replace_validation_evidence_memory_matches_exact_run_id(tmp_path):
+    memory_path = tmp_path / "memory.jsonl"
+    base = _validation_evidence(run_id="validation-run", symbol="BTC/USDT")
+    family = _validation_evidence(run_id="validation-run:family", symbol="ETH/USDT")
+    replacement = _validation_evidence(run_id="validation-run", symbol="SOL/USDT")
+
+    persist_validation_evidence_memory([base], memory_path, run_id="validation-run")
+    persist_validation_evidence_memory([family], memory_path, run_id="validation-run:family")
+
+    replaced = replace_validation_evidence_memory(
+        [replacement],
+        memory_path,
+        run_id="validation-run",
+    )
+    records = MemoryStore(memory_path).list_records()
+
+    assert [record.opportunity["symbol"] for record in replaced] == ["SOL/USDT"]
+    assert {
+        (record.opportunity["run_id"], record.opportunity["symbol"])
+        for record in records
+        if "validation-evidence" in record.tags
+    } == {
+        ("validation-run", "SOL/USDT"),
+        ("validation-run:family", "ETH/USDT"),
+    }

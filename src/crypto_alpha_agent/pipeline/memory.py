@@ -19,25 +19,25 @@ SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
 def persist_research_loop_memory(
     report: ResearchLoopReport, memory_path: str | Path
 ) -> list[MemoryRecord]:
-    if not report.hypotheses:
+    store = MemoryStore(memory_path)
+    stored_records: list[MemoryRecord] = []
+    for record in _research_loop_memory_records(report):
+        stored_records.append(store.upsert(record))
+    return stored_records
+
+
+def replace_research_loop_memory(
+    report: ResearchLoopReport, memory_path: str | Path
+) -> list[MemoryRecord]:
+    records = _research_loop_memory_records(report)
+    if not records and not Path(memory_path).exists():
         return []
 
     store = MemoryStore(memory_path)
-    stored_records: list[MemoryRecord] = []
-    for index, hypothesis in enumerate(report.hypotheses):
-        curated_hypothesis = _curated_hypothesis(hypothesis)
-        record = MemoryRecord(
-            record_id=_record_id(report.run_id, index, hypothesis, curated_hypothesis),
-            created_at=DETERMINISTIC_EVENT_TIME_ISO,
-            updated_at=DETERMINISTIC_EVENT_TIME_ISO,
-            opportunity=_opportunity(report, hypothesis),
-            hypothesis=curated_hypothesis,
-            score=_score(report, hypothesis),
-            rejected_reasons=_rejected_reasons(report, hypothesis),
-            tags=_tags(report.run_id, hypothesis),
-        )
-        stored_records.append(store.upsert(record))
-    return stored_records
+    return store.replace_matching(
+        lambda record: _is_replaceable_research_loop_record(record, report.run_id),
+        records,
+    )
 
 
 def persist_paper_outcome_memory(
@@ -47,10 +47,10 @@ def persist_paper_outcome_memory(
     replace_run: bool = False,
 ) -> list[MemoryRecord]:
     outcome_list = list(outcomes)
-    if not outcome_list:
-        return []
     if replace_run:
         return replace_paper_outcome_memory(outcome_list, memory_path)
+    if not outcome_list:
+        return []
 
     store = MemoryStore(memory_path)
     stored_records: list[MemoryRecord] = []
@@ -67,13 +67,7 @@ def persist_validation_evidence_memory(
     evidence_list = list(evidence_items)
     if not evidence_list:
         return []
-
-    for evidence in evidence_list:
-        if evidence.run_id is not None and evidence.run_id != run_id:
-            raise ValueError(
-                "validation evidence run_id does not match supplied run_id: "
-                f"{evidence.run_id!r} != {run_id!r}"
-            )
+    _validate_evidence_run_ids(evidence_list, run_id)
 
     store = MemoryStore(memory_path)
     stored_records: list[MemoryRecord] = []
@@ -82,19 +76,87 @@ def persist_validation_evidence_memory(
     return stored_records
 
 
-def replace_paper_outcome_memory(
-    outcomes: Iterable[PaperSimulationOutcome], memory_path: str | Path
+def replace_validation_evidence_memory(
+    evidence_items: Iterable[ValidationEvidence],
+    memory_path: str | Path,
+    run_id: str,
 ) -> list[MemoryRecord]:
-    outcome_list = list(outcomes)
-    if not outcome_list:
+    evidence_list = list(evidence_items)
+    _validate_evidence_run_ids(evidence_list, run_id)
+    records = [_validation_memory_record(evidence, run_id) for evidence in evidence_list]
+    if not records and not Path(memory_path).exists():
         return []
 
-    run_ids = {outcome.run_id for outcome in outcome_list}
+    store = MemoryStore(memory_path)
+    return store.replace_matching(
+        lambda record: _is_replaceable_validation_evidence_record(record, run_id),
+        records,
+    )
+
+
+def replace_paper_outcome_memory(
+    outcomes: Iterable[PaperSimulationOutcome],
+    memory_path: str | Path,
+    *,
+    run_ids: Iterable[str] | None = None,
+) -> list[MemoryRecord]:
+    outcome_list = list(outcomes)
+    resolved_run_ids = {outcome.run_id for outcome in outcome_list}
+    if run_ids is not None:
+        resolved_run_ids.update(run_ids)
+    if not resolved_run_ids:
+        return []
+    if not outcome_list and not Path(memory_path).exists():
+        return []
+
     records = [_paper_memory_record(outcome) for outcome in outcome_list]
     store = MemoryStore(memory_path)
     return store.replace_matching(
-        lambda record: _is_replaceable_paper_outcome_record(record, run_ids),
+        lambda record: _is_replaceable_paper_outcome_record(record, resolved_run_ids),
         records,
+    )
+
+
+def _research_loop_memory_records(report: ResearchLoopReport) -> list[MemoryRecord]:
+    records: list[MemoryRecord] = []
+    for index, hypothesis in enumerate(report.hypotheses):
+        curated_hypothesis = _curated_hypothesis(hypothesis)
+        records.append(
+            MemoryRecord(
+                record_id=_record_id(report.run_id, index, hypothesis, curated_hypothesis),
+                created_at=DETERMINISTIC_EVENT_TIME_ISO,
+                updated_at=DETERMINISTIC_EVENT_TIME_ISO,
+                opportunity=_opportunity(report, hypothesis),
+                hypothesis=curated_hypothesis,
+                score=_score(report, hypothesis),
+                rejected_reasons=_rejected_reasons(report, hypothesis),
+                tags=_tags(report.run_id, hypothesis),
+            )
+        )
+    return records
+
+
+def _validate_evidence_run_ids(evidence_items: Iterable[ValidationEvidence], run_id: str) -> None:
+    for evidence in evidence_items:
+        if evidence.run_id is not None and evidence.run_id != run_id:
+            raise ValueError(
+                "validation evidence run_id does not match supplied run_id: "
+                f"{evidence.run_id!r} != {run_id!r}"
+            )
+
+
+def _is_replaceable_research_loop_record(record: MemoryRecord, run_id: str) -> bool:
+    return (
+        record.record_id.startswith(f"research-loop:{_slug(run_id)}:")
+        and "research-loop" in record.tags
+        and run_id in record.tags
+    )
+
+
+def _is_replaceable_validation_evidence_record(record: MemoryRecord, run_id: str) -> bool:
+    return (
+        (record.opportunity or {}).get("run_id") == run_id
+        and "validation-evidence" in record.tags
     )
 
 

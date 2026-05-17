@@ -22,6 +22,7 @@ from crypto_alpha_agent.data.onchain_ingestion import (
 from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.observability.logging import load_events
 from crypto_alpha_agent.observability.reports import generate_daily_report
+from crypto_alpha_agent.pipeline.evidence_runner import run_daily_evidence_pipeline
 from crypto_alpha_agent.pipeline.markdown import render_research_loop_markdown
 from crypto_alpha_agent.pipeline.memory import persist_paper_outcome_memory
 from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
@@ -246,6 +247,87 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional JSONL memory path for paper outcome feedback records.",
     )
     paper_sim_loop_parser.set_defaults(handler=_handle_paper_sim_loop, parser=paper_sim_loop_parser)
+
+    evidence_run_parser = subparsers.add_parser(
+        "evidence-run",
+        help="Run the safe end-to-end evidence pipeline without live capital.",
+    )
+    evidence_run_parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite research data store.")
+    evidence_run_parser.add_argument("--memory", required=True, type=Path, help="Path to the JSONL memory store.")
+    evidence_run_parser.add_argument("--report-out", required=True, type=Path, help="Path for the daily Markdown report.")
+    evidence_run_parser.add_argument(
+        "--current-capital-usd",
+        type=_positive_finite_float,
+        default=300.0,
+        help="Operator capital profile used for research constraints.",
+    )
+    evidence_run_parser.add_argument(
+        "--allow-network",
+        action="store_true",
+        help="Required explicit gate before network-backed evidence ingestion.",
+    )
+    evidence_run_parser.add_argument("--ccxt-exchange", default="binance", help="CCXT exchange id.")
+    evidence_run_parser.add_argument("--symbol", required=True, help="CCXT market symbol for OHLCV ingestion.")
+    evidence_run_parser.add_argument(
+        "--funding-symbol",
+        required=True,
+        help="CCXT funding symbol for funding-rate ingestion and validation.",
+    )
+    evidence_run_parser.add_argument("--timeframe", required=True, help="CCXT OHLCV timeframe.")
+    evidence_run_parser.add_argument("--limit", type=_positive_int, default=200, help="Record limit for CCXT ingestion.")
+    evidence_run_parser.add_argument(
+        "--strategy-family",
+        action="append",
+        default=[],
+        help="Strategy family to validate and paper-simulate. Repeat to run multiple families.",
+    )
+    evidence_run_parser.add_argument(
+        "--include-defillama",
+        action="store_true",
+        help="Optionally ingest DefiLlama yield pools.",
+    )
+    evidence_run_parser.add_argument(
+        "--include-dexscreener",
+        action="store_true",
+        help="Optionally ingest DexScreener pairs.",
+    )
+    evidence_run_parser.add_argument("--dex-query", help="DexScreener search query.")
+    evidence_run_parser.add_argument(
+        "--min-tvl-usd",
+        type=_positive_finite_float,
+        help="Optional minimum TVL for DefiLlama ingestion.",
+    )
+    evidence_run_parser.add_argument(
+        "--include-dune",
+        action="store_true",
+        help="Optionally ingest a Dune query result.",
+    )
+    evidence_run_parser.add_argument("--dune-query-id", type=_positive_int, help="Dune query id to run.")
+    evidence_run_parser.add_argument("--dune-api-key", help="Dune API key.")
+    evidence_run_parser.add_argument(
+        "--dune-param",
+        action="append",
+        type=_key_value_pair,
+        default=[],
+        metavar="KEY=VALUE",
+        help="Dune query parameter. Repeat for multiple parameters.",
+    )
+    evidence_run_parser.add_argument(
+        "--include-thegraph",
+        action="store_true",
+        help="Optionally ingest a The Graph query result.",
+    )
+    evidence_run_parser.add_argument("--subgraph-url", help="The Graph subgraph endpoint URL.")
+    evidence_run_parser.add_argument("--graph-query", help="The Graph query document.")
+    evidence_run_parser.add_argument(
+        "--graph-variable",
+        action="append",
+        type=_key_value_pair,
+        default=[],
+        metavar="KEY=VALUE",
+        help="The Graph variable. Repeat for multiple variables.",
+    )
+    evidence_run_parser.set_defaults(handler=_handle_evidence_run, parser=evidence_run_parser)
 
     ingest_parser = subparsers.add_parser(
         "ingest",
@@ -777,6 +859,49 @@ def _handle_paper_sim_loop(args: argparse.Namespace) -> dict[str, Any]:
         payload["report_artifact"] = str(args.report_out)
         args.report_out.parent.mkdir(parents=True, exist_ok=True)
         args.report_out.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
+
+
+def _handle_evidence_run(args: argparse.Namespace) -> dict[str, Any]:
+    strategy_families = args.strategy_family or ["funding_extremity_price_confirmation"]
+    try:
+        report = run_daily_evidence_pipeline(
+            db_path=args.db,
+            memory_path=args.memory,
+            report_out=args.report_out,
+            current_capital_usd=args.current_capital_usd,
+            allow_network=args.allow_network,
+            ccxt_exchange=args.ccxt_exchange,
+            symbol=args.symbol,
+            funding_symbol=args.funding_symbol,
+            timeframe=args.timeframe,
+            limit=args.limit,
+            strategy_families=strategy_families,
+            include_defillama=args.include_defillama,
+            include_dexscreener=args.include_dexscreener,
+            dex_query=args.dex_query,
+            min_tvl_usd=args.min_tvl_usd,
+            include_dune=args.include_dune,
+            dune_query_id=args.dune_query_id,
+            dune_api_key=args.dune_api_key,
+            dune_params=_key_value_pairs_to_dict(args.dune_param) if args.dune_param else None,
+            include_thegraph=args.include_thegraph,
+            subgraph_url=args.subgraph_url,
+            graph_query=args.graph_query,
+            graph_variables=_key_value_pairs_to_dict(args.graph_variable) if args.graph_variable else None,
+        )
+    except ValueError as exc:
+        args.parser.error(str(exc))
+
+    payload = {
+        "command": "evidence-run",
+        "uses_real_capital": False,
+        "live_order_routing": False,
+        "memory_records_written": report.memory_records_written,
+        "report_artifact": report.report_artifact,
+        "steps": [step.model_dump(mode="json") for step in report.steps],
+        "report": report.model_dump(mode="json"),
+    }
     return payload
 
 
