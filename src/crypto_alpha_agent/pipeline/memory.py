@@ -8,7 +8,7 @@ import re
 from typing import Any
 
 from crypto_alpha_agent.agents.hypothesis import AlphaHypothesis, EvidenceBundle
-from crypto_alpha_agent.evidence.models import PaperSimulationOutcome
+from crypto_alpha_agent.evidence.models import PaperSimulationOutcome, ValidationEvidence
 from crypto_alpha_agent.memory.store import MemoryRecord, MemoryStore
 from crypto_alpha_agent.orchestrator import DETERMINISTIC_EVENT_TIME_ISO
 from crypto_alpha_agent.pipeline.research_loop import ResearchLoopReport, ValidationSummary
@@ -59,6 +59,29 @@ def persist_paper_outcome_memory(
     return stored_records
 
 
+def persist_validation_evidence_memory(
+    evidence_items: Iterable[ValidationEvidence],
+    memory_path: str | Path,
+    run_id: str,
+) -> list[MemoryRecord]:
+    evidence_list = list(evidence_items)
+    if not evidence_list:
+        return []
+
+    for evidence in evidence_list:
+        if evidence.run_id is not None and evidence.run_id != run_id:
+            raise ValueError(
+                "validation evidence run_id does not match supplied run_id: "
+                f"{evidence.run_id!r} != {run_id!r}"
+            )
+
+    store = MemoryStore(memory_path)
+    stored_records: list[MemoryRecord] = []
+    for evidence in evidence_list:
+        stored_records.append(store.upsert(_validation_memory_record(evidence, run_id)))
+    return stored_records
+
+
 def replace_paper_outcome_memory(
     outcomes: Iterable[PaperSimulationOutcome], memory_path: str | Path
 ) -> list[MemoryRecord]:
@@ -82,6 +105,73 @@ def _is_replaceable_paper_outcome_record(
         (record.record_id.startswith("paper-outcome:") or "paper-evidence" in record.tags)
         and (record.opportunity or {}).get("run_id") in run_ids
         and "paper-evidence" in record.tags
+    )
+
+
+def _validation_memory_record(evidence: ValidationEvidence, run_id: str) -> MemoryRecord:
+    return MemoryRecord(
+        record_id=f"validation:{run_id}:{evidence.evidence_id}",
+        created_at=DETERMINISTIC_EVENT_TIME_ISO,
+        updated_at=DETERMINISTIC_EVENT_TIME_ISO,
+        opportunity=_validation_opportunity(evidence, run_id),
+        hypothesis=_validation_hypothesis(evidence),
+        score=_validation_score(evidence),
+        rejected_reasons=_validation_rejected_reasons(evidence),
+        tags=_validation_tags(evidence, run_id),
+    )
+
+
+def _validation_opportunity(evidence: ValidationEvidence, run_id: str) -> dict[str, Any]:
+    return {
+        "strategy_family": evidence.strategy_family,
+        "symbol": evidence.symbol,
+        "timeframe": evidence.timeframe,
+        "validator": evidence.validator_name,
+        "run_id": run_id,
+        "uses_real_capital": False,
+        "live_order_routing": False,
+    }
+
+
+def _validation_hypothesis(evidence: ValidationEvidence) -> dict[str, Any]:
+    blocked_reasons = list(evidence.blocked_reasons)
+    return {
+        "lesson": "validation_approved" if evidence.approved else "validation_blocked",
+        "metrics": _validation_score(evidence),
+        "blocked_reasons": blocked_reasons,
+        "disconfirmation_hints": blocked_reasons,
+    }
+
+
+def _validation_score(evidence: ValidationEvidence) -> dict[str, Any]:
+    return {
+        "trade_count": evidence.trade_count,
+        "net_return": evidence.net_return,
+        "gross_expectancy": evidence.gross_expectancy,
+        "fee_adjusted_expectancy": evidence.fee_adjusted_expectancy,
+        "slippage_adjusted_expectancy": evidence.slippage_adjusted_expectancy,
+        "max_drawdown": evidence.max_drawdown,
+        "walk_forward_split_count": evidence.walk_forward_split_count,
+        "walk_forward_pass_rate": evidence.walk_forward_pass_rate,
+    }
+
+
+def _validation_rejected_reasons(evidence: ValidationEvidence) -> list[str]:
+    if evidence.approved:
+        return []
+    return list(evidence.blocked_reasons)
+
+
+def _validation_tags(evidence: ValidationEvidence, run_id: str) -> list[str]:
+    outcome = "approved" if evidence.approved else "blocked"
+    return _unique_non_empty(
+        [
+            "validation-evidence",
+            evidence.strategy_family,
+            _slug(evidence.symbol),
+            outcome,
+            run_id,
+        ]
     )
 
 
