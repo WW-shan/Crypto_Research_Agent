@@ -139,6 +139,7 @@ class StrategyCandidate(_StrictEvidenceModel):
 
 class ValidationEvidence(_StrictEvidenceModel):
     evidence_id: str = Field(min_length=1)
+    run_id: str | None = None
     strategy_family: str = Field(min_length=1)
     symbol: str = Field(min_length=1)
     timeframe: str = Field(min_length=1)
@@ -165,6 +166,13 @@ class ValidationEvidence(_StrictEvidenceModel):
     @field_validator("evidence_id", "strategy_family", "symbol", "timeframe", "validator_name")
     @classmethod
     def _normalize_identifier(cls, value: str) -> str:
+        return _strip_nonblank(value)
+
+    @field_validator("run_id")
+    @classmethod
+    def _normalize_optional_identifier(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         return _strip_nonblank(value)
 
     @field_validator("blocked_reasons", mode="before")

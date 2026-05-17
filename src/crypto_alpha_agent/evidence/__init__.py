@@ -17,6 +17,7 @@ from crypto_alpha_agent.evidence.paper import (
     PaperEvidencePackage,
     aggregate_paper_evidence,
 )
+from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
 
 __all__ = [
     "ExperimentRun",
@@ -28,6 +29,7 @@ __all__ = [
     "TinyLiveReadinessArtifact",
     "TinyLiveReadinessChecklistItem",
     "ValidationEvidence",
+    "ValidationEvidenceLedger",
     "aggregate_paper_evidence",
     "generate_tiny_live_readiness_artifact",
 ]

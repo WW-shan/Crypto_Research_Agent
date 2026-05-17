@@ -16,8 +16,9 @@ from crypto_alpha_agent.data.quality import DataQualityReport, build_data_qualit
 from crypto_alpha_agent.data.scanner_bridge import records_to_scanner_signals
 from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
-from crypto_alpha_agent.evidence.models import PaperSimulationOutcome
+from crypto_alpha_agent.evidence.models import PaperSimulationOutcome, ValidationEvidence
 from crypto_alpha_agent.evidence.paper import PaperEvidencePackage, aggregate_paper_evidence
+from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
 from crypto_alpha_agent.strategy import StrategyValidationRequest, default_strategy_registry
 from crypto_alpha_agent.strategy.models import StrategyValidationReport
 from crypto_alpha_agent.validation.market_history import CandleBar
@@ -103,9 +104,38 @@ def run_stored_research_loop(
     anomalies = AnomalyDetector().rank(signals)
     hypotheses = HypothesisGenerator().generate(anomalies)
     notes = _notes(records, signals)
+    resolved_run_id = run_id or "stored-research-loop"
+    validation_summaries = (
+        _validation_summaries(
+            records,
+            db_path=db_path,
+            current_capital_usd=current_capital_usd,
+            strategy_family=strategy_family,
+            price_symbol=price_symbol,
+            funding_symbol=funding_symbol,
+            validation_timeframe=validation_timeframe,
+            threshold_abs=threshold_abs,
+            hold_bars=hold_bars,
+            fee_rate=fee_rate,
+            slippage_rate=slippage_rate,
+            min_trades=min_trades,
+        )
+        if include_validation
+        else []
+    )
+    if include_validation:
+        validation_evidence = [
+            _validation_evidence_from_summary(summary, run_id=resolved_run_id)
+            for summary in validation_summaries
+            if _should_persist_validation_evidence(summary)
+        ]
+        ValidationEvidenceLedger(db_path).replace_run_evidence(
+            resolved_run_id,
+            validation_evidence,
+        )
 
     return ResearchLoopReport(
-        run_id=run_id or "stored-research-loop",
+        run_id=resolved_run_id,
         db_path=str(db_path),
         source_filter=source,
         record_type_filter=record_type,
@@ -125,24 +155,7 @@ def run_stored_research_loop(
         anomalies=anomalies,
         hypotheses=hypotheses,
         notes=notes,
-        validation_summaries=(
-            _validation_summaries(
-                records,
-                db_path=db_path,
-                current_capital_usd=current_capital_usd,
-                strategy_family=strategy_family,
-                price_symbol=price_symbol,
-                funding_symbol=funding_symbol,
-                validation_timeframe=validation_timeframe,
-                threshold_abs=threshold_abs,
-                hold_bars=hold_bars,
-                fee_rate=fee_rate,
-                slippage_rate=slippage_rate,
-                min_trades=min_trades,
-            )
-            if include_validation
-            else []
-        ),
+        validation_summaries=validation_summaries,
         paper_evidence_packages=(
             _paper_evidence_packages(db_path) if include_paper_evidence else []
         ),
@@ -176,10 +189,22 @@ def _validation_summaries(
     slippage_rate: float,
     min_trades: int,
 ) -> list[ValidationSummary]:
-    if strategy_family is not None:
+    normalized_strategy_family = _nonblank_or_none(strategy_family)
+    if normalized_strategy_family is not None:
+        registry = default_strategy_registry(current_capital_usd=current_capital_usd)
         normalized_price_symbol = _nonblank_or_none(price_symbol)
         normalized_funding_symbol = _nonblank_or_none(funding_symbol)
         normalized_timeframe = _nonblank_or_none(validation_timeframe)
+        if normalized_strategy_family not in registry.list_families():
+            report = registry.validate(
+                StrategyValidationRequest(
+                    strategy_family=normalized_strategy_family,
+                    records=[record.model_dump(mode="json") for record in records],
+                    current_capital_usd=current_capital_usd,
+                    parameters={},
+                )
+            )
+            return [_summary_from_strategy_validation_report(report)]
         if (
             normalized_price_symbol is None
             or normalized_funding_symbol is None
@@ -187,7 +212,7 @@ def _validation_summaries(
         ):
             return [
                 _blocked_strategy_validation_summary(
-                    strategy_family=strategy_family,
+                    strategy_family=normalized_strategy_family,
                     asset=normalized_price_symbol,
                     funding_symbol=normalized_funding_symbol,
                     timeframe=normalized_timeframe,
@@ -196,9 +221,9 @@ def _validation_summaries(
             ]
 
         try:
-            report = default_strategy_registry(current_capital_usd=current_capital_usd).validate(
+            report = registry.validate(
                 StrategyValidationRequest(
-                    strategy_family=strategy_family,
+                    strategy_family=normalized_strategy_family,
                     records=[record.model_dump(mode="json") for record in records],
                     current_capital_usd=current_capital_usd,
                     parameters={
@@ -217,7 +242,7 @@ def _validation_summaries(
         except ValueError:
             return [
                 _blocked_strategy_validation_summary(
-                    strategy_family=strategy_family,
+                    strategy_family=normalized_strategy_family,
                     asset=normalized_price_symbol,
                     funding_symbol=normalized_funding_symbol,
                     timeframe=normalized_timeframe,
@@ -323,6 +348,38 @@ def _summary_from_strategy_validation_report(
         fees=_float_metric(metrics, "fee_rate"),
         slippage=_float_metric(metrics, "slippage_rate"),
         blocked_reasons=list(report.blocked_reasons),
+    )
+
+
+def _validation_evidence_from_summary(
+    summary: ValidationSummary,
+    *,
+    run_id: str,
+) -> ValidationEvidence:
+    return ValidationEvidence(
+        run_id=run_id,
+        strategy_family=summary.strategy_family,
+        symbol=summary.asset,
+        timeframe=summary.timeframe,
+        validator_name=summary.validator_name or "strategy_registry",
+        trade_count=summary.trade_count,
+        net_return=summary.net_return or 0.0,
+        gross_expectancy=summary.gross_expectancy or 0.0,
+        fee_adjusted_expectancy=summary.fee_adjusted_expectancy or 0.0,
+        slippage_adjusted_expectancy=summary.slippage_adjusted_expectancy or 0.0,
+        max_drawdown=summary.max_drawdown or 0.0,
+        walk_forward_split_count=summary.walk_forward_split_count or 0,
+        walk_forward_pass_rate=summary.walk_forward_pass_rate or 0.0,
+        approved=summary.status == "passed",
+        blocked_reasons=summary.blocked_reasons,
+    )
+
+
+def _should_persist_validation_evidence(summary: ValidationSummary) -> bool:
+    return (
+        not summary.baseline_only
+        and summary.validator_name != "unknown"
+        and "unknown_strategy_family" not in summary.blocked_reasons
     )
 
 
