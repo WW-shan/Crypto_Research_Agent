@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import math
@@ -11,6 +11,15 @@ from crypto_alpha_agent.strategy.models import (
     StrategyPaperRequest,
     StrategyValidationReport,
     StrategyValidationRequest,
+)
+from crypto_alpha_agent.strategy.defi_yield_regime import (
+    DEFAULT_MAX_AGE_HOURS,
+    DEFAULT_MIN_APY_CHANGE,
+    DEFAULT_MIN_OBSERVATIONS,
+    DEFAULT_MIN_TVL_USD,
+    DEFAULT_SUPPORTED_CHAINS,
+    STRATEGY_FAMILY as DEFI_YIELD_REGIME_STRATEGY_FAMILY,
+    validate_defi_yield_regime,
 )
 from crypto_alpha_agent.strategy.funding_mean_reversion import (
     STRATEGY_FAMILY as FUNDING_MEAN_REVERSION_STRATEGY_FAMILY,
@@ -185,6 +194,20 @@ def default_strategy_registry(*, current_capital_usd: float = 300.0) -> Strategy
         _funding_mean_reversion_validator,
         paper_runner=_funding_mean_reversion_paper_runner,
     )
+    defi_yield_regime_spec = StrategyFamilySpec(
+        strategy_family=DEFI_YIELD_REGIME_STRATEGY_FAMILY,
+        display_name="DefiLlama Yield Regime Watchlist",
+        required_record_types=["defi_yield"],
+        required_symbols=["*defi_yield"],
+        execution_role="research_only",
+        supports_paper_simulation=False,
+        min_capital_usd=0.0,
+        max_notional_usd=0.0,
+        validator_name="defi_yield_regime",
+        blocked_reasons=[],
+        configured_capital_usd=current_capital_usd,
+    )
+    registry.register(defi_yield_regime_spec, _defi_yield_regime_validator)
     return registry
 
 
@@ -319,6 +342,48 @@ def _funding_mean_reversion_validator(request: StrategyValidationRequest) -> Str
         )
 
 
+def _defi_yield_regime_validator(request: StrategyValidationRequest) -> StrategyValidationReport:
+    parameters = request.parameters
+    try:
+        return validate_defi_yield_regime(
+            request.records,
+            min_tvl_usd=_strict_non_negative_float_parameter(
+                parameters,
+                "min_tvl_usd",
+                DEFAULT_MIN_TVL_USD,
+            ),
+            min_apy_change=_strict_non_negative_float_parameter(
+                parameters,
+                "min_apy_change",
+                DEFAULT_MIN_APY_CHANGE,
+            ),
+            min_observations=_strict_min_observations_parameter(
+                parameters,
+                "min_observations",
+                DEFAULT_MIN_OBSERVATIONS,
+            ),
+            supported_chains=_supported_chains_parameter(parameters),
+            now=_optional_datetime_parameter(parameters, "now"),
+            max_age_hours=_strict_positive_float_parameter(
+                parameters,
+                "max_age_hours",
+                DEFAULT_MAX_AGE_HOURS,
+            ),
+        )
+    except (OverflowError, TypeError, ValueError) as exc:
+        return StrategyValidationReport(
+            strategy_family=request.strategy_family,
+            validator_name="defi_yield_regime",
+            approved=False,
+            blocked_reasons=["strategy_validation_error"],
+            metrics={
+                "execution_role": "research_only",
+                "paper_watchlist_only": True,
+                "validation_error": str(exc),
+            },
+        )
+
+
 def _funding_price_paper_runner(request: StrategyPaperRequest) -> StrategyPaperReport:
     validation = _funding_price_validator(_paper_validation_request(request))
     return _paper_report_from_validation(request, validation)
@@ -414,6 +479,113 @@ def _paper_trade_metrics(trade: FundingPriceTrade) -> dict[str, object]:
         "raw_return": trade.raw_return,
         "direction": trade.direction,
     }
+
+
+def _supported_chains_parameter(parameters: dict[str, object]) -> tuple[str, ...]:
+    if "supported_chains" not in parameters:
+        return DEFAULT_SUPPORTED_CHAINS
+
+    value = parameters["supported_chains"]
+    if isinstance(value, str) or not isinstance(value, Sequence):
+        raise ValueError("supported_chains must be a sequence of chain names")
+
+    supported_chains: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError("supported_chains must contain strings")
+        stripped = item.strip()
+        if not stripped:
+            raise ValueError("supported_chains must contain non-empty strings")
+        if stripped in seen:
+            continue
+        supported_chains.append(stripped)
+        seen.add(stripped)
+    if not supported_chains:
+        raise ValueError("supported_chains must not be empty")
+    return tuple(supported_chains)
+
+
+def _strict_non_negative_float_parameter(
+    parameters: dict[str, object],
+    key: str,
+    default: float,
+) -> float:
+    value = parameters.get(key, default)
+    parsed = _strict_float(value, key)
+    if parsed < 0:
+        raise ValueError(f"{key} must be non-negative")
+    return parsed
+
+
+def _strict_positive_float_parameter(
+    parameters: dict[str, object],
+    key: str,
+    default: float,
+) -> float:
+    value = parameters.get(key, default)
+    parsed = _strict_float(value, key)
+    if parsed <= 0:
+        raise ValueError(f"{key} must be positive")
+    return parsed
+
+
+def _strict_float(value: object, key: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{key} must be numeric, not boolean")
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{key} must be numeric") from exc
+    if not math.isfinite(parsed):
+        raise ValueError(f"{key} must be finite")
+    return parsed
+
+
+def _strict_min_observations_parameter(
+    parameters: dict[str, object],
+    key: str,
+    default: int,
+) -> int:
+    value = parameters.get(key, default)
+    parsed = _strict_integer(value, key)
+    if parsed < 2:
+        raise ValueError(f"{key} must be at least 2")
+    return parsed
+
+
+def _strict_integer(value: object, key: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{key} must be an integer, not boolean")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value) or not value.is_integer():
+            raise ValueError(f"{key} must be an integer")
+        return int(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError(f"{key} must be an integer")
+        signless = stripped[1:] if stripped[0] in {"+", "-"} else stripped
+        if not signless.isdigit():
+            raise ValueError(f"{key} must be an integer")
+        return int(stripped)
+    raise ValueError(f"{key} must be an integer")
+
+
+def _optional_datetime_parameter(
+    parameters: dict[str, object],
+    key: str,
+) -> datetime | None:
+    value = parameters.get(key)
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    raise ValueError(f"{key} must be a datetime or ISO datetime string")
 
 
 def _nonblank_parameter(parameters: dict[str, object], key: str) -> str | None:

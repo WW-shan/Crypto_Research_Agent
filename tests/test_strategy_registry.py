@@ -175,6 +175,7 @@ def test_strategy_spec_declares_safe_data_validation_and_paper_contract():
     assert stored.required_record_types == ("market_candle", "funding_rate")
     assert stored.required_symbols == ("BTC/USDT", "BTC/USDT:USDT")
     assert stored.supports_paper_simulation is True
+    assert stored.execution_role == "research_and_paper"
     assert stored.min_capital_usd == 25.0
     assert stored.max_notional_usd == 15.0
     assert stored.validator_name == "funding_price"

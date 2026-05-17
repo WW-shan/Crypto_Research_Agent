@@ -6,7 +6,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 from typing_extensions import Self
 
-from crypto_alpha_agent.data.models import RecordType
+from crypto_alpha_agent.data.models import ExecutionRole, RecordType
 
 NonNegativeFiniteFloat = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
 StringTuple = tuple[str, ...]
@@ -36,6 +36,7 @@ class StrategyFamilySpec(_StrictStrategyModel):
     display_name: str = Field(min_length=1)
     required_record_types: tuple[RecordType, ...] = Field(min_length=1)
     required_symbols: StringTuple = Field(min_length=1)
+    execution_role: ExecutionRole = "research_and_paper"
     supports_paper_simulation: bool
     min_capital_usd: NonNegativeFiniteFloat
     max_notional_usd: NonNegativeFiniteFloat

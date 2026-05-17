@@ -27,6 +27,7 @@ from crypto_alpha_agent.pipeline.memory import persist_paper_outcome_memory
 from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
 from crypto_alpha_agent.pipeline.research_loop import run_stored_research_loop
 from crypto_alpha_agent.scheduler import build_daily_schedule_plan
+from crypto_alpha_agent.strategy import default_strategy_registry
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -658,6 +659,16 @@ def _validate_research_loop_strategy_args(args: argparse.Namespace) -> None:
         return
     if not args.include_validation:
         args.parser.error("--include-validation is required when --strategy-family is provided")
+    registry = default_strategy_registry(current_capital_usd=args.current_capital_usd)
+    strategy_family = args.strategy_family.strip()
+    requires_funding_parameters = True
+    if strategy_family in registry.list_families():
+        spec = registry.get(strategy_family)
+        requires_funding_parameters = _requires_funding_validation_parameters(
+            spec.required_record_types
+        )
+    if not requires_funding_parameters:
+        return
     missing = [
         option
         for option, value in (
@@ -669,6 +680,10 @@ def _validate_research_loop_strategy_args(args: argparse.Namespace) -> None:
     ]
     if missing:
         args.parser.error(f"{', '.join(missing)} required when --strategy-family is provided")
+
+
+def _requires_funding_validation_parameters(required_record_types: tuple[str, ...]) -> bool:
+    return {"market_candle", "funding_rate"}.issubset(set(required_record_types))
 
 
 def _handle_ingest(args: argparse.Namespace) -> dict[str, Any]:

@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from crypto_alpha_agent.cli import main
-from crypto_alpha_agent.data.models import FundingRateRecord, MarketCandle, SourceRecord
+from crypto_alpha_agent.data.models import (
+    DefiYieldSnapshot,
+    FundingRateRecord,
+    MarketCandle,
+    SourceRecord,
+)
 from crypto_alpha_agent.data.store import ResearchDataStore
+from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
 from crypto_alpha_agent.pipeline.research_loop import run_stored_research_loop
 
 
@@ -44,6 +50,20 @@ def _funding_record(funding: FundingRateRecord) -> SourceRecord:
         record_type="funding_rate",
         observed_at=funding.timestamp,
         payload=funding.model_dump(mode="json"),
+    )
+
+
+def _defi_yield_record(snapshot: DefiYieldSnapshot) -> SourceRecord:
+    safe_symbol = snapshot.symbol.replace("/", "")
+    return SourceRecord(
+        record_id=(
+            f"{snapshot.source}:{snapshot.chain}:{snapshot.project}:{safe_symbol}:"
+            f"{snapshot.observed_at.isoformat()}"
+        ),
+        source=snapshot.source,
+        record_type="defi_yield",
+        observed_at=snapshot.observed_at,
+        payload=snapshot.model_dump(mode="json"),
     )
 
 
@@ -183,6 +203,184 @@ def test_direct_research_loop_strategy_validation_missing_params_blocks(tmp_path
     assert "None" not in {
         value for value in dumped.values() if isinstance(value, str)
     }
+
+
+def test_direct_research_loop_defi_yield_strategy_validation_needs_no_funding_params(
+    tmp_path,
+):
+    db_path = tmp_path / "research.sqlite"
+    store = ResearchDataStore(db_path)
+    store.upsert_records(
+        [
+            _defi_yield_record(
+                DefiYieldSnapshot(
+                    source="defillama",
+                    chain="Ethereum",
+                    project="aave-v3",
+                    symbol="USDC",
+                    tvl_usd=1_000_000.0,
+                    apy=3.0,
+                    observed_at=datetime(2020, 1, 1, 1, tzinfo=UTC),
+                    raw={"pool": "ethereum-aave-v3-usdc"},
+                )
+            ),
+            _defi_yield_record(
+                DefiYieldSnapshot(
+                    source="defillama",
+                    chain="Ethereum",
+                    project="aave-v3",
+                    symbol="USDC",
+                    tvl_usd=1_000_000.0,
+                    apy=5.0,
+                    observed_at=datetime(2020, 1, 1, 2, tzinfo=UTC),
+                    raw={"pool": "ethereum-aave-v3-usdc"},
+                )
+            ),
+        ]
+    )
+
+    report = run_stored_research_loop(
+        db_path,
+        include_validation=True,
+        strategy_family="defi_yield_regime_watchlist",
+    )
+
+    summary = report.validation_summaries[0]
+    assert summary.strategy_family == "defi_yield_regime_watchlist"
+    assert summary.validator_name == "defi_yield_regime"
+    assert summary.status in {"passed", "blocked"}
+    assert "missing_strategy_validation_parameters" not in summary.blocked_reasons
+
+
+def test_direct_research_loop_defi_yield_strategy_validation_can_persist_without_walk_forward(
+    tmp_path,
+):
+    db_path = tmp_path / "research.sqlite"
+    store = ResearchDataStore(db_path)
+    now = datetime.now(tz=UTC).replace(minute=0, second=0, microsecond=0)
+    store.upsert_records(
+        [
+            _defi_yield_record(
+                DefiYieldSnapshot(
+                    source="defillama",
+                    chain="Ethereum",
+                    project="aave-v3",
+                    symbol="USDC",
+                    tvl_usd=1_000_000.0,
+                    apy=3.0,
+                    observed_at=now - timedelta(hours=1),
+                    raw={"pool": "Ethereum Aave/V3:USDC"},
+                )
+            ),
+            _defi_yield_record(
+                DefiYieldSnapshot(
+                    source="defillama",
+                    chain="Ethereum",
+                    project="aave-v3",
+                    symbol="USDC",
+                    tvl_usd=1_000_000.0,
+                    apy=5.0,
+                    observed_at=now,
+                    raw={"pool": "Ethereum Aave/V3:USDC"},
+                )
+            ),
+        ]
+    )
+
+    report = run_stored_research_loop(
+        db_path,
+        run_id="defi-watchlist-run",
+        include_validation=True,
+        strategy_family="defi_yield_regime_watchlist",
+    )
+
+    summary = report.validation_summaries[0]
+    loaded = ValidationEvidenceLedger(db_path).load_evidence(run_id="defi-watchlist-run")
+    assert summary.strategy_family == "defi_yield_regime_watchlist"
+    assert summary.validator_name == "defi_yield_regime"
+    assert len(loaded) == 0
+    assert summary.status in {"passed", "blocked"}
+    assert "missing_strategy_validation_parameters" not in summary.blocked_reasons
+    assert "strategy_validation_error" not in summary.blocked_reasons
+
+
+def test_cli_research_loop_defi_watchlist_does_not_require_funding_params(
+    capsys,
+    tmp_path,
+):
+    db_path = tmp_path / "research.sqlite"
+    store = ResearchDataStore(db_path)
+    now = datetime.now(tz=UTC).replace(minute=0, second=0, microsecond=0)
+    store.upsert_records(
+        [
+            _defi_yield_record(
+                DefiYieldSnapshot(
+                    source="defillama",
+                    chain="Ethereum",
+                    project="aave-v3",
+                    symbol="USDC",
+                    tvl_usd=1_000_000.0,
+                    apy=3.0,
+                    observed_at=now - timedelta(hours=1),
+                    raw={"pool": "Ethereum Aave/V3:USDC"},
+                )
+            ),
+            _defi_yield_record(
+                DefiYieldSnapshot(
+                    source="defillama",
+                    chain="Ethereum",
+                    project="aave-v3",
+                    symbol="USDC",
+                    tvl_usd=1_000_000.0,
+                    apy=5.0,
+                    observed_at=now,
+                    raw={"pool": "Ethereum Aave/V3:USDC"},
+                )
+            ),
+        ]
+    )
+
+    exit_code = main(
+        [
+            "research-loop",
+            "--db",
+            str(db_path),
+            "--include-validation",
+            "--strategy-family",
+            "defi_yield_regime_watchlist",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    summary = payload["report"]["validation_summaries"][0]
+    assert exit_code == 0
+    assert summary["strategy_family"] == "defi_yield_regime_watchlist"
+    assert summary["validator_name"] == "defi_yield_regime"
+    assert summary["status"] in {"passed", "blocked"}
+    assert "missing_strategy_validation_parameters" not in summary["blocked_reasons"]
+
+
+def test_cli_research_loop_funding_strategy_still_requires_funding_params(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    store = ResearchDataStore(db_path)
+    store.upsert_records(
+        [
+            _candle(0, 100.0).to_source_record(),
+            _candle(1, 101.0).to_source_record(),
+        ]
+    )
+
+    with pytest.raises(SystemExit):
+        main(
+            [
+                "research-loop",
+                "--db",
+                str(db_path),
+                "--include-validation",
+                "--strategy-family",
+                "funding_extremity_price_confirmation",
+            ]
+        )
 
 
 def test_direct_research_loop_strategy_validation_error_blocks(tmp_path):

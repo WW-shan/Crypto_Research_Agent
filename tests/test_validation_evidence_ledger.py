@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import json
 import sqlite3
 
 import pytest
 
-from crypto_alpha_agent.data.models import FundingRateRecord, MarketCandle, SourceRecord
+from crypto_alpha_agent.data.models import (
+    DefiYieldSnapshot,
+    FundingRateRecord,
+    MarketCandle,
+    SourceRecord,
+)
 from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.evidence.models import ValidationEvidence
 from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
@@ -85,6 +90,20 @@ def _write_funding_price_fixture(db_path, *, include_funding: bool = True) -> No
                 for item in [_funding(1, 0.0008), _funding(4, -0.0009), _funding(6, 0.0007)]
             ]
         )
+
+
+def _defi_yield_record(snapshot: DefiYieldSnapshot) -> SourceRecord:
+    safe_symbol = snapshot.symbol.replace("/", "")
+    return SourceRecord(
+        record_id=(
+            f"{snapshot.source}:{snapshot.chain}:{snapshot.project}:{safe_symbol}:"
+            f"{snapshot.observed_at.isoformat()}"
+        ),
+        source=snapshot.source,
+        record_type="defi_yield",
+        observed_at=snapshot.observed_at,
+        payload=snapshot.model_dump(mode="json"),
+    )
 
 
 def test_validation_ledger_upsert_load_round_trip(tmp_path):
@@ -316,6 +335,56 @@ def test_research_loop_writes_registered_strategy_validation_evidence(tmp_path):
     assert loaded[0].timeframe == "1h"
     assert loaded[0].approved is (report.validation_summaries[0].status == "passed")
     assert loaded[0].blocked_reasons == tuple(report.validation_summaries[0].blocked_reasons)
+
+
+def test_research_loop_does_not_persist_approved_watchlist_validation_without_walk_forward(
+    tmp_path,
+):
+    db_path = tmp_path / "research.sqlite"
+    store = ResearchDataStore(db_path)
+    now = datetime.now(tz=UTC).replace(minute=0, second=0, microsecond=0)
+    store.upsert_records(
+        [
+            _defi_yield_record(
+                DefiYieldSnapshot(
+                    source="defillama",
+                    chain="Ethereum",
+                    project="aave-v3",
+                    symbol="USDC",
+                    tvl_usd=1_000_000.0,
+                    apy=3.0,
+                    observed_at=now - timedelta(hours=1),
+                    raw={"pool": "Ethereum Aave/V3:USDC"},
+                )
+            ),
+            _defi_yield_record(
+                DefiYieldSnapshot(
+                    source="defillama",
+                    chain="Ethereum",
+                    project="aave-v3",
+                    symbol="USDC",
+                    tvl_usd=1_000_000.0,
+                    apy=5.0,
+                    observed_at=now,
+                    raw={"pool": "Ethereum Aave/V3:USDC"},
+                )
+            ),
+        ]
+    )
+
+    report = run_stored_research_loop(
+        db_path,
+        run_id="defi-watchlist-validation-run",
+        include_validation=True,
+        strategy_family="defi_yield_regime_watchlist",
+    )
+
+    loaded = ValidationEvidenceLedger(db_path).load_evidence(
+        run_id="defi-watchlist-validation-run"
+    )
+    assert len(report.validation_summaries) == 1
+    assert report.validation_summaries[0].strategy_family == "defi_yield_regime_watchlist"
+    assert loaded == []
 
 
 def test_research_loop_does_not_write_unknown_strategy_validation_evidence(tmp_path):

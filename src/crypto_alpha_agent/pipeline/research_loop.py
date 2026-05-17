@@ -205,10 +205,17 @@ def _validation_summaries(
                 )
             )
             return [_summary_from_strategy_validation_report(report)]
+        spec = registry.get(normalized_strategy_family)
+        requires_funding_parameters = _requires_funding_validation_parameters(
+            spec.required_record_types
+        )
         if (
-            normalized_price_symbol is None
-            or normalized_funding_symbol is None
-            or normalized_timeframe is None
+            requires_funding_parameters
+            and (
+                normalized_price_symbol is None
+                or normalized_funding_symbol is None
+                or normalized_timeframe is None
+            )
         ):
             return [
                 _blocked_strategy_validation_summary(
@@ -220,23 +227,27 @@ def _validation_summaries(
                 )
             ]
 
+        parameters: dict[str, object] = {}
+        if requires_funding_parameters:
+            parameters = {
+                "db_path": str(db_path),
+                "price_symbol": normalized_price_symbol,
+                "funding_symbol": normalized_funding_symbol,
+                "timeframe": normalized_timeframe,
+                "threshold_abs": threshold_abs,
+                "hold_bars": hold_bars,
+                "fee_rate": fee_rate,
+                "slippage_rate": slippage_rate,
+                "min_trades": min_trades,
+            }
+
         try:
             report = registry.validate(
                 StrategyValidationRequest(
                     strategy_family=normalized_strategy_family,
                     records=[record.model_dump(mode="json") for record in records],
                     current_capital_usd=current_capital_usd,
-                    parameters={
-                        "db_path": str(db_path),
-                        "price_symbol": normalized_price_symbol,
-                        "funding_symbol": normalized_funding_symbol,
-                        "timeframe": normalized_timeframe,
-                        "threshold_abs": threshold_abs,
-                        "hold_bars": hold_bars,
-                        "fee_rate": fee_rate,
-                        "slippage_rate": slippage_rate,
-                        "min_trades": min_trades,
-                    },
+                    parameters=parameters,
                 )
             )
         except ValueError:
@@ -273,6 +284,12 @@ def _validation_summaries(
             )
         )
     return summaries
+
+
+def _requires_funding_validation_parameters(
+    required_record_types: tuple[str, ...],
+) -> bool:
+    return {"market_candle", "funding_rate"}.issubset(set(required_record_types))
 
 
 def _paper_evidence_packages(db_path: str | Path) -> list[PaperEvidencePackage]:
@@ -376,6 +393,8 @@ def _validation_evidence_from_summary(
 
 
 def _should_persist_validation_evidence(summary: ValidationSummary) -> bool:
+    if summary.status == "passed" and not summary.walk_forward_split_count:
+        return False
     return (
         not summary.baseline_only
         and summary.validator_name != "unknown"
