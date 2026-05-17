@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime
 import json
 from pathlib import Path
 from typing import Literal
@@ -11,6 +12,7 @@ from crypto_alpha_agent.agents.anomaly import AnomalyDetector, RankedAnomaly
 from crypto_alpha_agent.agents.hypothesis import AlphaHypothesis, HypothesisGenerator
 from crypto_alpha_agent.agents.scanner import ScannerSignal
 from crypto_alpha_agent.data.models import MarketCandle, RecordType, SourceRecord
+from crypto_alpha_agent.data.quality import DataQualityReport, build_data_quality_report
 from crypto_alpha_agent.data.scanner_bridge import records_to_scanner_signals
 from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
@@ -58,6 +60,7 @@ class ResearchLoopReport(BaseModel):
     notes: list[str]
     validation_summaries: list[ValidationSummary] = Field(default_factory=list)
     paper_evidence_packages: list[PaperEvidencePackage] = Field(default_factory=list)
+    data_quality_reports: list[DataQualityReport] = Field(default_factory=list)
 
 
 def run_stored_research_loop(
@@ -70,6 +73,7 @@ def run_stored_research_loop(
     run_id: str | None = None,
     include_validation: bool = False,
     include_paper_evidence: bool = False,
+    data_quality_now: datetime | None = None,
 ) -> ResearchLoopReport:
     store = ResearchDataStore(db_path)
     records = store.load_records(record_type=record_type, source=source)
@@ -106,6 +110,7 @@ def run_stored_research_loop(
         paper_evidence_packages=(
             _paper_evidence_packages(db_path) if include_paper_evidence else []
         ),
+        data_quality_reports=[build_data_quality_report(records, now=data_quality_now)],
     )
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -79,9 +80,33 @@ def ingest_binance_public_month(
         raise ValueError("allow_network is required for Binance Public Data ingestion")
 
     binance_client = client or BinancePublicDataClient()
-    candles = binance_client.download_monthly_spot_klines(symbol, interval, year, month)
-    records = [candle.to_source_record() for candle in candles]
-    records_written = ResearchDataStore(db_path).upsert_records(records)
+    store = ResearchDataStore(db_path)
+    try:
+        candles = binance_client.download_monthly_spot_klines(symbol, interval, year, month)
+        records = [candle.to_source_record() for candle in candles]
+        records_written = store.upsert_records(records)
+    except Exception as exc:
+        _write_source_health(
+            store,
+            source="binance_public",
+            feed="ohlcv",
+            success=False,
+            attempts=1,
+            failure=str(exc),
+            records_fetched=0,
+            records_written=0,
+        )
+        raise
+    _write_source_health(
+        store,
+        source="binance_public",
+        feed="ohlcv",
+        success=True,
+        attempts=1,
+        failure=None,
+        records_fetched=len(candles),
+        records_written=records_written,
+    )
 
     return IngestionSummary(
         source="binance_public",
@@ -120,13 +145,37 @@ def ingest_dexscreener_pairs(
         raise ValueError("DexScreener ingestion accepts query or token lookup, not both")
 
     dex_client = client or DexScreenerClient()
-    if normalized_query is not None:
-        pairs = dex_client.search_pairs(normalized_query)
-    else:
-        pairs = dex_client.pairs_by_token_addresses(normalized_chain, normalized_token_addresses)
+    store = ResearchDataStore(db_path)
+    try:
+        if normalized_query is not None:
+            pairs = dex_client.search_pairs(normalized_query)
+        else:
+            pairs = dex_client.pairs_by_token_addresses(normalized_chain, normalized_token_addresses)
 
-    records = [_dex_pair_to_source_record(pair) for pair in pairs]
-    records_written = ResearchDataStore(db_path).upsert_records(records)
+        records = [_dex_pair_to_source_record(pair) for pair in pairs]
+        records_written = store.upsert_records(records)
+    except Exception as exc:
+        _write_source_health(
+            store,
+            source="dexscreener",
+            feed="pairs",
+            success=False,
+            attempts=1,
+            failure=str(exc),
+            records_fetched=0,
+            records_written=0,
+        )
+        raise
+    _write_source_health(
+        store,
+        source="dexscreener",
+        feed="pairs",
+        success=True,
+        attempts=1,
+        failure=None,
+        records_fetched=len(pairs),
+        records_written=records_written,
+    )
     return ResearchFeedIngestionSummary(
         source="dexscreener",
         db_path=str(db_path),
@@ -150,9 +199,33 @@ def ingest_defillama_yield_pools(
         raise ValueError("allow_network is required for DefiLlama ingestion")
 
     defillama_client = client or DefiLlamaResearchClient()
-    pools = defillama_client.yield_pools(min_tvl_usd=min_tvl_usd)
-    records = [_defi_yield_to_source_record(pool) for pool in pools]
-    records_written = ResearchDataStore(db_path).upsert_records(records)
+    store = ResearchDataStore(db_path)
+    try:
+        pools = defillama_client.yield_pools(min_tvl_usd=min_tvl_usd)
+        records = [_defi_yield_to_source_record(pool) for pool in pools]
+        records_written = store.upsert_records(records)
+    except Exception as exc:
+        _write_source_health(
+            store,
+            source="defillama",
+            feed="yield_pools",
+            success=False,
+            attempts=1,
+            failure=str(exc),
+            records_fetched=0,
+            records_written=0,
+        )
+        raise
+    _write_source_health(
+        store,
+        source="defillama",
+        feed="yield_pools",
+        success=True,
+        attempts=1,
+        failure=None,
+        records_fetched=len(pools),
+        records_written=records_written,
+    )
     return ResearchFeedIngestionSummary(
         source="defillama",
         db_path=str(db_path),
@@ -180,15 +253,39 @@ def ingest_ccxt_ohlcv(
         raise ValueError("allow_network is required for CCXT ingestion")
 
     ccxt_collector = collector or CcxtResearchCollector(exchange_id=exchange_id)
-    candles = ccxt_collector.fetch_ohlcv(
-        symbol,
-        timeframe,
-        since=since,
-        limit=limit,
-        params=None,
+    store = ResearchDataStore(db_path)
+    try:
+        candles = ccxt_collector.fetch_ohlcv(
+            symbol,
+            timeframe,
+            since=since,
+            limit=limit,
+            params=None,
+        )
+        records = [_ccxt_ohlcv_to_source_record(candle) for candle in candles]
+        records_written = store.upsert_records(records)
+    except Exception as exc:
+        _write_source_health(
+            store,
+            source="ccxt",
+            feed="ohlcv",
+            success=False,
+            attempts=1,
+            failure=str(exc),
+            records_fetched=0,
+            records_written=0,
+        )
+        raise
+    _write_source_health(
+        store,
+        source="ccxt",
+        feed="ohlcv",
+        success=True,
+        attempts=1,
+        failure=None,
+        records_fetched=len(candles),
+        records_written=records_written,
     )
-    records = [_ccxt_ohlcv_to_source_record(candle) for candle in candles]
-    records_written = ResearchDataStore(db_path).upsert_records(records)
     return CcxtIngestionSummary(
         source="ccxt",
         db_path=str(db_path),
@@ -216,14 +313,38 @@ def ingest_ccxt_funding_rate_history(
         raise ValueError("allow_network is required for CCXT ingestion")
 
     ccxt_collector = collector or CcxtResearchCollector(exchange_id=exchange_id)
-    funding_history = ccxt_collector.fetch_funding_rate_history(
-        symbol,
-        since=since,
-        limit=limit,
-        params=None,
+    store = ResearchDataStore(db_path)
+    try:
+        funding_history = ccxt_collector.fetch_funding_rate_history(
+            symbol,
+            since=since,
+            limit=limit,
+            params=None,
+        )
+        records = [_funding_rate_to_source_record(record) for record in funding_history]
+        records_written = store.upsert_records(records)
+    except Exception as exc:
+        _write_source_health(
+            store,
+            source="ccxt",
+            feed="funding_rate_history",
+            success=False,
+            attempts=1,
+            failure=str(exc),
+            records_fetched=0,
+            records_written=0,
+        )
+        raise
+    _write_source_health(
+        store,
+        source="ccxt",
+        feed="funding_rate_history",
+        success=True,
+        attempts=1,
+        failure=None,
+        records_fetched=len(funding_history),
+        records_written=records_written,
     )
-    records = [_funding_rate_to_source_record(record) for record in funding_history]
-    records_written = ResearchDataStore(db_path).upsert_records(records)
     return CcxtIngestionSummary(
         source="ccxt",
         db_path=str(db_path),
@@ -355,3 +476,40 @@ def _has_identity_value(value: Any) -> bool:
     if isinstance(value, list | dict | tuple | set):
         return bool(value)
     return True
+
+
+def _write_source_health(
+    store: ResearchDataStore,
+    *,
+    source: str,
+    feed: str,
+    success: bool,
+    attempts: int,
+    failure: str | None,
+    records_fetched: int,
+    records_written: int,
+) -> None:
+    observed_at = datetime.now(tz=UTC)
+    payload = {
+        "source": source,
+        "feed": feed,
+        "success": success,
+        "attempts": attempts,
+        "failure": failure,
+        "observed_at": observed_at.isoformat(),
+        "records_fetched": records_fetched,
+        "records_written": records_written,
+    }
+    safe_source = _research_safe_component(source)
+    safe_feed = _research_safe_component(feed)
+    store.upsert_records(
+        [
+            SourceRecord(
+                record_id=f"{safe_source}:{safe_feed}:source_health:{observed_at.isoformat()}",
+                source=source,
+                record_type="source_health",
+                observed_at=observed_at,
+                payload=payload,
+            )
+        ]
+    )

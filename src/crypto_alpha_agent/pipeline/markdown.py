@@ -139,6 +139,48 @@ def render_research_loop_markdown(report: ResearchLoopReport) -> str:
     lines.extend(
         [
             "",
+            "## Data Quality",
+        ]
+    )
+    quality_reports = report.data_quality_reports
+    if quality_reports:
+        lines.extend(
+            [
+                "| Reason | Severity | Source | Record type | Semantic key | Observed at | Message |",
+                "| --- | --- | --- | --- | --- | --- | --- |",
+            ]
+        )
+        issue_count = 0
+        for quality_report in quality_reports:
+            for issue in quality_report.issues:
+                issue_count += 1
+                lines.append(
+                    "| "
+                    + " | ".join(
+                        [
+                            _escape_table_cell(issue.reason_code),
+                            _escape_table_cell(issue.severity),
+                            _escape_table_cell(issue.source),
+                            _escape_table_cell(issue.record_type),
+                            _escape_table_cell(issue.semantic_key),
+                            _escape_table_cell(
+                                "n/a"
+                                if issue.observed_at is None
+                                else issue.observed_at.isoformat()
+                            ),
+                            _escape_table_cell(issue.message),
+                        ]
+                    )
+                    + " |"
+                )
+        if issue_count == 0:
+            lines.append("| none | none | none | none | none | n/a | No data quality issues. |")
+    else:
+        lines.append("No data quality report attached.")
+
+    lines.extend(
+        [
+            "",
             "## Notes",
         ]
     )
