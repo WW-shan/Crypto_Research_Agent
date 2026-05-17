@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from collections import Counter, defaultdict
+from datetime import datetime
+import math
 from pathlib import Path
 from typing import Any
 
@@ -22,9 +25,35 @@ _DEGRADED_MARKERS = {
     "degraded",
     "degraded_expectancy",
     "fee_killed_edge",
+    "slippage_killed_edge",
+    "insufficient_evidence_progress",
+    "too_many_blocked_runs",
     "negative_expectancy",
 }
 _FAILED_STATUSES = {"failed", "rejected", "blocked"}
+_PAPER_EXPECTANCY_STATUSES = {"closed", "failed"}
+_BLOCKED_OUTCOME_LIMIT = 3
+
+
+class StrategyFamilyDegradationDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+
+    strategy_family: str
+    degraded: bool
+    reason_codes: list[str] = Field(default_factory=list)
+    rolling_paper_expectancy: float | None = None
+    paper_outcome_count: int = Field(ge=0)
+    blocked_outcome_count: int = Field(ge=0)
+    validation_evidence_count: int = Field(ge=0)
+
+
+class StrategyDegradationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+
+    degraded: bool
+    strategy_families: list[str] = Field(default_factory=list)
+    reason_codes: list[str] = Field(default_factory=list)
+    family_decisions: list[StrategyFamilyDegradationDecision] = Field(default_factory=list)
 
 
 class FamilyEvidenceSummary(BaseModel):
@@ -223,6 +252,108 @@ def build_weekly_evidence_report(
     )
 
 
+def detect_strategy_degradation(
+    outcomes: Iterable[Any],
+    validation_evidence: Iterable[Any],
+    window: int = 10,
+) -> StrategyDegradationResult:
+    if window <= 0:
+        raise ValueError("window must be positive")
+
+    outcome_list = list(outcomes)
+    validation_list = list(validation_evidence)
+    families = sorted(
+        {
+            *[
+                family
+                for item in outcome_list
+                for family in [_item_strategy_family(item)]
+                if family is not None
+            ],
+            *[
+                family
+                for item in validation_list
+                for family in [_item_strategy_family(item)]
+                if family is not None
+            ],
+        }
+    )
+
+    decisions = [
+        _strategy_family_degradation_decision(
+            family,
+            outcomes=[item for item in outcome_list if _item_strategy_family(item) == family],
+            validation_evidence=[
+                item for item in validation_list if _item_strategy_family(item) == family
+            ],
+            window=window,
+        )
+        for family in families
+    ]
+    degraded_families = [
+        decision.strategy_family
+        for decision in decisions
+        if decision.degraded
+    ]
+    return StrategyDegradationResult(
+        degraded=bool(degraded_families),
+        strategy_families=degraded_families,
+        reason_codes=_dedupe(
+            reason
+            for decision in decisions
+            for reason in decision.reason_codes
+        ),
+        family_decisions=decisions,
+    )
+
+
+def mark_family_degraded(
+    strategy_family: str,
+    reason_codes: Iterable[str],
+    memory_path: str | Path | None = None,
+) -> MemoryRecord:
+    family = strategy_family.strip()
+    if not family:
+        raise ValueError("strategy_family cannot be blank")
+
+    reasons = _dedupe(str(reason).strip() for reason in reason_codes if str(reason).strip())
+    if not reasons:
+        reasons = ["degraded"]
+    record = MemoryRecord(
+        record_id=f"degraded:{family}",
+        opportunity={"strategy_family": family},
+        hypothesis={
+            "decision": "strategy_family_degraded",
+            "reason_codes": reasons,
+        },
+        score={
+            "degraded": True,
+            "reason_codes": reasons,
+        },
+        rejected_reasons=reasons,
+        tags=_dedupe([family, "degraded", *reasons]),
+    )
+    if memory_path is None:
+        return record
+    return MemoryStore(memory_path).upsert(record)
+
+
+def load_stopped_strategy_families(memory_path: str | Path | None) -> list[str]:
+    if memory_path is None:
+        return []
+    path = Path(memory_path)
+    if not path.exists():
+        return []
+    families = {
+        family
+        for record in MemoryStore(path).list_records()
+        if _has_degraded_marker(record)
+        for family in [_record_strategy_family(record)]
+        if family is not None
+    }
+    return sorted(families)
+
+
 def _normalize_families(strategy_families: list[str] | None) -> list[str]:
     if not strategy_families:
         return []
@@ -335,8 +466,133 @@ def _should_stop_family(
 
 
 def _has_degraded_marker(record: MemoryRecord) -> bool:
-    tokens = {*record.tags, *record.rejected_reasons}
+    tokens = {
+        str(token).strip().lower()
+        for token in [*record.tags, *record.rejected_reasons]
+        if str(token).strip()
+    }
     return bool(tokens.intersection(_DEGRADED_MARKERS))
+
+
+def _strategy_family_degradation_decision(
+    family: str,
+    *,
+    outcomes: list[Any],
+    validation_evidence: list[Any],
+    window: int,
+) -> StrategyFamilyDegradationDecision:
+    recent_outcomes = _latest_items(outcomes, window)
+    expectancy_outcomes = [
+        item
+        for item in _latest_items(outcomes, len(outcomes) or 1)
+        if _item_status(item) in _PAPER_EXPECTANCY_STATUSES
+    ][-window:]
+    paper_pnls = [
+        value
+        for item in expectancy_outcomes
+        for value in [_finite_float_field(item, "net_pnl_usd")]
+        if value is not None
+    ]
+    rolling_expectancy = (
+        sum(paper_pnls) / len(paper_pnls)
+        if paper_pnls
+        else None
+    )
+    blocked_outcome_count = sum(
+        1
+        for item in recent_outcomes
+        if _item_status(item) == "blocked"
+    )
+
+    reasons: list[str] = []
+    if rolling_expectancy is not None and rolling_expectancy < 0.0:
+        reasons.append("degraded_expectancy")
+    if blocked_outcome_count >= _BLOCKED_OUTCOME_LIMIT:
+        reasons.extend(["insufficient_evidence_progress", "too_many_blocked_runs"])
+    if any(_fee_killed_edge(item) for item in validation_evidence):
+        reasons.append("fee_killed_edge")
+    if any(_slippage_killed_edge(item) for item in validation_evidence):
+        reasons.append("slippage_killed_edge")
+
+    deduped_reasons = _dedupe(reasons)
+    return StrategyFamilyDegradationDecision(
+        strategy_family=family,
+        degraded=bool(deduped_reasons),
+        reason_codes=deduped_reasons,
+        rolling_paper_expectancy=rolling_expectancy,
+        paper_outcome_count=len(paper_pnls),
+        blocked_outcome_count=blocked_outcome_count,
+        validation_evidence_count=len(validation_evidence),
+    )
+
+
+def _item_strategy_family(item: Any) -> str | None:
+    value = _field_value(item, "strategy_family")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _item_status(item: Any) -> str | None:
+    value = _field_value(item, "status")
+    if value is None:
+        return None
+    return str(value).strip().lower()
+
+
+def _latest_items(items: list[Any], window: int) -> list[Any]:
+    return sorted(
+        items,
+        key=lambda item: (_item_observed_at(item), str(_field_value(item, "outcome_id") or "")),
+    )[-window:]
+
+
+def _item_observed_at(item: Any) -> datetime:
+    value = _field_value(item, "observed_at")
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return datetime.min
+    return datetime.min
+
+
+def _fee_killed_edge(item: Any) -> bool:
+    gross = _finite_float_field(item, "gross_expectancy")
+    fee_adjusted = _finite_float_field(item, "fee_adjusted_expectancy")
+    return gross is not None and fee_adjusted is not None and gross > 0.0 and fee_adjusted <= 0.0
+
+
+def _slippage_killed_edge(item: Any) -> bool:
+    gross = _finite_float_field(item, "gross_expectancy")
+    slippage_adjusted = _finite_float_field(item, "slippage_adjusted_expectancy")
+    return (
+        gross is not None
+        and slippage_adjusted is not None
+        and gross > 0.0
+        and slippage_adjusted <= 0.0
+    )
+
+
+def _field_value(item: Any, field: str) -> Any:
+    if isinstance(item, BaseModel):
+        return getattr(item, field, None)
+    if isinstance(item, Mapping):
+        return item.get(field)
+    return getattr(item, field, None)
+
+
+def _finite_float_field(item: Any, field: str) -> float | None:
+    value = _field_value(item, field)
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return numeric if math.isfinite(numeric) else None
 
 
 def _family_summary(
@@ -449,7 +705,7 @@ def _weekly_reason_codes(
     return _dedupe(codes)
 
 
-def _dedupe(values: list[str]) -> list[str]:
+def _dedupe(values: Iterable[str]) -> list[str]:
     deduped: list[str] = []
     seen: set[str] = set()
     for value in values:
