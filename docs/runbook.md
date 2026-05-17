@@ -2,6 +2,12 @@
 
 This system is safe-by-default for local operation. The CLI commands below are deterministic and offline unless a later live gate explicitly changes that behavior.
 
+Current implementation status: the first strategy family has an implemented
+funding-plus-price validator and a hard walk-forward gate before paper evidence
+consideration. Before the complete autonomous evidence system plan, the
+scheduler remains dry-run only; active work is now the complete autonomous
+evidence system.
+
 ## Setup
 
 1. Use Python 3.12.

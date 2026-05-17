@@ -21,6 +21,10 @@ tracked in [`docs/roadmap.md`](docs/roadmap.md).
 In short: this project optimizes for low-capital crypto alpha research, not
 speed arbitrage. The default workflow is real data ingestion, validation,
 reflection, reporting, and paper evidence before any live trading discussion.
+The first strategy family has an implemented funding-plus-price validator and a
+hard walk-forward gate. Before the complete autonomous evidence system plan, the
+scheduler remains dry-run only; active work is now the complete autonomous
+evidence system.
 
 ## Low-Capital Real Data Ingestion
 
@@ -55,3 +59,21 @@ This command pulls public historical data only. It writes local SQLite records,
 generates research-only hypotheses, and writes the optional Markdown report when
 `--report-out` is provided. It submits no orders, reads no wallet keys, and uses
 no real capital.
+
+## Safe Research And Paper Memory Workflow
+
+Use this current workflow to collect OHLCV price candles and funding-rate
+history, run the paper loop so it writes ledger and memory, then generate a
+research report with validation and paper evidence:
+
+```bash
+uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source ccxt --allow-network --ccxt-feed ohlcv --symbol BTC/USDT --timeframe 1h --limit 100
+uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source ccxt --allow-network --ccxt-feed funding-rate-history --symbol BTC/USDT:USDT --limit 100
+uv run --extra dev crypto-alpha-agent paper-sim-loop --db var/research.sqlite --strategy-family funding_extremity_price_confirmation --price-symbol BTC/USDT --funding-symbol BTC/USDT:USDT --timeframe 1h --memory var/memory.jsonl
+uv run --extra dev crypto-alpha-agent research-loop --db var/research.sqlite --include-validation --include-paper-evidence --report-out var/reports/daily.md
+```
+
+The paper simulation loop needs both OHLCV price bars and funding history. These
+commands collect public research data, produce local reports, and persist paper
+evidence memory records; they do not touch wallets, live order routing, or real
+capital.

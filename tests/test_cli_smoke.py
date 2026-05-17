@@ -60,6 +60,19 @@ def _write_event_log(path: Path) -> None:
     )
 
 
+def test_repo_ignores_local_macos_and_cache_artifacts():
+    ignore_text = Path(".gitignore").read_text(encoding="utf-8")
+
+    assert ".DS_Store" in ignore_text
+    assert ".ruff_cache/" in ignore_text
+    assert ".venv/" in ignore_text
+    assert ".env" in ignore_text
+    assert ".env.*" in ignore_text
+    assert "!.env.example" in ignore_text
+    assert "var/" in ignore_text
+    assert "*.pyc" in ignore_text
+
+
 def test_cli_help_lists_operator_commands():
     result = _run_cli("--help")
 

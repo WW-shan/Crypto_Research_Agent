@@ -43,7 +43,10 @@ Implemented:
   - Persisted candle history loader for stored market candles.
   - Conservative close-momentum validator over stored candle bars.
   - Funding-rate extremity validator for stored funding records.
+  - Funding-plus-price validator for the first strategy family.
   - Walk-forward train/test window utility.
+  - Hard walk-forward gate for the first strategy family before paper evidence
+    consideration.
   - Optional `--include-validation` research-loop summaries in JSON and
     Markdown reports.
 - Closed-loop MVP foundations:
@@ -67,6 +70,8 @@ Known limits:
 - Paper simulation, outcome ledger, evidence reporting, and memory feedback
   foundations exist, but longer paper evidence collection is still required
   before any live review.
+- Before the complete autonomous evidence system plan, the scheduler remains
+  dry-run only.
 - There is no live execution path, no wallet-key access, no exchange order
   routing, and the system should not deploy capital.
 
@@ -117,8 +122,8 @@ Delivered:
   drawdown, and fee/slippage-adjusted expectancy.
 - Stored funding-rate records can be summarized for positive and negative
   funding extremes.
-- Walk-forward train/test windows are available for future out-of-sample
-  validation.
+- The first strategy family has an implemented funding-plus-price validator and
+  a hard walk-forward gate before paper evidence consideration.
 - `research-loop --include-validation` can attach historical validation
   summaries to JSON and Markdown reports.
 
@@ -140,9 +145,8 @@ Completion standard:
 
 Remaining Phase 2 gaps:
 
-- Apply walk-forward checks to validators rather than only exposing window
-  generation.
-- Add a funding-plus-price combined validator instead of separate summaries.
+- Extend combined validators and hard walk-forward gates beyond the first
+  funding-plus-price strategy family.
 - Persist validation failures and lessons into memory.
 - Add enough strategy-family evidence before any paper-trading gate is
   considered.
@@ -236,11 +240,13 @@ Completion standard:
 
 ## Active Next Step
 
-The active slice now includes the paper simulation loop, paper outcome ledger,
-paper evidence reports, and paper evidence memory feedback. The next practical
-work is to collect more evidence over time and expand only where it improves
-slow-to-medium frequency research. Do not pivot to speed arbitrage, MEV,
-premium infrastructure, high-capital strategies, or live trading.
+The active work is now the complete autonomous evidence system. The first
+strategy family already has a funding-plus-price validator and hard
+walk-forward gate, while the scheduler remains a local dry-run planning surface
+until this plan replaces that gap. The next practical work is to collect more
+evidence over time and expand only where it improves slow-to-medium frequency
+research. Do not pivot to speed arbitrage, MEV, premium infrastructure,
+high-capital strategies, or live trading.
 
 Recommended next slice:
 
