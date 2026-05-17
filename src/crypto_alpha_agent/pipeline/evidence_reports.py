@@ -122,6 +122,9 @@ def build_daily_evidence_report(
     validation_evidence = _load_validation_evidence(db_path, families)
     paper_outcomes = _load_paper_outcomes(db_path, families)
     paper_packages = aggregate_paper_evidence(_paper_evidence_mapping(outcome) for outcome in paper_outcomes)
+    degradation = detect_strategy_degradation(paper_outcomes, validation_evidence)
+    if degradation.degraded:
+        _persist_degradation_decisions(degradation, memory_path, families)
     memory_records = _filtered_memory_records(MemoryStore(memory_path).list_records(), families)
     data_quality_report = build_data_quality_report(ResearchDataStore(db_path).load_records())
     next_experiments = plan_next_experiments(
@@ -177,6 +180,9 @@ def build_weekly_evidence_report(
     validation_evidence = ValidationEvidenceLedger(db_path).load_evidence()
     paper_outcomes = PaperOutcomeLedger(db_path).load_outcomes()
     paper_packages = aggregate_paper_evidence(_paper_evidence_mapping(outcome) for outcome in paper_outcomes)
+    degradation = detect_strategy_degradation(paper_outcomes, validation_evidence)
+    if degradation.degraded:
+        _persist_degradation_decisions(degradation, memory_path)
     memory_records = MemoryStore(memory_path).list_records()
     families = sorted(
         {
@@ -338,6 +344,28 @@ def mark_family_degraded(
     if memory_path is None:
         return record
     return MemoryStore(memory_path).upsert(record)
+
+
+def _persist_degradation_decisions(
+    degradation: StrategyDegradationResult,
+    memory_path: str | Path,
+    families: list[str] | None = None,
+) -> list[MemoryRecord]:
+    family_filter = set(families or [])
+    stored: list[MemoryRecord] = []
+    for decision in degradation.family_decisions:
+        if not decision.degraded:
+            continue
+        if family_filter and decision.strategy_family not in family_filter:
+            continue
+        stored.append(
+            mark_family_degraded(
+                decision.strategy_family,
+                decision.reason_codes,
+                memory_path=memory_path,
+            )
+        )
+    return stored
 
 
 def record_stopped_family_override_used(
@@ -726,6 +754,7 @@ def _daily_reason_codes(
         codes.append("stopped_family_override_used")
     if _memory_records_include(memory_records, "stopped_family_skipped"):
         codes.append("stopped_family_skipped")
+    codes.extend(_memory_degradation_reason_codes(memory_records))
     if should_collect_more_data:
         codes.append("collect_more_data")
     return _dedupe(codes)
@@ -769,4 +798,13 @@ def _memory_records_include(records: list[MemoryRecord], token: str) -> bool:
             and token in [str(value) for value in record.score.get("notes", [])]
         )
         for record in records
+    )
+
+
+def _memory_degradation_reason_codes(records: list[MemoryRecord]) -> list[str]:
+    return _dedupe(
+        reason
+        for record in records
+        for reason in record.rejected_reasons
+        if reason in _DEGRADED_MARKERS
     )

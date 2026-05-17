@@ -85,6 +85,36 @@ def test_daily_report_counts_candidates_outcomes_quality_and_next_experiments(tm
     assert "Close to tiny-live review: false" in markdown
 
 
+def test_daily_report_marks_fresh_degraded_evidence_as_stopped_memory(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "memory.jsonl"
+    ValidationEvidenceLedger(db_path).upsert_evidence(
+        [
+            _validation(
+                "validation-degraded-drawdown",
+                approved=True,
+                trade_count=30,
+                max_drawdown=0.35,
+            )
+        ]
+    )
+
+    report = build_daily_evidence_report(
+        db_path=db_path,
+        memory_path=memory_path,
+        strategy_families=[STRATEGY_FAMILY],
+    )
+    memory_records = MemoryStore(memory_path).list_records()
+
+    assert report.should_stop_family is True
+    assert "drawdown_breach" in report.reason_codes
+    assert any(
+        record.record_id == f"degraded:{STRATEGY_FAMILY}"
+        and "drawdown_breach" in record.rejected_reasons
+        for record in memory_records
+    )
+
+
 def test_weekly_report_summarizes_rejections_improvement_degradation_and_sample_progress(tmp_path):
     db_path = tmp_path / "research.sqlite"
     memory_path = tmp_path / "memory.jsonl"
@@ -247,6 +277,7 @@ def _validation(
     strategy_family: str = STRATEGY_FAMILY,
     approved: bool,
     trade_count: int,
+    max_drawdown: float = 0.05,
     blocked_reasons: tuple[str, ...] = (),
 ) -> ValidationEvidence:
     return ValidationEvidence(
@@ -260,7 +291,7 @@ def _validation(
         gross_expectancy=0.02 if approved else -0.02,
         fee_adjusted_expectancy=0.015 if approved else -0.03,
         slippage_adjusted_expectancy=0.01 if approved else -0.04,
-        max_drawdown=0.05,
+        max_drawdown=max_drawdown,
         walk_forward_split_count=3 if approved else 0,
         walk_forward_pass_rate=0.67 if approved else 0.0,
         approved=approved,
