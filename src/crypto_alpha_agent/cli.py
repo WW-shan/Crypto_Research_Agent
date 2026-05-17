@@ -20,11 +20,16 @@ from crypto_alpha_agent.data.onchain_ingestion import (
     ingest_thegraph_query_result,
 )
 from crypto_alpha_agent.data.store import ResearchDataStore
+from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
 from crypto_alpha_agent.observability.logging import load_events
 from crypto_alpha_agent.observability.reports import generate_daily_report
 from crypto_alpha_agent.pipeline.evidence_runner import run_daily_evidence_pipeline
 from crypto_alpha_agent.pipeline.markdown import render_research_loop_markdown
-from crypto_alpha_agent.pipeline.memory import persist_paper_outcome_memory
+from crypto_alpha_agent.pipeline.memory import (
+    persist_paper_outcome_memory,
+    persist_research_loop_memory,
+    persist_validation_evidence_memory,
+)
 from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
 from crypto_alpha_agent.pipeline.research_loop import run_stored_research_loop
 from crypto_alpha_agent.scheduler import build_daily_schedule_plan
@@ -175,6 +180,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Attach paper simulation evidence packages from stored paper outcomes.",
     )
     research_loop_parser.add_argument("--report-out", type=Path, help="Optional Markdown report output path.")
+    research_loop_parser.add_argument(
+        "--memory",
+        type=Path,
+        help="Optional JSONL memory path for research-loop feedback records.",
+    )
     research_loop_parser.set_defaults(handler=_handle_research_loop, parser=research_loop_parser)
 
     paper_sim_loop_parser = subparsers.add_parser(
@@ -737,6 +747,21 @@ def _handle_research_loop(args: argparse.Namespace) -> dict[str, Any]:
         min_trades=args.min_trades,
         include_paper_evidence=args.include_paper_evidence,
     )
+    memory_records = []
+    validation_memory_records = []
+    if args.memory is not None:
+        memory_records = persist_research_loop_memory(report, args.memory)
+        if args.include_validation:
+            validation_evidence = ValidationEvidenceLedger(args.db).load_evidence(
+                run_id=report.run_id
+            )
+            if validation_evidence:
+                validation_memory_records = persist_validation_evidence_memory(
+                    validation_evidence,
+                    args.memory,
+                    run_id=report.run_id,
+                )
+
     payload = {
         "command": "research-loop",
         "mode": "research_only",
@@ -744,6 +769,10 @@ def _handle_research_loop(args: argparse.Namespace) -> dict[str, Any]:
         "live_order_routing": False,
         "report": report.model_dump(mode="json"),
     }
+    if args.memory is not None:
+        payload["memory_records_written"] = len(memory_records)
+        payload["memory_path"] = str(args.memory)
+        payload["validation_memory_records_written"] = len(validation_memory_records)
     if args.report_out is not None:
         args.report_out.parent.mkdir(parents=True, exist_ok=True)
         args.report_out.write_text(render_research_loop_markdown(report), encoding="utf-8")
