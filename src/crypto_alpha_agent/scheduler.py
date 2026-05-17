@@ -18,6 +18,8 @@ class DailySchedulePlan(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     command: str = "schedule"
+    execution_model: str = "external_operator_cron_calls_evidence_run"
+    scheduler_executes_commands: bool = False
     dry_run: bool = True
     runs_subprocesses: bool = False
     sleeps: bool = False
@@ -37,30 +39,41 @@ def build_daily_schedule_plan(
     run_id: str | None = None,
     include_validation: bool = True,
     allow_network: bool = False,
-    source: str | None = None,
     symbol: str | None = None,
+    funding_symbol: str | None = None,
     timeframe: str = "1h",
-    year: int | None = None,
-    month: int | None = None,
+    limit: int = 200,
+    ccxt_exchange: str = "binance",
+    strategy_families: Sequence[str] = (),
+    include_offline_check: bool = True,
+    include_defillama: bool = False,
+    include_dexscreener: bool = False,
+    dex_query: str | None = None,
+    min_tvl_usd: float | None = None,
+    include_dune: bool = False,
+    dune_query_id: int | None = None,
+    dune_api_key: str | None = None,
+    dune_params: Sequence[str] = (),
+    include_thegraph: bool = False,
+    subgraph_url: str | None = None,
+    graph_query: str | None = None,
+    graph_variables: Sequence[str] = (),
 ) -> DailySchedulePlan:
     if not math.isfinite(current_capital_usd) or current_capital_usd <= 0:
         raise ValueError("current_capital_usd must be finite and positive")
-    if _has_network_ingestion_intent(
-        allow_network=allow_network,
-        source=source,
-        symbol=symbol,
-        year=year,
-        month=month,
-    ):
-        _validate_network_ingestion_args(
-            allow_network=allow_network,
-            source=source,
-            symbol=symbol,
-            year=year,
-            month=month,
-        )
+    if limit <= 0:
+        raise ValueError("limit must be positive")
+    if symbol is None or not symbol.strip():
+        raise ValueError("--symbol is required when scheduling evidence-run")
+    if funding_symbol is None or not funding_symbol.strip():
+        raise ValueError("--funding-symbol is required when scheduling evidence-run")
+    if not timeframe.strip():
+        raise ValueError("--timeframe cannot be blank")
+    if not ccxt_exchange.strip():
+        raise ValueError("--ccxt-exchange cannot be blank")
 
     db = str(db_path)
+    memory = str(memory_path) if memory_path is not None else str(Path(report_out).with_suffix(".memory.jsonl"))
     report = str(report_out)
     capital = str(current_capital_usd)
     ingest_argv = [
@@ -72,87 +85,104 @@ def build_daily_schedule_plan(
         "--current-capital-usd",
         capital,
     ]
-    research_argv = [
+    evidence_argv = [
         "crypto-alpha-agent",
-        "research-loop",
+        "evidence-run",
         "--db",
         db,
+        "--memory",
+        memory,
+        "--report-out",
+        report,
         "--current-capital-usd",
         capital,
     ]
-    if include_validation:
-        research_argv.append("--include-validation")
-    research_argv.extend(["--report-out", report])
+    if allow_network:
+        evidence_argv.append("--allow-network")
+    evidence_argv.extend(
+        [
+            "--ccxt-exchange",
+            ccxt_exchange,
+            "--symbol",
+            symbol,
+            "--funding-symbol",
+            funding_symbol,
+            "--timeframe",
+            timeframe,
+            "--limit",
+            str(limit),
+        ]
+    )
+    for strategy_family in strategy_families:
+        evidence_argv.extend(["--strategy-family", strategy_family])
     if run_id is not None:
-        research_argv.extend(["--run-id", run_id])
-    research_argv.extend(_network_research_loop_args(source, symbol, timeframe, year, month, allow_network))
+        evidence_argv.extend(["--run-id", run_id])
+    evidence_argv.extend(
+        _optional_evidence_source_args(
+            include_defillama=include_defillama,
+            include_dexscreener=include_dexscreener,
+            dex_query=dex_query,
+            min_tvl_usd=min_tvl_usd,
+            include_dune=include_dune,
+            dune_query_id=dune_query_id,
+            dune_api_key=dune_api_key,
+            dune_params=dune_params,
+            include_thegraph=include_thegraph,
+            subgraph_url=subgraph_url,
+            graph_query=graph_query,
+            graph_variables=graph_variables,
+        )
+    )
+
+    planned_commands = [ScheduledCommand(name="evidence-run", argv=evidence_argv)]
+    if include_offline_check:
+        planned_commands.insert(0, ScheduledCommand(name="offline-ingest-check", argv=ingest_argv))
 
     return DailySchedulePlan(
         network_allowed=allow_network,
-        memory_path=str(memory_path) if memory_path is not None else None,
-        planned_commands=[
-            ScheduledCommand(name="offline-ingest-check", argv=ingest_argv),
-            ScheduledCommand(name="research-loop", argv=research_argv),
-        ],
+        memory_path=memory,
+        planned_commands=planned_commands,
     )
 
 
-def _has_network_ingestion_intent(
+def _optional_evidence_source_args(
     *,
-    allow_network: bool,
-    source: str | None,
-    symbol: str | None,
-    year: int | None,
-    month: int | None,
-) -> bool:
-    return bool(allow_network or source is not None or symbol is not None or year is not None or month is not None)
-
-
-def _validate_network_ingestion_args(
-    *,
-    allow_network: bool,
-    source: str | None,
-    symbol: str | None,
-    year: int | None,
-    month: int | None,
-) -> None:
-    if not allow_network:
-        raise ValueError("--allow-network is required when scheduling network ingestion")
-    if source != "binance-public":
-        raise ValueError("--source binance-public is required when scheduling network ingestion")
-
-    missing = [
-        option
-        for option, value in (
-            ("--symbol", symbol),
-            ("--year", year),
-            ("--month", month),
-        )
-        if value is None
-    ]
-    if missing:
-        raise ValueError(f"{', '.join(missing)} required when scheduling network ingestion")
-
-
-def _network_research_loop_args(
-    source: str | None,
-    symbol: str | None,
-    timeframe: str,
-    year: int | None,
-    month: int | None,
-    allow_network: bool,
+    include_defillama: bool,
+    include_dexscreener: bool,
+    dex_query: str | None,
+    min_tvl_usd: float | None,
+    include_dune: bool,
+    dune_query_id: int | None,
+    dune_api_key: str | None,
+    dune_params: Sequence[str],
+    include_thegraph: bool,
+    subgraph_url: str | None,
+    graph_query: str | None,
+    graph_variables: Sequence[str],
 ) -> Sequence[str]:
-    if not allow_network:
-        return []
-
-    args = ["--allow-network"]
-    if source is not None:
-        args.extend(["--source", source])
-    if symbol is not None:
-        args.extend(["--symbol", symbol])
-    args.extend(["--timeframe", timeframe])
-    if year is not None:
-        args.extend(["--year", str(year)])
-    if month is not None:
-        args.extend(["--month", str(month)])
+    args: list[str] = []
+    if include_defillama:
+        args.append("--include-defillama")
+    if include_dexscreener:
+        args.append("--include-dexscreener")
+    if dex_query is not None:
+        args.extend(["--dex-query", dex_query])
+    if min_tvl_usd is not None:
+        args.extend(["--min-tvl-usd", str(min_tvl_usd)])
+    if include_dune:
+        args.append("--include-dune")
+    if dune_query_id is not None:
+        args.extend(["--dune-query-id", str(dune_query_id)])
+    if dune_api_key is not None:
+        args.extend(["--dune-api-key", dune_api_key])
+    for dune_param in dune_params:
+        args.extend(["--dune-param", dune_param])
+    if include_thegraph:
+        args.append("--include-thegraph")
+    if subgraph_url is not None:
+        args.extend(["--subgraph-url", subgraph_url])
+    if graph_query is not None:
+        args.extend(["--graph-query", graph_query])
+    for graph_variable in graph_variables:
+        args.extend(["--graph-variable", graph_variable])
     return args

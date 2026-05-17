@@ -281,6 +281,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Strategy family to validate and paper-simulate. Repeat to run multiple families.",
     )
+    evidence_run_parser.add_argument("--run-id", help="Optional evidence run identifier.")
     evidence_run_parser.add_argument(
         "--include-defillama",
         action="store_true",
@@ -433,19 +434,81 @@ def build_parser() -> argparse.ArgumentParser:
         help="Plan historical validation summaries from stored market candles.",
     )
     schedule_parser.add_argument(
+        "--offline-check",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Include an offline ingest check before the planned evidence run.",
+    )
+    schedule_parser.add_argument(
         "--allow-network",
         action="store_true",
-        help="Required explicit gate before planning Binance Public Data ingestion.",
+        help="Required explicit gate before network-backed evidence ingestion.",
     )
-    schedule_parser.add_argument("--source", choices=("binance-public",), help="Optional ingestion source.")
-    schedule_parser.add_argument("--symbol", help="Binance spot symbol for public data ingestion.")
+    schedule_parser.add_argument("--ccxt-exchange", default="binance", help="CCXT exchange id.")
+    schedule_parser.add_argument("--symbol", required=True, help="CCXT market symbol for OHLCV ingestion.")
+    schedule_parser.add_argument(
+        "--funding-symbol",
+        required=True,
+        help="CCXT funding symbol for funding-rate ingestion and validation.",
+    )
     schedule_parser.add_argument(
         "--timeframe",
         default="1h",
-        help="Binance public klines interval for ingestion.",
+        help="CCXT OHLCV timeframe.",
     )
-    schedule_parser.add_argument("--year", type=_positive_int, help="Positive UTC year for ingestion.")
-    schedule_parser.add_argument("--month", type=_month_number, help="UTC month for ingestion, 1-12.")
+    schedule_parser.add_argument("--limit", type=_positive_int, default=200, help="Record limit for CCXT ingestion.")
+    schedule_parser.add_argument(
+        "--strategy-family",
+        action="append",
+        default=[],
+        help="Strategy family to validate and paper-simulate. Repeat to run multiple families.",
+    )
+    schedule_parser.add_argument(
+        "--include-defillama",
+        action="store_true",
+        help="Optionally plan DefiLlama yield pool ingestion.",
+    )
+    schedule_parser.add_argument(
+        "--include-dexscreener",
+        action="store_true",
+        help="Optionally plan DexScreener pair ingestion.",
+    )
+    schedule_parser.add_argument("--dex-query", help="DexScreener search query.")
+    schedule_parser.add_argument(
+        "--min-tvl-usd",
+        type=_positive_finite_float,
+        help="Optional minimum TVL for DefiLlama ingestion.",
+    )
+    schedule_parser.add_argument(
+        "--include-dune",
+        action="store_true",
+        help="Optionally plan a Dune query result.",
+    )
+    schedule_parser.add_argument("--dune-query-id", type=_positive_int, help="Dune query id to run.")
+    schedule_parser.add_argument("--dune-api-key", help="Dune API key.")
+    schedule_parser.add_argument(
+        "--dune-param",
+        action="append",
+        type=_key_value_pair,
+        default=[],
+        metavar="KEY=VALUE",
+        help="Dune query parameter. Repeat for multiple parameters.",
+    )
+    schedule_parser.add_argument(
+        "--include-thegraph",
+        action="store_true",
+        help="Optionally plan a The Graph query result.",
+    )
+    schedule_parser.add_argument("--subgraph-url", help="The Graph subgraph endpoint URL.")
+    schedule_parser.add_argument("--graph-query", help="The Graph query document.")
+    schedule_parser.add_argument(
+        "--graph-variable",
+        action="append",
+        type=_key_value_pair,
+        default=[],
+        metavar="KEY=VALUE",
+        help="The Graph variable. Repeat for multiple variables.",
+    )
     schedule_parser.set_defaults(handler=_handle_schedule, parser=schedule_parser)
 
     return parser
@@ -877,6 +940,7 @@ def _handle_evidence_run(args: argparse.Namespace) -> dict[str, Any]:
             timeframe=args.timeframe,
             limit=args.limit,
             strategy_families=strategy_families,
+            run_id=args.run_id,
             include_defillama=args.include_defillama,
             include_dexscreener=args.include_dexscreener,
             dex_query=args.dex_query,
@@ -1158,11 +1222,25 @@ def _handle_schedule(args: argparse.Namespace) -> dict[str, Any]:
             run_id=args.run_id,
             include_validation=args.include_validation,
             allow_network=args.allow_network,
-            source=args.source,
+            ccxt_exchange=args.ccxt_exchange,
             symbol=args.symbol,
+            funding_symbol=args.funding_symbol,
             timeframe=args.timeframe,
-            year=args.year,
-            month=args.month,
+            limit=args.limit,
+            strategy_families=args.strategy_family,
+            include_offline_check=args.offline_check,
+            include_defillama=args.include_defillama,
+            include_dexscreener=args.include_dexscreener,
+            dex_query=args.dex_query,
+            min_tvl_usd=args.min_tvl_usd,
+            include_dune=args.include_dune,
+            dune_query_id=args.dune_query_id,
+            dune_api_key=args.dune_api_key,
+            dune_params=[f"{key}={value}" for key, value in args.dune_param],
+            include_thegraph=args.include_thegraph,
+            subgraph_url=args.subgraph_url,
+            graph_query=args.graph_query,
+            graph_variables=[f"{key}={value}" for key, value in args.graph_variable],
         )
     except ValueError as exc:
         args.parser.error(str(exc))
