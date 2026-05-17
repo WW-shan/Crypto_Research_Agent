@@ -13,6 +13,7 @@ RecordType = Literal[
     "funding_rate",
     "dex_pair",
     "defi_yield",
+    "research_snapshot",
     "source_health",
 ]
 

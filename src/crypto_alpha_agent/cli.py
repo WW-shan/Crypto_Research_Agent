@@ -12,6 +12,12 @@ from crypto_alpha_agent.data.ingestion import (
     ingest_binance_public_month,
     ingest_ccxt_funding_rate_history,
     ingest_ccxt_ohlcv,
+    ingest_defillama_yield_pools,
+    ingest_dexscreener_pairs,
+)
+from crypto_alpha_agent.data.onchain_ingestion import (
+    ingest_dune_query_result,
+    ingest_thegraph_query_result,
 )
 from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.observability.logging import load_events
@@ -110,7 +116,14 @@ def build_parser() -> argparse.ArgumentParser:
     research_loop_parser.add_argument("--month", type=_month_number, help="UTC month for ingestion, 1-12.")
     research_loop_parser.add_argument(
         "--record-type",
-        choices=("market_candle", "funding_rate", "dex_pair", "defi_yield", "source_health"),
+        choices=(
+            "market_candle",
+            "funding_rate",
+            "dex_pair",
+            "defi_yield",
+            "research_snapshot",
+            "source_health",
+        ),
         help="Optional record type filter.",
     )
     research_loop_parser.add_argument("--limit", type=_positive_int, help="Optional positive record limit.")
@@ -218,7 +231,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument(
         "--source",
         action="append",
-        choices=("binance-public", "ccxt", "dexscreener", "defillama"),
+        choices=("binance-public", "ccxt", "dexscreener", "defillama", "dune", "thegraph"),
         default=[],
         help="Optional real-data source declaration. Repeat for multiple sources.",
     )
@@ -241,6 +254,39 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument("--timeframe", help="CCXT OHLCV timeframe, required for --ccxt-feed ohlcv.")
     ingest_parser.add_argument("--since", type=int, help="Optional CCXT since timestamp in milliseconds.")
     ingest_parser.add_argument("--limit", type=_positive_int, help="Optional positive CCXT record limit.")
+    ingest_parser.add_argument("--query", help="DexScreener search query.")
+    ingest_parser.add_argument("--chain", help="DexScreener chain id for token lookup.")
+    ingest_parser.add_argument(
+        "--token-address",
+        action="append",
+        default=[],
+        help="DexScreener token address for chain lookup. Repeat for multiple tokens.",
+    )
+    ingest_parser.add_argument(
+        "--min-tvl-usd",
+        type=_positive_finite_float,
+        help="Minimum DefiLlama yield pool TVL in USD.",
+    )
+    ingest_parser.add_argument("--dune-query-id", type=_positive_int, help="Dune query id to persist.")
+    ingest_parser.add_argument("--dune-api-key", help="Dune API key for network-backed query results.")
+    ingest_parser.add_argument(
+        "--dune-param",
+        action="append",
+        type=_key_value_pair,
+        default=[],
+        metavar="KEY=VALUE",
+        help="Dune query parameter. Repeat for multiple parameters.",
+    )
+    ingest_parser.add_argument("--subgraph-url", help="The Graph subgraph endpoint URL.")
+    ingest_parser.add_argument("--graph-query", help="The Graph query document.")
+    ingest_parser.add_argument(
+        "--graph-variable",
+        action="append",
+        type=_key_value_pair,
+        default=[],
+        metavar="KEY=VALUE",
+        help="The Graph variable. Repeat for multiple variables.",
+    )
     ingest_parser.set_defaults(handler=_handle_ingest, parser=ingest_parser)
 
     schedule_parser = subparsers.add_parser(
@@ -331,6 +377,13 @@ def _month_number(raw_value: str) -> int:
     if value < 1 or value > 12:
         raise argparse.ArgumentTypeError(f"invalid month: {raw_value!r}; expected 1-12")
     return value
+
+
+def _key_value_pair(raw_value: str) -> tuple[str, str]:
+    key, separator, value = raw_value.partition("=")
+    if not separator or not key.strip():
+        raise argparse.ArgumentTypeError(f"invalid KEY=VALUE argument: {raw_value!r}")
+    return key.strip(), value
 
 
 def _positive_finite_float(raw_value: str) -> float:
@@ -553,7 +606,13 @@ def _handle_ingest(args: argparse.Namespace) -> dict[str, Any]:
     ingestion = None
     if args.offline_check and args.source:
         args.parser.error("--offline-check cannot be combined with --source")
-    if _has_ccxt_ingestion_intent(args):
+    if _has_onchain_ingestion_intent(args):
+        _validate_onchain_ingest_args(args)
+        ingestion = _run_onchain_ingestion(args)
+    elif _has_dex_or_defi_ingestion_intent(args):
+        _validate_dex_or_defi_ingest_args(args)
+        ingestion = _run_dex_or_defi_ingestion(args)
+    elif _has_ccxt_ingestion_intent(args):
         _validate_ccxt_ingest_args(args)
         ingestion = _run_ccxt_ingestion(args)
 
@@ -649,6 +708,133 @@ def _has_ccxt_ingestion_intent(args: argparse.Namespace) -> bool:
     )
 
 
+def _has_onchain_ingestion_intent(args: argparse.Namespace) -> bool:
+    sources = set(args.source)
+    return bool(
+        sources.intersection({"dune", "thegraph"})
+        or args.dune_query_id is not None
+        or args.dune_api_key is not None
+        or args.dune_param
+        or args.subgraph_url is not None
+        or args.graph_query is not None
+        or args.graph_variable
+    )
+
+
+def _has_dex_or_defi_ingestion_intent(args: argparse.Namespace) -> bool:
+    sources = set(args.source)
+    return bool(
+        sources.intersection({"dexscreener", "defillama"})
+        or args.query is not None
+        or args.chain is not None
+        or args.token_address
+        or args.min_tvl_usd is not None
+    )
+
+
+def _validate_onchain_ingest_args(args: argparse.Namespace) -> None:
+    sources = set(args.source)
+    if len(sources) != 1 or not sources.issubset({"dune", "thegraph"}):
+        args.parser.error("Dune/TheGraph ingestion flags require exactly one Dune or TheGraph --source")
+    if not args.allow_network:
+        args.parser.error("--allow-network is required when --source dune or --source thegraph is provided")
+    if _has_ccxt_specific_flags(args):
+        args.parser.error("Dune/TheGraph ingestion flags cannot be combined with CCXT flags")
+    if _has_dex_or_defi_specific_flags(args):
+        args.parser.error("Dune/TheGraph ingestion flags cannot be combined with DEX/DeFi flags")
+
+    source = next(iter(sources))
+    if source == "dune":
+        _validate_dune_ingest_args(args)
+        return
+    _validate_thegraph_ingest_args(args)
+
+
+def _validate_dune_ingest_args(args: argparse.Namespace) -> None:
+    missing = [
+        option
+        for option, value in (
+            ("--dune-query-id", args.dune_query_id),
+            ("--dune-api-key", args.dune_api_key),
+        )
+        if value is None or (isinstance(value, str) and not value.strip())
+    ]
+    if missing:
+        args.parser.error(f"{', '.join(missing)} required when --source dune is provided")
+    if args.subgraph_url is not None or args.graph_query is not None or args.graph_variable:
+        args.parser.error("TheGraph flags cannot be combined with --source dune")
+    _validate_unique_key_value_pairs(args.parser, args.dune_param, "--dune-param")
+
+
+def _validate_thegraph_ingest_args(args: argparse.Namespace) -> None:
+    missing = [
+        option
+        for option, value in (
+            ("--subgraph-url", args.subgraph_url),
+            ("--graph-query", args.graph_query),
+        )
+        if value is None or (isinstance(value, str) and not value.strip())
+    ]
+    if missing:
+        args.parser.error(f"{', '.join(missing)} required when --source thegraph is provided")
+    if args.dune_query_id is not None or args.dune_api_key is not None or args.dune_param:
+        args.parser.error("Dune flags cannot be combined with --source thegraph")
+    _validate_unique_key_value_pairs(args.parser, args.graph_variable, "--graph-variable")
+
+
+def _validate_dex_or_defi_ingest_args(args: argparse.Namespace) -> None:
+    sources = set(args.source)
+    if len(sources) != 1 or not sources.issubset({"dexscreener", "defillama"}):
+        args.parser.error("DEX/DeFi ingestion flags require exactly one DEX/DeFi --source")
+    if not args.allow_network:
+        args.parser.error("--allow-network is required when --source dexscreener or --source defillama is provided")
+    if _has_ccxt_specific_flags(args):
+        args.parser.error("CCXT ingestion flags cannot be combined with DEX/DeFi sources")
+
+    source = next(iter(sources))
+    if source == "dexscreener":
+        if args.min_tvl_usd is not None:
+            args.parser.error("--min-tvl-usd cannot be combined with --source dexscreener")
+        _validate_non_blank_dexscreener_args(args)
+        has_query = args.query is not None
+        has_token_lookup = args.chain is not None and bool(args.token_address)
+        if has_query == has_token_lookup:
+            args.parser.error("--source dexscreener requires either --query or both --chain and --token-address")
+        return
+
+    if args.query is not None or args.chain is not None or args.token_address:
+        args.parser.error("DexScreener flags cannot be combined with --source defillama")
+
+
+def _has_ccxt_specific_flags(args: argparse.Namespace) -> bool:
+    return bool(
+        args.ccxt_feed is not None
+        or args.exchange != "binance"
+        or args.symbol is not None
+        or args.timeframe is not None
+        or args.since is not None
+        or args.limit is not None
+    )
+
+
+def _has_dex_or_defi_specific_flags(args: argparse.Namespace) -> bool:
+    return bool(
+        args.query is not None
+        or args.chain is not None
+        or args.token_address
+        or args.min_tvl_usd is not None
+    )
+
+
+def _validate_non_blank_dexscreener_args(args: argparse.Namespace) -> None:
+    if args.query is not None and not args.query.strip():
+        args.parser.error("--query cannot be blank")
+    if args.chain is not None and not args.chain.strip():
+        args.parser.error("--chain cannot be blank")
+    if any(not token_address.strip() for token_address in args.token_address):
+        args.parser.error("--token-address cannot be blank")
+
+
 def _validate_ccxt_ingest_args(args: argparse.Namespace) -> None:
     if set(args.source) != {"ccxt"}:
         args.parser.error("CCXT ingestion flags require --source ccxt and cannot be combined with other sources")
@@ -690,6 +876,67 @@ def _run_ccxt_ingestion(args: argparse.Namespace):
         allow_network=True,
         exchange_id=args.exchange,
     )
+
+
+def _run_onchain_ingestion(args: argparse.Namespace):
+    if set(args.source) == {"dune"}:
+        return ingest_dune_query_result(
+            db_path=args.db,
+            query_id=args.dune_query_id,
+            allow_network=True,
+            api_key=args.dune_api_key,
+            params=_key_value_pairs_to_dict(args.dune_param),
+        )
+    return ingest_thegraph_query_result(
+        db_path=args.db,
+        subgraph_url=args.subgraph_url,
+        query=args.graph_query,
+        allow_network=True,
+        variables=_key_value_pairs_to_dict(args.graph_variable),
+    )
+
+
+def _run_dex_or_defi_ingestion(args: argparse.Namespace):
+    if set(args.source) == {"dexscreener"}:
+        return ingest_dexscreener_pairs(
+            args.db,
+            query=args.query,
+            chain=args.chain,
+            token_addresses=args.token_address,
+            allow_network=True,
+        )
+    return ingest_defillama_yield_pools(
+        args.db,
+        min_tvl_usd=args.min_tvl_usd if args.min_tvl_usd is not None else 10000.0,
+        allow_network=True,
+    )
+
+
+def _validate_unique_key_value_pairs(
+    parser: argparse.ArgumentParser,
+    pairs: list[tuple[str, str]],
+    flag_name: str,
+) -> None:
+    duplicate_keys = _duplicate_key_value_keys(pairs)
+    if duplicate_keys:
+        parser.error(f"{flag_name} cannot repeat keys: {', '.join(duplicate_keys)}")
+
+
+def _key_value_pairs_to_dict(pairs: list[tuple[str, str]]) -> dict[str, str]:
+    duplicate_keys = _duplicate_key_value_keys(pairs)
+    if duplicate_keys:
+        raise ValueError(f"duplicate key-value arguments: {', '.join(duplicate_keys)}")
+    return {key: value for key, value in pairs}
+
+
+def _duplicate_key_value_keys(pairs: list[tuple[str, str]]) -> list[str]:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for key, _value in pairs:
+        if key in seen:
+            duplicates.add(key)
+        seen.add(key)
+    return sorted(duplicates)
 
 
 def _handle_schedule(args: argparse.Namespace) -> dict[str, Any]:
