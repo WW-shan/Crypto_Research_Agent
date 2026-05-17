@@ -24,7 +24,15 @@ from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedg
 from crypto_alpha_agent.observability.logging import load_events
 from crypto_alpha_agent.observability.reports import generate_daily_report
 from crypto_alpha_agent.pipeline.evidence_runner import run_daily_evidence_pipeline
-from crypto_alpha_agent.pipeline.markdown import render_research_loop_markdown
+from crypto_alpha_agent.pipeline.evidence_reports import (
+    build_daily_evidence_report,
+    build_weekly_evidence_report,
+)
+from crypto_alpha_agent.pipeline.markdown import (
+    render_daily_evidence_report_markdown,
+    render_research_loop_markdown,
+    render_weekly_evidence_report_markdown,
+)
 from crypto_alpha_agent.pipeline.memory import (
     persist_paper_outcome_memory,
     persist_research_loop_memory,
@@ -286,6 +294,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     plan_experiments_parser.set_defaults(handler=_handle_plan_experiments)
 
+    evidence_report_parser = subparsers.add_parser(
+        "evidence-report",
+        help="Generate deterministic daily or weekly evidence Markdown reports.",
+    )
+    report_mode = evidence_report_parser.add_mutually_exclusive_group(required=True)
+    report_mode.add_argument("--daily", action="store_true", help="Write a daily evidence report.")
+    report_mode.add_argument("--weekly", action="store_true", help="Write a weekly evidence report.")
+    evidence_report_parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite research data store.")
+    evidence_report_parser.add_argument("--memory", required=True, type=Path, help="Path to the JSONL memory store.")
+    evidence_report_parser.add_argument("--out", required=True, type=Path, help="Path for the Markdown report.")
+    evidence_report_parser.add_argument(
+        "--strategy-family",
+        action="append",
+        default=[],
+        help="Strategy family to include in daily report. Repeat for multiple families.",
+    )
+    evidence_report_parser.set_defaults(handler=_handle_evidence_report)
+
     evidence_run_parser = subparsers.add_parser(
         "evidence-run",
         help="Run the safe end-to-end evidence pipeline without live capital.",
@@ -293,6 +319,7 @@ def build_parser() -> argparse.ArgumentParser:
     evidence_run_parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite research data store.")
     evidence_run_parser.add_argument("--memory", required=True, type=Path, help="Path to the JSONL memory store.")
     evidence_run_parser.add_argument("--report-out", required=True, type=Path, help="Path for the daily Markdown report.")
+    evidence_run_parser.add_argument("--weekly-report-out", type=Path, help="Optional path for weekly evidence Markdown.")
     evidence_run_parser.add_argument(
         "--current-capital-usd",
         type=_positive_finite_float,
@@ -1006,6 +1033,34 @@ def _handle_plan_experiments(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def _handle_evidence_report(args: argparse.Namespace) -> dict[str, Any]:
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    if args.daily:
+        report = build_daily_evidence_report(
+            db_path=args.db,
+            memory_path=args.memory,
+            strategy_families=args.strategy_family,
+        )
+        args.out.write_text(render_daily_evidence_report_markdown(report), encoding="utf-8")
+        return {
+            "command": "evidence-report",
+            "daily_report_out": str(args.out),
+            "report": report.model_dump(mode="json"),
+            "uses_real_capital": False,
+            "live_order_routing": False,
+        }
+
+    report = build_weekly_evidence_report(db_path=args.db, memory_path=args.memory)
+    args.out.write_text(render_weekly_evidence_report_markdown(report), encoding="utf-8")
+    return {
+        "command": "evidence-report",
+        "weekly_report_out": str(args.out),
+        "report": report.model_dump(mode="json"),
+        "uses_real_capital": False,
+        "live_order_routing": False,
+    }
+
+
 def _handle_evidence_run(args: argparse.Namespace) -> dict[str, Any]:
     strategy_families = args.strategy_family or ["funding_extremity_price_confirmation"]
     try:
@@ -1038,15 +1093,38 @@ def _handle_evidence_run(args: argparse.Namespace) -> dict[str, Any]:
     except ValueError as exc:
         args.parser.error(str(exc))
 
+    daily_evidence_report = build_daily_evidence_report(
+        db_path=args.db,
+        memory_path=args.memory,
+        strategy_families=strategy_families,
+    )
+    args.report_out.parent.mkdir(parents=True, exist_ok=True)
+    args.report_out.write_text(
+        render_daily_evidence_report_markdown(daily_evidence_report),
+        encoding="utf-8",
+    )
+
     payload = {
         "command": "evidence-run",
         "uses_real_capital": False,
         "live_order_routing": False,
         "memory_records_written": report.memory_records_written,
         "report_artifact": report.report_artifact,
+        "daily_report_out": str(args.report_out),
         "steps": [step.model_dump(mode="json") for step in report.steps],
         "report": report.model_dump(mode="json"),
     }
+    if args.weekly_report_out is not None:
+        weekly_evidence_report = build_weekly_evidence_report(
+            db_path=args.db,
+            memory_path=args.memory,
+        )
+        args.weekly_report_out.parent.mkdir(parents=True, exist_ok=True)
+        args.weekly_report_out.write_text(
+            render_weekly_evidence_report_markdown(weekly_evidence_report),
+            encoding="utf-8",
+        )
+        payload["weekly_report_out"] = str(args.weekly_report_out)
     return payload
 
 

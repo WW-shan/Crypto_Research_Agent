@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from crypto_alpha_agent.pipeline.evidence_reports import DailyEvidenceReport, WeeklyEvidenceReport
 from crypto_alpha_agent.pipeline.research_loop import ResearchLoopReport
 
 
@@ -196,8 +197,147 @@ def render_research_loop_markdown(report: ResearchLoopReport) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_daily_evidence_report_markdown(report: DailyEvidenceReport) -> str:
+    lines = [
+        "# Daily Evidence Report",
+        "",
+        "## Safety",
+        f"Real capital: {_bool_text(report.uses_real_capital)}",
+        f"Live order routing: {_bool_text(report.live_order_routing)}",
+        "",
+        "## Decision",
+        f"Continue: {_bool_text(report.should_continue)}",
+        f"Stop family: {_bool_text(report.should_stop_family)}",
+        f"Collect more data: {_bool_text(report.should_collect_more_data)}",
+        f"Close to paper eligibility: {_bool_text(report.near_paper_eligibility)}",
+        f"Close to tiny-live review: {_bool_text(report.near_tiny_live_review)}",
+        f"Reason codes: {_escape_text(', '.join(report.reason_codes) or 'none')}",
+        "",
+        "## Strategy Families",
+    ]
+    lines.extend(_bullet_lines(report.strategy_families))
+    lines.extend(
+        [
+            "",
+            "## Counts",
+            f"Validation evidence: {report.validation_evidence_count}",
+            f"Paper evidence packages: {report.paper_evidence_count}",
+            f"Paper outcomes: {report.paper_outcome_count}",
+            f"Memory records: {report.memory_record_count}",
+            f"Data quality issues: {report.data_quality_issue_count}",
+            "",
+            "## New Candidates",
+            f"New candidate count: {report.new_candidate_count}",
+            "",
+            "## Blocked Candidates",
+            f"Blocked candidate count: {report.blocked_candidate_count}",
+            "",
+            "## Paper Outcomes",
+            f"Paper outcome count: {report.paper_outcome_count}",
+            "",
+            "## Validation Evidence",
+            f"Validation evidence count: {report.validation_evidence_count}",
+            "",
+            "## Data Quality",
+            f"Issue count: {report.data_quality_issue_count}",
+            "",
+            "## Next Experiments",
+        ]
+    )
+    if report.next_experiments.proposals:
+        for proposal in report.next_experiments.proposals:
+            lines.append(
+                f"- {_escape_text(proposal.strategy_family)}: "
+                f"{_escape_text(proposal.why_it_might_improve_edge)}"
+            )
+    else:
+        lines.append("- none")
+    return "\n".join(lines) + "\n"
+
+
+def render_weekly_evidence_report_markdown(report: WeeklyEvidenceReport) -> str:
+    lines = [
+        "# Weekly Evidence Report",
+        "",
+        "## Safety",
+        f"Real capital: {_bool_text(report.uses_real_capital)}",
+        f"Live order routing: {_bool_text(report.live_order_routing)}",
+        "",
+        "## Decision",
+        f"Continue: {_bool_text(report.should_continue)}",
+        f"Stop family: {_bool_text(report.should_stop_family)}",
+        f"Collect more data: {_bool_text(report.should_collect_more_data)}",
+        f"Close to paper eligibility: {_bool_text(report.near_paper_eligibility)}",
+        f"Close to tiny-live review: {_bool_text(report.near_tiny_live_review)}",
+        f"Reason codes: {_escape_text(', '.join(report.reason_codes) or 'none')}",
+        "",
+        "## Strategy Families",
+        "| Strategy | Sample size | Closed | Failed | Blocked | Net PnL USD | Validation | Near tiny-live review | Rejected reasons |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+    ]
+    if report.family_summaries:
+        for summary in report.family_summaries:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _escape_table_cell(summary.strategy_family),
+                        f"{summary.sample_size:g}",
+                        f"{summary.closed_count:g}",
+                        f"{summary.failed_count:g}",
+                        f"{summary.blocked_count:g}",
+                        f"{summary.net_pnl_usd:g}",
+                        f"{summary.validation_count:g}",
+                        _bool_text(summary.near_tiny_live_review),
+                        _escape_table_cell(", ".join(summary.rejected_reasons) or "none"),
+                    ]
+                )
+                + " |"
+            )
+    else:
+        lines.append("| none | 0 | 0 | 0 | 0 | 0 | 0 | false | none |")
+
+    lines.extend(
+        [
+            "",
+            "## Top Rejected Reasons",
+        ]
+    )
+    lines.extend(_bullet_lines(report.top_rejected_reasons))
+    lines.extend(
+        [
+            "",
+            "## Best Improving Family",
+            _escape_text(report.best_improving_family or "none"),
+            "",
+            "## Degraded Families",
+        ]
+    )
+    lines.extend(_bullet_lines(report.degraded_families))
+    lines.extend(
+        [
+            "",
+            "## Sample Size Progress Toward 30",
+            "| Strategy | Progress |",
+            "| --- | ---: |",
+        ]
+    )
+    if report.sample_size_progress:
+        for family, progress in sorted(report.sample_size_progress.items()):
+            lines.append(f"| {_escape_table_cell(family)} | {progress:g}/30 |")
+    else:
+        lines.append("| none | 0/30 |")
+    return "\n".join(lines) + "\n"
+
+
 def _bool_text(value: bool) -> str:
     return "true" if value else "false"
+
+
+def _bullet_lines(values: list[str]) -> list[str]:
+    if not values:
+        return ["- none"]
+    return [f"- {_escape_text(value)}" for value in values]
 
 
 def _escape_table_cell(value: object) -> str:
