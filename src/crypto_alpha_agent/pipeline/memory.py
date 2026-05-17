@@ -66,15 +66,22 @@ def replace_paper_outcome_memory(
     if not outcome_list:
         return []
 
-    run_prefixes = tuple(
-        f"paper-outcome:{run_id}:"
-        for run_id in sorted({outcome.run_id for outcome in outcome_list})
-    )
+    run_ids = {outcome.run_id for outcome in outcome_list}
     records = [_paper_memory_record(outcome) for outcome in outcome_list]
     store = MemoryStore(memory_path)
     return store.replace_matching(
-        lambda record: record.record_id.startswith(run_prefixes),
+        lambda record: _is_replaceable_paper_outcome_record(record, run_ids),
         records,
+    )
+
+
+def _is_replaceable_paper_outcome_record(
+    record: MemoryRecord, run_ids: set[str]
+) -> bool:
+    return (
+        (record.record_id.startswith("paper-outcome:") or "paper-evidence" in record.tags)
+        and (record.opportunity or {}).get("run_id") in run_ids
+        and "paper-evidence" in record.tags
     )
 
 
