@@ -1,0 +1,602 @@
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
+from crypto_alpha_agent.evidence.models import PaperSimulationOutcome, ValidationEvidence
+from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
+from crypto_alpha_agent.memory.store import MemoryRecord, MemoryStore
+from crypto_alpha_agent.orchestrator import DETERMINISTIC_EVENT_TIME_ISO
+from crypto_alpha_agent.pipeline.experiment_planner import plan_next_experiments
+from crypto_alpha_agent.strategy import default_strategy_registry
+
+
+def seed_validation_memory(
+    memory_path: Path,
+    *,
+    run_id: str,
+    strategy_family: str,
+    blocked_reasons: list[str],
+    parameters: dict[str, Any],
+) -> None:
+    MemoryStore(memory_path).upsert(
+        MemoryRecord(
+            record_id=f"validation:{run_id}",
+            created_at=DETERMINISTIC_EVENT_TIME_ISO,
+            updated_at=DETERMINISTIC_EVENT_TIME_ISO,
+            opportunity={
+                "run_id": run_id,
+                "strategy_family": strategy_family,
+                "parameters": parameters,
+            },
+            hypothesis={
+                "strategy_family": strategy_family,
+                "parameter_changes": parameters,
+            },
+            score={
+                "approved": False,
+                "blocked_reasons": blocked_reasons,
+                "parameters": parameters,
+            },
+            rejected_reasons=blocked_reasons,
+            tags=[strategy_family, "validation", "blocked"],
+        )
+    )
+
+
+def _validation_evidence(
+    *,
+    run_id: str = "validation-run-001",
+    strategy_family: str = "funding_extremity_price_confirmation",
+    blocked_reasons: list[str] | None = None,
+    net_return: float = -0.03,
+    fee_adjusted_expectancy: float = -0.001,
+    slippage_adjusted_expectancy: float = -0.0015,
+    walk_forward_split_count: int = 0,
+) -> ValidationEvidence:
+    reasons = blocked_reasons or ["insufficient_walk_forward_splits"]
+    return ValidationEvidence(
+        run_id=run_id,
+        strategy_family=strategy_family,
+        symbol="BTC/USDT",
+        timeframe="1h",
+        validator_name="funding_price_confirmation",
+        trade_count=3,
+        net_return=net_return,
+        gross_expectancy=0.001,
+        fee_adjusted_expectancy=fee_adjusted_expectancy,
+        slippage_adjusted_expectancy=slippage_adjusted_expectancy,
+        max_drawdown=0.02,
+        walk_forward_split_count=walk_forward_split_count,
+        walk_forward_pass_rate=0.0,
+        approved=False,
+        blocked_reasons=reasons,
+    )
+
+
+def _paper_outcome(
+    *,
+    outcome_id: str = "paper-001",
+    strategy_family: str = "funding_extremity_price_confirmation",
+    net_pnl_usd: float = -0.25,
+    failure_reasons: tuple[str, ...] = ("fee_killed_edge",),
+) -> PaperSimulationOutcome:
+    observed_at = datetime(2026, 5, 17, tzinfo=UTC)
+    return PaperSimulationOutcome(
+        outcome_id=outcome_id,
+        run_id="paper-run-001",
+        candidate_id="candidate-001",
+        strategy_family=strategy_family,
+        symbol="BTC/USDT",
+        observed_at=observed_at,
+        status="closed",
+        signal_timestamp=observed_at,
+        entry_price=100.0,
+        exit_price=99.5,
+        quantity=0.1,
+        notional_usd=10.0,
+        gross_pnl_usd=0.05,
+        fees_usd=0.2,
+        slippage_usd=0.1,
+        net_pnl_usd=net_pnl_usd,
+        max_drawdown_usd=abs(net_pnl_usd),
+        failure_reasons=failure_reasons,
+    )
+
+
+def test_planner_uses_validation_memory_to_avoid_repeating_blocked_parameters(tmp_path):
+    memory_path = tmp_path / "memory.jsonl"
+    seed_validation_memory(
+        memory_path,
+        run_id="daily-001",
+        strategy_family="funding_extremity_price_confirmation",
+        blocked_reasons=["non_positive_net_return"],
+        parameters={"threshold_abs": 0.0005, "hold_bars": 1},
+    )
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=memory_path,
+        strategy_family="funding_extremity_price_confirmation",
+        max_proposals=2,
+        current_capital_usd=300.0,
+    )
+
+    assert result.live_order_routing is False
+    assert all(proposal.strategy_family == "funding_extremity_price_confirmation" for proposal in result.proposals)
+    assert all(proposal.max_capital_usd <= 300.0 for proposal in result.proposals)
+    assert all(proposal.parameter_changes != {"threshold_abs": 0.0005, "hold_bars": 1} for proposal in result.proposals)
+
+
+def test_planner_rejects_unsafe_llm_experiment(tmp_path):
+    def unsafe_llm(_task):
+        return '{"strategy_family":"mev_sandwich","live_order_routing":true,"parameter_changes":{}}'
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        llm=unsafe_llm,
+        current_capital_usd=300.0,
+    )
+
+    assert result.accepted is False
+    assert "charter_violation" in result.rejected_reason_codes
+    assert result.proposals == []
+
+
+def test_planner_reads_evidence_and_proposes_bounded_registered_disconfirmation_experiment(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "memory.jsonl"
+    ValidationEvidenceLedger(db_path).upsert_evidence(
+        [
+            _validation_evidence(
+                blocked_reasons=["insufficient_walk_forward_splits"],
+                walk_forward_split_count=0,
+            )
+        ]
+    )
+    PaperOutcomeLedger(db_path).upsert_outcomes([_paper_outcome()])
+
+    result = plan_next_experiments(
+        db_path=db_path,
+        memory_path=memory_path,
+        strategy_family="funding_extremity_price_confirmation",
+        current_capital_usd=80.0,
+        max_proposals=3,
+    )
+
+    assert result.accepted is True
+    assert result.validation_evidence_count == 1
+    assert result.paper_evidence_count == 1
+    assert result.proposals
+    proposal = result.proposals[0]
+    assert proposal.strategy_family == "funding_extremity_price_confirmation"
+    assert proposal.max_notional_usd == 8.0
+    assert proposal.live_order_routing is False
+    assert proposal.uses_real_capital is False
+    assert "collect_more_walk_forward_data" in proposal.parameter_changes.values()
+    assert proposal.evidence_refs
+    assert proposal.disconfirmation_tests
+    assert proposal.stop_conditions
+    assert proposal.allowed_data_sources == ["market_candle", "funding_rate"]
+
+
+def test_planner_uses_paper_insufficient_walk_forward_splits_to_collect_more_data(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "memory.jsonl"
+    PaperOutcomeLedger(db_path).upsert_outcomes(
+        [
+            _paper_outcome(
+                failure_reasons=("insufficient_walk_forward_splits",),
+            )
+        ]
+    )
+
+    result = plan_next_experiments(
+        db_path=db_path,
+        memory_path=memory_path,
+        strategy_family="funding_extremity_price_confirmation",
+        current_capital_usd=80.0,
+        max_proposals=1,
+    )
+
+    assert result.accepted is True
+    assert result.proposals
+    proposal = result.proposals[0]
+    assert proposal.parameter_changes["experiment_type"] == "collect_more_walk_forward_data"
+    assert proposal.parameter_changes["min_walk_forward_splits"] == 3
+
+
+def test_planner_defaults_to_first_registered_funding_baseline_when_no_evidence_exists(tmp_path):
+    memory_path = tmp_path / "memory.jsonl"
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=memory_path,
+        current_capital_usd=300.0,
+    )
+
+    assert result.proposals
+    assert result.proposals[0].strategy_family == "funding_extremity_price_confirmation"
+    assert result.proposals[0].parameter_changes["threshold_abs"] == 0.0005
+    assert result.proposals[0].max_notional_usd == 25.0
+    assert not memory_path.exists()
+
+
+def test_planner_rejects_unknown_strategy_family_without_proposals(tmp_path):
+    memory_path = tmp_path / "memory.jsonl"
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=memory_path,
+        strategy_family="unknown_non_funding_family",
+        current_capital_usd=300.0,
+    )
+
+    assert result.accepted is False
+    assert result.proposals == []
+    assert result.rejected_reason_codes
+    assert "no_safe_registered_proposals" in result.rejected_reason_codes
+    assert not memory_path.exists()
+
+
+def test_planner_rejects_when_all_funding_families_are_degraded(tmp_path):
+    memory_path = tmp_path / "memory.jsonl"
+    registry = default_strategy_registry(current_capital_usd=300.0)
+    funding_families = [
+        family
+        for family in registry.list_families()
+        if {"market_candle", "funding_rate"}.issubset(set(registry.get(family).required_record_types))
+    ]
+    for family in funding_families:
+        MemoryStore(memory_path).upsert(
+            MemoryRecord(
+                record_id=f"degraded:{family}",
+                opportunity={"strategy_family": family},
+                rejected_reasons=["degraded_expectancy"],
+                tags=[family, "degraded_expectancy"],
+            )
+        )
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=memory_path,
+        current_capital_usd=300.0,
+        max_proposals=2,
+    )
+
+    assert result.accepted is False
+    assert result.proposals == []
+    assert result.rejected_reason_codes
+    assert "no_safe_registered_proposals" in result.rejected_reason_codes
+    assert result.degraded_strategy_families == sorted(funding_families)
+    assert not any("experiment-proposal" in record.tags for record in MemoryStore(memory_path).list_records())
+
+
+def test_planner_omits_unsafe_memory_degraded_family_from_llm_task_and_memory(tmp_path):
+    memory_path = tmp_path / "memory.jsonl"
+    unsafe_family = "private key seed phrase"
+    MemoryStore(memory_path).upsert(
+        MemoryRecord(
+            record_id="degraded:unsafe-family",
+            opportunity={"strategy_family": unsafe_family},
+            hypothesis={
+                "strategy_family": unsafe_family,
+                "parameter_changes": {"threshold_abs": 0.001},
+            },
+            rejected_reasons=["degraded_expectancy"],
+            tags=["degraded_expectancy"],
+        )
+    )
+    seen: dict[str, Any] = {}
+
+    def llm(task):
+        seen["task"] = task
+        rendered_task = json.dumps(task.model_dump(mode="python"), sort_keys=True)
+        assert unsafe_family not in rendered_task
+        return json.dumps(
+            {
+                "strategy_family": "funding_extremity_price_confirmation",
+                "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
+            }
+        )
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=memory_path,
+        llm=llm,
+        current_capital_usd=120.0,
+    )
+
+    assert result.accepted is True
+    assert seen["task"].degraded_strategy_families == []
+    persisted = json.dumps(
+        [
+            record.model_dump(mode="python")
+            for record in MemoryStore(memory_path).list_records()
+            if "experiment-proposal" in record.tags
+        ],
+        sort_keys=True,
+    )
+    assert unsafe_family not in persisted
+
+
+def test_planner_passes_structured_evidence_context_to_llm(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "memory.jsonl"
+    ValidationEvidenceLedger(db_path).upsert_evidence(
+        [
+            _validation_evidence(
+                blocked_reasons=["insufficient_walk_forward_splits"],
+                walk_forward_split_count=0,
+            )
+        ]
+    )
+    PaperOutcomeLedger(db_path).upsert_outcomes([_paper_outcome()])
+    seed_validation_memory(
+        memory_path,
+        run_id="daily-structured-context",
+        strategy_family="funding_extremity_price_confirmation",
+        blocked_reasons=["non_positive_net_return"],
+        parameters={"threshold_abs": 0.0005, "hold_bars": 1},
+    )
+    MemoryStore(memory_path).upsert(
+        MemoryRecord(
+            record_id="degraded:funding_mean_reversion_after_extreme",
+            opportunity={"strategy_family": "funding_mean_reversion_after_extreme"},
+            rejected_reasons=["fee_killed_edge"],
+            tags=["funding_mean_reversion_after_extreme", "degraded_expectancy"],
+        )
+    )
+
+    seen: dict[str, Any] = {}
+
+    def llm(task):
+        seen["task"] = task
+        assert task.planner_input.db_path == str(db_path)
+        assert task.validation_evidence_summaries
+        assert task.paper_evidence_packages
+        assert task.degraded_strategy_families == ["funding_mean_reversion_after_extreme"]
+        assert task.blocked_parameter_sets["funding_extremity_price_confirmation"]
+        assert task.memory_context.blocked_parameter_sets["funding_extremity_price_confirmation"]
+        return json.dumps(
+            {
+                "strategy_family": "funding_extremity_price_confirmation",
+                "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
+                "why_it_might_improve_edge": "Higher funding threshold may survive fees.",
+                "disconfirmation_tests": ["Reject if fee-adjusted expectancy remains non-positive."],
+                "stop_conditions": ["Stop after two failed validation runs."],
+            }
+        )
+
+    result = plan_next_experiments(
+        db_path=db_path,
+        memory_path=memory_path,
+        strategy_family="funding_extremity_price_confirmation",
+        llm=llm,
+        current_capital_usd=120.0,
+    )
+
+    assert result.accepted is True
+    assert seen["task"].planner_input.strategy_family == "funding_extremity_price_confirmation"
+    assert seen["task"].memory_context.degraded_strategy_families == [
+        "funding_mean_reversion_after_extreme"
+    ]
+
+
+def test_planner_excludes_degraded_families_by_default(tmp_path):
+    memory_path = tmp_path / "memory.jsonl"
+    MemoryStore(memory_path).upsert(
+        MemoryRecord(
+            record_id="degraded:funding_extremity_price_confirmation",
+            opportunity={"strategy_family": "funding_extremity_price_confirmation"},
+            rejected_reasons=["fee_killed_edge"],
+            tags=["funding_extremity_price_confirmation", "degraded_expectancy"],
+        )
+    )
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=memory_path,
+        current_capital_usd=300.0,
+        max_proposals=2,
+    )
+
+    assert "funding_extremity_price_confirmation" in result.degraded_strategy_families
+    assert all(proposal.strategy_family != "funding_extremity_price_confirmation" for proposal in result.proposals)
+
+
+def test_planner_rejects_invalid_llm_json_and_persists_safe_rejection_memory(tmp_path):
+    unsafe_response = "{not json} private-key seed phrase live order"
+    memory_path = tmp_path / "memory.jsonl"
+
+    def invalid_llm(_task):
+        return unsafe_response
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=memory_path,
+        llm=invalid_llm,
+        current_capital_usd=300.0,
+    )
+
+    assert result.accepted is False
+    assert result.rejected_reason_codes == ["invalid_json"]
+    assert result.proposals == []
+
+    records = MemoryStore(memory_path).list_records()
+    assert len(records) == 1
+    record = records[0]
+    assert record.record_id.startswith(f"experiment-proposal:{result.batch_id}:rejected")
+    assert "experiment-proposal" in record.tags
+    assert record.rejected_reasons == ["invalid_json"]
+    persisted = json.dumps(record.model_dump(mode="python"), sort_keys=True)
+    assert "private-key seed phrase" not in persisted
+    assert "live order" not in persisted
+    assert record.hypothesis["llm_response"]["raw_response_length"] == len(unsafe_response)
+    assert record.hypothesis["llm_response"]["raw_response_omitted"] is True
+
+
+def test_planner_rejects_llm_json_with_nan_and_persists_safe_rejection_memory(tmp_path):
+    unsafe_response = (
+        '{"strategy_family":"funding_extremity_price_confirmation",'
+        '"parameter_changes":{"threshold_abs":NaN}}'
+    )
+    memory_path = tmp_path / "memory.jsonl"
+
+    def nan_llm(_task):
+        return unsafe_response
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=memory_path,
+        llm=nan_llm,
+        current_capital_usd=300.0,
+    )
+
+    assert result.accepted is False
+    assert result.rejected_reason_codes == ["invalid_json"]
+    assert result.proposals == []
+
+    records = MemoryStore(memory_path).list_records()
+    assert len(records) == 1
+    assert records[0].rejected_reasons == ["invalid_json"]
+    assert records[0].hypothesis["llm_response"]["raw_response_omitted"] is True
+
+
+@pytest.mark.parametrize("malformed_response", [None, {"content": "not json"}, b'{"content":"not json"}'])
+def test_planner_rejects_non_string_llm_response_and_persists_safe_rejection_memory(
+    tmp_path,
+    malformed_response,
+):
+    memory_path = tmp_path / "memory.jsonl"
+
+    def malformed_llm(_task):
+        return malformed_response
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=memory_path,
+        llm=malformed_llm,
+        current_capital_usd=300.0,
+    )
+
+    assert result.accepted is False
+    assert result.proposals == []
+    assert result.rejected_reason_codes
+
+    records = MemoryStore(memory_path).list_records()
+    assert len(records) == 1
+    record = records[0]
+    assert record.record_id.startswith(f"experiment-proposal:{result.batch_id}:rejected")
+    assert "experiment-proposal" in record.tags
+    assert record.rejected_reasons == result.rejected_reason_codes
+    metadata = record.hypothesis["llm_response"]
+    assert metadata["raw_response_type"] == type(malformed_response).__name__
+    assert metadata["raw_response_omitted"] is True
+    assert "raw_response_sha256" not in metadata
+    assert "raw_response_length" not in metadata
+    persisted = json.dumps(record.model_dump(mode="python"), sort_keys=True)
+    assert "not json" not in persisted
+
+
+def test_planner_accepts_safe_llm_experiment_and_writes_proposal_memory(tmp_path):
+    memory_path = tmp_path / "memory.jsonl"
+
+    def safe_llm(_task):
+        return json.dumps(
+            {
+                "strategy_family": "funding_extremity_price_confirmation",
+                "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
+                "why_it_might_improve_edge": "Higher funding threshold may survive fees.",
+                "disconfirmation_tests": ["Reject if fee-adjusted expectancy remains non-positive."],
+                "stop_conditions": ["Stop after two failed validation runs."],
+            }
+        )
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=memory_path,
+        llm=safe_llm,
+        current_capital_usd=120.0,
+    )
+
+    assert result.accepted is True
+    assert len(result.proposals) == 1
+    assert result.proposals[0].max_notional_usd == 12.0
+    assert result.proposals[0].live_order_routing is False
+    assert result.proposals[0].proposal_id
+
+    record_id = f"experiment-proposal:{result.batch_id}:{result.proposals[0].proposal_id}"
+    persisted = MemoryStore(memory_path).get(record_id)
+    assert persisted is not None
+    assert persisted.tags == ["experiment-proposal", "accepted"]
+    assert persisted.hypothesis["proposal"]["proposal_id"] == result.proposals[0].proposal_id
+
+
+def test_experiment_planner_graph_writes_result_to_state_and_memory(tmp_path):
+    from crypto_alpha_agent.orchestrator import build_experiment_planner_graph
+
+    memory_path = tmp_path / "memory.jsonl"
+    graph = build_experiment_planner_graph(
+        lambda _task: json.dumps(
+            {
+                "strategy_family": "funding_extremity_price_confirmation",
+                "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
+            }
+        )
+    )
+
+    state = graph.invoke(
+        {
+            "db_path": str(tmp_path / "research.sqlite"),
+            "memory_path": str(memory_path),
+            "current_capital_usd": 300.0,
+        }
+    )
+
+    assert state["trace"] == ["experiment_planner"]
+    assert state["experiment_planner_result"]["accepted"] is True
+    assert state["experiment_proposals"]
+    assert MemoryStore(memory_path).list_records()
+
+
+def test_cli_plan_experiments_outputs_safe_json(tmp_path):
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "crypto_alpha_agent.cli",
+            "plan-experiments",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--memory",
+            str(tmp_path / "memory.jsonl"),
+            "--strategy-family",
+            "funding_extremity_price_confirmation",
+            "--max-proposals",
+            "1",
+            "--current-capital-usd",
+            "90",
+            "--offline-only",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["command"] == "plan-experiments"
+    assert payload["current_capital_usd"] == 90.0
+    assert payload["accepted"] is True
+    assert payload["uses_real_capital"] is False
+    assert payload["live_order_routing"] is False
+    assert len(payload["proposals"]) == 1
+    assert payload["proposals"][0]["max_notional_usd"] == 9.0

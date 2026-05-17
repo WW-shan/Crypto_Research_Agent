@@ -382,6 +382,48 @@ def build_llm_research_graph(
     )
 
 
+def build_experiment_planner_graph(
+    llm: Any | None = None,
+    *,
+    checkpointer: Any | None = None,
+    interrupt_before: Literal["*"] | Sequence[str] | None = None,
+    interrupt_after: Literal["*"] | Sequence[str] | None = None,
+    debug: bool = False,
+):
+    workflow = StateGraph(dict)
+
+    def experiment_planner(state: AgentState) -> AgentState:
+        from crypto_alpha_agent.pipeline.experiment_planner import plan_next_experiments
+
+        next_state = _append_trace(state, "experiment_planner")
+        result = plan_next_experiments(
+            db_path=next_state["db_path"],
+            memory_path=next_state["memory_path"],
+            strategy_family=next_state.get("strategy_family"),
+            max_proposals=next_state.get("max_proposals", 3),
+            current_capital_usd=next_state.get("current_capital_usd", 300.0),
+            llm=llm,
+            offline_only=next_state.get("offline_only", True),
+        )
+        next_state["experiment_planner_result"] = result.model_dump(mode="python")
+        next_state["experiment_proposals"] = [
+            proposal.model_dump(mode="python")
+            for proposal in result.proposals
+        ]
+        return next_state
+
+    workflow.add_node("experiment_planner", experiment_planner)
+    workflow.add_edge(START, "experiment_planner")
+    workflow.add_edge("experiment_planner", END)
+
+    return workflow.compile(
+        checkpointer=checkpointer,
+        interrupt_before=interrupt_before,
+        interrupt_after=interrupt_after,
+        debug=debug,
+    )
+
+
 def _paper_execution_reason(error: ValueError) -> str:
     message = str(error)
     if "insufficient paper cash" in message:

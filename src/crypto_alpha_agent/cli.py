@@ -31,6 +31,7 @@ from crypto_alpha_agent.pipeline.memory import (
     persist_validation_evidence_memory,
 )
 from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+from crypto_alpha_agent.pipeline.experiment_planner import plan_next_experiments
 from crypto_alpha_agent.pipeline.research_loop import run_stored_research_loop
 from crypto_alpha_agent.scheduler import build_daily_schedule_plan
 from crypto_alpha_agent.strategy import default_strategy_registry
@@ -257,6 +258,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional JSONL memory path for paper outcome feedback records.",
     )
     paper_sim_loop_parser.set_defaults(handler=_handle_paper_sim_loop, parser=paper_sim_loop_parser)
+
+    plan_experiments_parser = subparsers.add_parser(
+        "plan-experiments",
+        help="Plan bounded evidence experiments without live capital or order routing.",
+    )
+    plan_experiments_parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite research data store.")
+    plan_experiments_parser.add_argument("--memory", required=True, type=Path, help="Path to the JSONL memory store.")
+    plan_experiments_parser.add_argument("--strategy-family", help="Optional registered strategy family to plan.")
+    plan_experiments_parser.add_argument(
+        "--max-proposals",
+        type=_positive_int,
+        default=3,
+        help="Maximum experiment proposals to emit.",
+    )
+    plan_experiments_parser.add_argument(
+        "--current-capital-usd",
+        type=_non_negative_finite_float,
+        default=300.0,
+        help="Operator capital profile used to cap paper notional.",
+    )
+    plan_experiments_parser.add_argument(
+        "--offline-only",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Keep planning deterministic and offline.",
+    )
+    plan_experiments_parser.set_defaults(handler=_handle_plan_experiments)
 
     evidence_run_parser = subparsers.add_parser(
         "evidence-run",
@@ -952,6 +980,30 @@ def _handle_paper_sim_loop(args: argparse.Namespace) -> dict[str, Any]:
         args.report_out.parent.mkdir(parents=True, exist_ok=True)
         args.report_out.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
     return payload
+
+
+def _handle_plan_experiments(args: argparse.Namespace) -> dict[str, Any]:
+    result = plan_next_experiments(
+        db_path=args.db,
+        memory_path=args.memory,
+        strategy_family=args.strategy_family,
+        max_proposals=args.max_proposals,
+        current_capital_usd=args.current_capital_usd,
+        offline_only=args.offline_only,
+    )
+    return {
+        "command": "plan-experiments",
+        "current_capital_usd": args.current_capital_usd,
+        "proposals": [
+            proposal.model_dump(mode="json")
+            for proposal in result.proposals
+        ],
+        "degraded_strategy_families": result.degraded_strategy_families,
+        "accepted": result.accepted,
+        "rejected_reason_codes": result.rejected_reason_codes,
+        "uses_real_capital": False,
+        "live_order_routing": False,
+    }
 
 
 def _handle_evidence_run(args: argparse.Namespace) -> dict[str, Any]:
