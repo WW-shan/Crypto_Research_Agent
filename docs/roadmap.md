@@ -267,6 +267,27 @@ ordinary public APIs/RPC only, no speed edge or speed arbitrage, no MEV or
 premium infrastructure dependency, no wallet-key access, no order routing, and
 no live capital.
 
+## Codex Goal Continuation
+
+The long-running project completion loop is now defined in
+`docs/goals/project-completion-goal.md`, with rolling state in
+`docs/goals/project-completion-state.md`.
+
+Use that Goal contract after each completed slice to:
+
+- audit the current code, tests, docs, and plans against the final project
+  definition of done;
+- select the next smallest coherent gap;
+- use subagents where work can be safely split or independently reviewed;
+- finish the selected slice with tests, docs, verification, commit, and GitHub
+  push;
+- update `docs/goals/project-completion-state.md` and this roadmap before
+  continuing.
+
+The Goal loop does not weaken the charter. It must continue to reject live
+execution, wallet-key access, exchange order routing, MEV, premium-RPC
+dependency, speed-edge strategies, and secrets in git.
+
 ## Roadmap Update Rule
 
 After each completed phase or major implementation branch, update this roadmap
