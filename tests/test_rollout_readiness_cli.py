@@ -108,19 +108,20 @@ def _payload_from_cli(result: subprocess.CompletedProcess[str]) -> dict[str, obj
     return json.loads(result.stdout)
 
 
-def test_rollout_review_cli_blocks_with_insufficient_closed_sample_and_skips_no_signal_outcomes(tmp_path):
+def test_rollout_review_cli_blocks_with_insufficient_closed_sample_and_skips_blocked_no_signal_outcomes(tmp_path):
     db_path = tmp_path / "research.sqlite"
     outcomes = [_paper_outcome(index) for index in range(29)]
     outcomes.extend(
         [
             _paper_outcome(
                 29,
-                status="no_signal",
+                status="blocked",
                 gross_pnl_usd=0.0,
                 fees_usd=0.0,
                 slippage_usd=0.0,
                 net_pnl_usd=0.0,
-                max_drawdown_usd=0.0,
+                max_drawdown_usd=9.0,
+                failure_reasons=("risk_block",),
             ),
             _paper_outcome(
                 30,
@@ -157,7 +158,7 @@ def test_rollout_review_cli_blocks_with_insufficient_closed_sample_and_skips_no_
     assert evidence_package["sample_size"] == 31
     assert evidence_package["closed_count"] == 29
     assert evidence_package["rollout_observation_count"] == 29
-    assert payload["max_observed_loss_usd"] == pytest.approx(0.5)
+    assert payload["max_observed_loss_usd"] == pytest.approx(9.0)
     assert payload["readiness_artifact"]["ready_for_human_review"] is False
     assert payload["readiness_artifact"]["live_execution_enabled"] is False
 

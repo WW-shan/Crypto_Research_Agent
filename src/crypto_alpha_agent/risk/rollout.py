@@ -30,6 +30,7 @@ NonNegativeInt = Annotated[int, Field(strict=True, ge=0)]
 StringTuple = tuple[str, ...]
 _CLOSED_OUTCOME_STATUSES = {"closed", "filled", "success"}
 _FAILED_OUTCOME_STATUSES = {"failed", "rejected", "blocked"}
+_FAILED_OBSERVATION_STATUSES = {"failed", "rejected"}
 _LOSS_EVIDENCE_STATUSES = _CLOSED_OUTCOME_STATUSES | _FAILED_OUTCOME_STATUSES
 
 
@@ -155,7 +156,7 @@ def paper_outcomes_to_rollout_observations(
             )
             continue
 
-        if include_failed_outcomes and status in _FAILED_OUTCOME_STATUSES:
+        if include_failed_outcomes and status in _FAILED_OBSERVATION_STATUSES:
             observations.append(
                 PaperTradeObservation(
                     trade_id=outcome.outcome_id,

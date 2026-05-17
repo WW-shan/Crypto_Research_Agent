@@ -1664,10 +1664,19 @@ Tests must cover:
 
 - `rollout-review --db ... --strategy-family funding_extremity_price_confirmation` loads paper outcomes and validation evidence.
 - It converts closed outcomes into `PaperTradeObservation`.
-- It converts walk-forward validation into `WalkForwardSplit`.
+- It keeps `blocked` and `no_signal` paper outcomes out of rollout
+  observations; failed and rejected outcomes may be included only to make the
+  rollout failure-rate gate auditable.
+- It converts only approved, unblocked walk-forward validation evidence into
+  `WalkForwardSplit`; blocked validation evidence remains visible in the
+  evidence package and readiness reasons but must not make rollout gates pass.
+- It deduplicates canonical validation evidence ids before counting
+  walk-forward splits so repeated ledger rows cannot satisfy the split minimum.
 - It computes and surfaces `max_observed_loss_usd` from accumulated paper
   outcomes using the worst observed net PnL/drawdown evidence, with zero as the
-  default when no loss evidence exists.
+  default when no loss evidence exists. When recorded net PnL conflicts with
+  gross PnL minus fees and slippage, use the more conservative derived loss so
+  bad ledger data cannot understate the observed loss.
 - It writes or links the strategy-specific paper evidence package used for the
   review, so the readiness artifact can be audited later.
 - Fewer than 30 observations blocks with `insufficient_sample_size`.
@@ -1688,6 +1697,7 @@ Create functions:
 `compute_max_observed_loss_usd` must consider:
 
 - negative `net_pnl_usd` from closed paper outcomes
+- negative derived net PnL from `gross_pnl_usd - fees_usd - slippage_usd`
 - `max_drawdown_usd` when present
 - blocked or failed outcomes with recorded drawdown or loss fields in payloads
 
