@@ -20,7 +20,10 @@ from crypto_alpha_agent.data.onchain_ingestion import (
 )
 from crypto_alpha_agent.evidence.models import PaperSimulationOutcome
 from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
-from crypto_alpha_agent.pipeline.evidence_reports import load_stopped_strategy_families
+from crypto_alpha_agent.pipeline.evidence_reports import (
+    load_stopped_strategy_families,
+    record_stopped_family_override_used,
+)
 from crypto_alpha_agent.pipeline.markdown import render_research_loop_markdown
 from crypto_alpha_agent.pipeline.memory import (
     replace_paper_outcome_memory,
@@ -388,9 +391,27 @@ def run_daily_evidence_pipeline(
         update={
             "validation_summaries": validation_summaries,
             "paper_evidence_packages": paper_packages,
+            "notes": _dedupe([*research_report.notes, *decision_reason_codes]),
+            "decision_reason_codes": _dedupe(
+                [*research_report.decision_reason_codes, *decision_reason_codes]
+            ),
         }
     )
     research_memory_records = replace_research_loop_memory(final_research_report, memory)
+    override_memory_records = (
+        [
+            record_stopped_family_override_used(
+                family,
+                memory,
+                run_id=resolved_run_id,
+                command="evidence-run",
+            )
+            for family in family_list
+            if family in stopped_family_set
+        ]
+        if stopped_family_override_used
+        else []
+    )
 
     artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact.write_text(render_research_loop_markdown(final_research_report), encoding="utf-8")
@@ -417,6 +438,7 @@ def run_daily_evidence_pipeline(
             len(research_memory_records)
             + validation_memory_written
             + len(paper_memory_records)
+            + len(override_memory_records)
         ),
         report_artifact=str(artifact),
         research_milestone=milestone,

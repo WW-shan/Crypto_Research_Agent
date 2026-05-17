@@ -27,12 +27,14 @@ _DEGRADED_MARKERS = {
     "fee_killed_edge",
     "slippage_killed_edge",
     "insufficient_evidence_progress",
+    "drawdown_breach",
     "too_many_blocked_runs",
     "negative_expectancy",
 }
 _FAILED_STATUSES = {"failed", "rejected", "blocked"}
 _PAPER_EXPECTANCY_STATUSES = {"closed", "failed"}
 _BLOCKED_OUTCOME_LIMIT = 3
+_DRAWDOWN_BREACH_LIMIT = 0.20
 
 
 class StrategyFamilyDegradationDecision(BaseModel):
@@ -338,6 +340,39 @@ def mark_family_degraded(
     return MemoryStore(memory_path).upsert(record)
 
 
+def record_stopped_family_override_used(
+    strategy_family: str,
+    memory_path: str | Path,
+    *,
+    run_id: str,
+    command: str,
+) -> MemoryRecord:
+    family = strategy_family.strip()
+    if not family:
+        raise ValueError("strategy_family cannot be blank")
+    record = MemoryRecord(
+        record_id=f"stopped-family-override:{command}:{run_id}:{family}",
+        opportunity={
+            "strategy_family": family,
+            "run_id": run_id,
+            "command": command,
+            "uses_real_capital": False,
+            "live_order_routing": False,
+        },
+        hypothesis={
+            "decision": "stopped_family_override_used",
+            "reason_codes": ["stopped_family_override_used"],
+        },
+        score={
+            "override_used": True,
+            "reason_codes": ["stopped_family_override_used"],
+        },
+        rejected_reasons=[],
+        tags=_dedupe([family, "stopped_family_override_used", "stopped-family-override"]),
+    )
+    return MemoryStore(memory_path).upsert(record)
+
+
 def load_stopped_strategy_families(memory_path: str | Path | None) -> list[str]:
     if memory_path is None:
         return []
@@ -513,6 +548,8 @@ def _strategy_family_degradation_decision(
         reasons.append("fee_killed_edge")
     if any(_slippage_killed_edge(item) for item in validation_evidence):
         reasons.append("slippage_killed_edge")
+    if any(_drawdown_breached(item) for item in validation_evidence):
+        reasons.append("drawdown_breach")
 
     deduped_reasons = _dedupe(reasons)
     return StrategyFamilyDegradationDecision(
@@ -574,6 +611,11 @@ def _slippage_killed_edge(item: Any) -> bool:
         and gross > 0.0
         and slippage_adjusted <= 0.0
     )
+
+
+def _drawdown_breached(item: Any) -> bool:
+    drawdown = _finite_float_field(item, "max_drawdown")
+    return drawdown is not None and drawdown > _DRAWDOWN_BREACH_LIMIT
 
 
 def _field_value(item: Any, field: str) -> Any:
@@ -680,6 +722,10 @@ def _daily_reason_codes(
         codes.append("data_quality_issues")
     if next_experiments.proposals:
         codes.append("next_experiments")
+    if _memory_records_include(memory_records, "stopped_family_override_used"):
+        codes.append("stopped_family_override_used")
+    if _memory_records_include(memory_records, "stopped_family_skipped"):
+        codes.append("stopped_family_skipped")
     if should_collect_more_data:
         codes.append("collect_more_data")
     return _dedupe(codes)
@@ -713,3 +759,14 @@ def _dedupe(values: Iterable[str]) -> list[str]:
             deduped.append(value)
             seen.add(value)
     return deduped
+
+
+def _memory_records_include(records: list[MemoryRecord], token: str) -> bool:
+    return any(
+        token in {*record.tags, *record.rejected_reasons}
+        or (
+            isinstance(record.score, dict)
+            and token in [str(value) for value in record.score.get("notes", [])]
+        )
+        for record in records
+    )

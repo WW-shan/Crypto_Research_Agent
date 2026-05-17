@@ -142,7 +142,11 @@ def build_daily_schedule_plan(
             str(limit),
         ]
     )
-    for strategy_family in active_families:
+    # Keep requested families explicit in the planned command. If a requested
+    # family is stopped, evidence-run will see the same memory file and skip it;
+    # omitting all stopped families would make evidence-run fall back to its
+    # default family.
+    for strategy_family in requested_families:
         evidence_argv.extend(["--strategy-family", strategy_family])
     if run_id is not None:
         evidence_argv.extend(["--run-id", run_id])

@@ -130,7 +130,7 @@ def _research_loop_memory_records(report: ResearchLoopReport) -> list[MemoryReco
                 hypothesis=curated_hypothesis,
                 score=_score(report, hypothesis),
                 rejected_reasons=_rejected_reasons(report, hypothesis),
-                tags=_tags(report.run_id, hypothesis),
+                tags=_tags(report, hypothesis),
             )
         )
     return records
@@ -417,18 +417,19 @@ def _rejected_reasons(report: ResearchLoopReport, hypothesis: AlphaHypothesis) -
     return _unique_non_empty(reasons)
 
 
-def _tags(run_id: str, hypothesis: AlphaHypothesis) -> list[str]:
+def _tags(report: ResearchLoopReport, hypothesis: AlphaHypothesis) -> list[str]:
     outcome = "accepted" if hypothesis.actionability == "executable" else "blocked"
     metric = hypothesis.evidence[0].metric if hypothesis.evidence else "unknown"
     return _unique_non_empty(
         [
             "research-loop",
-            run_id,
+            report.run_id,
             _slug(hypothesis.asset),
             _slug(hypothesis.category),
             _slug(metric),
             hypothesis.actionability,
             outcome,
+            *report.decision_reason_codes,
         ]
     )
 

@@ -133,6 +133,27 @@ def test_fee_and_slippage_killed_validation_edge_are_reported_per_family():
     ]
 
 
+def test_validation_drawdown_breach_marks_family_degraded():
+    result = evidence_reports.detect_strategy_degradation(
+        [],
+        [
+            _validation_evidence(
+                gross_expectancy=0.004,
+                fee_adjusted_expectancy=0.003,
+                slippage_adjusted_expectancy=0.002,
+                max_drawdown=0.35,
+                approved=True,
+                blocked_reasons=(),
+            )
+        ],
+    )
+
+    assert result.degraded is True
+    assert result.strategy_families == [STRATEGY_FAMILY]
+    assert result.family_decisions[0].reason_codes == ["drawdown_breach"]
+    assert result.reason_codes == ["drawdown_breach"]
+
+
 def test_non_degraded_families_return_empty_reasons():
     result = evidence_reports.detect_strategy_degradation(
         [
@@ -305,7 +326,7 @@ def test_daily_schedule_plan_skips_stopped_family_unless_override_requested(tmp_
 
     assert plan.skipped_strategy_families == [STRATEGY_FAMILY]
     assert "stopped_family_skipped" in plan.decision_reason_codes
-    assert "--strategy-family" not in evidence_argv
+    assert evidence_argv[evidence_argv.index("--strategy-family") + 1] == STRATEGY_FAMILY
     assert "--allow-stopped-family" not in evidence_argv
 
     override_plan = build_daily_schedule_plan(
@@ -323,6 +344,30 @@ def test_daily_schedule_plan_skips_stopped_family_unless_override_requested(tmp_
     assert override_plan.stopped_family_override_used is True
     assert override_argv[override_argv.index("--strategy-family") + 1] == STRATEGY_FAMILY
     assert "--allow-stopped-family" in override_argv
+
+
+def test_daily_schedule_plan_does_not_fall_back_to_default_when_non_default_family_is_stopped(tmp_path):
+    memory_path = tmp_path / "memory.jsonl"
+    stopped_family = "funding_mean_reversion_after_extreme"
+    evidence_reports.mark_family_degraded(
+        stopped_family,
+        ["degraded_expectancy"],
+        memory_path=memory_path,
+    )
+
+    plan = build_daily_schedule_plan(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=memory_path,
+        report_out=tmp_path / "daily.md",
+        symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        strategy_families=[stopped_family],
+    )
+    evidence_argv = plan.planned_commands[-1].argv
+
+    assert plan.skipped_strategy_families == [stopped_family]
+    assert evidence_argv[evidence_argv.index("--strategy-family") + 1] == stopped_family
+    assert "funding_extremity_price_confirmation" not in evidence_argv
 
 
 def test_cli_allow_stopped_family_flags_and_research_loop_json(tmp_path, capsys):
@@ -403,6 +448,51 @@ def test_cli_allow_stopped_family_flags_and_research_loop_json(tmp_path, capsys)
     assert payload["report"]["decision_reason_codes"] == ["stopped_family_override_used"]
 
 
+def test_evidence_run_override_is_visible_in_daily_report_and_memory(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(
+        "crypto_alpha_agent.pipeline.evidence_runner.build_ccxt_collector",
+        lambda _exchange_id: _DeterministicCcxtCollector(),
+    )
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "memory.jsonl"
+    report_path = tmp_path / "daily.md"
+    evidence_reports.mark_family_degraded(
+        STRATEGY_FAMILY,
+        ["degraded_expectancy"],
+        memory_path=memory_path,
+    )
+
+    exit_code = main(
+        [
+            "evidence-run",
+            "--db",
+            str(db_path),
+            "--memory",
+            str(memory_path),
+            "--report-out",
+            str(report_path),
+            "--allow-network",
+            "--symbol",
+            "BTC/USDT",
+            "--funding-symbol",
+            "BTC/USDT:USDT",
+            "--timeframe",
+            "1h",
+            "--strategy-family",
+            STRATEGY_FAMILY,
+            "--allow-stopped-family",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    memory_records = MemoryStore(memory_path).list_records()
+
+    assert exit_code == 0
+    assert payload["stopped_family_override_used"] is True
+    assert "stopped_family_override_used" in payload["report"]["decision_reason_codes"]
+    assert "stopped_family_override_used" in report_path.read_text(encoding="utf-8")
+    assert any("stopped_family_override_used" in record.tags for record in memory_records)
+
+
 class _DeterministicCcxtCollector:
     def fetch_ohlcv(self, symbol, timeframe, since=None, limit=None, params=None):
         start = datetime(2026, 5, 17, tzinfo=UTC)
@@ -477,6 +567,7 @@ def _validation_evidence(
     gross_expectancy: float,
     fee_adjusted_expectancy: float,
     slippage_adjusted_expectancy: float,
+    max_drawdown: float = 0.02,
     approved: bool = False,
     blocked_reasons: tuple[str, ...] = ("non_positive_expectancy",),
 ) -> ValidationEvidence:
@@ -491,7 +582,7 @@ def _validation_evidence(
         gross_expectancy=gross_expectancy,
         fee_adjusted_expectancy=fee_adjusted_expectancy,
         slippage_adjusted_expectancy=slippage_adjusted_expectancy,
-        max_drawdown=0.02,
+        max_drawdown=max_drawdown,
         walk_forward_split_count=3,
         walk_forward_pass_rate=1.0 if approved else 0.0,
         approved=approved,
