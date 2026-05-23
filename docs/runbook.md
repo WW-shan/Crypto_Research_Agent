@@ -16,9 +16,10 @@ may call it without making the agent an always-on daemon.
 2. Install dependencies with `uv sync --extra dev`.
 3. Run commands from the repository root.
 4. Keep durable paths under `var/`: SQLite in `var/research.sqlite`, memory in
-   `var/memory/evidence.jsonl`, reports in `var/reports/`, event artifacts in
-   `var/events/`, logs in `var/log/`, locks in `var/locks/`, and rollout
-   artifacts in `var/rollout/`.
+   `var/memory/evidence.jsonl`, reports in `var/reports/`, run manifests and
+   failed markers in `var/run-manifests/`, event artifacts in `var/events/`,
+   logs in `var/log/`, locks in `var/locks/`, and rollout artifacts in
+   `var/rollout/`.
 
 ## Environment
 
@@ -137,8 +138,8 @@ environment failure. Do not treat that as product success.
 
 Some public crypto data endpoints may fail or timeout on the direct network
 route. The operator may use a local proxy for source probes and data ingestion.
-Keep proxy configuration local and record the source-health route as direct,
-proxy, or failed. The expected variable names are:
+Keep proxy configuration local and record the source-health route as direct, proxy, blocked,
+or not_applicable. The expected variable names are:
 
 ```env
 HTTP_PROXY=
@@ -196,7 +197,16 @@ The normal operator baseline is:
    uv run --extra dev crypto-alpha-agent evidence-run \
      --db var/research.sqlite \
      --memory var/memory/evidence.jsonl \
+     --run-id 2026-05-18-funding-extremity \
      --report-out var/reports/daily/2026-05-18.md \
+     --research-report-out var/reports/daily/2026-05-18.research.md \
+     --json-out var/reports/daily/2026-05-18.json \
+     --manifest-out var/run-manifests/evidence-run/2026-05-18-funding-extremity.json \
+     --latest-report-out var/reports/daily/latest.md \
+     --latest-json-out var/reports/daily/latest.json \
+     --latest-manifest-out var/run-manifests/latest.json \
+     --lock-path var/locks/evidence-run.lock \
+     --failed-marker-out var/run-manifests/failed/2026-05-18-funding-extremity.json \
      --current-capital-usd 300 \
      --allow-network \
      --ccxt-exchange binance \
@@ -205,7 +215,6 @@ The normal operator baseline is:
      --timeframe 1h \
      --limit 200 \
      --strategy-family funding_extremity_price_confirmation \
-     --run-id 2026-05-18-funding-extremity \
      --include-defillama \
      --min-tvl-usd 10000 \
      --include-dexscreener \
@@ -222,9 +231,10 @@ The normal operator baseline is:
      --strategy-family funding_extremity_price_confirmation
    ```
 
-4. Review the report, JSON stdout capture, source health, skipped or failed
-   steps, paper outcomes, validation evidence, memory records, and data quality
-   notes. Preserve the artifacts before manual cleanup.
+4. Review the daily report, research-loop report, JSON payload, run manifest,
+   JSON stdout capture, source health, skipped or failed steps, paper outcomes,
+   validation evidence, memory records, and data quality notes. Preserve the
+   artifacts before manual cleanup.
 
 ## Weekly Sequence
 
@@ -419,8 +429,9 @@ What to inspect:
 
 Use replay/recovery only when an observability JSONL artifact already exists,
 for example from `EventLogger` or an operator wrapper that deliberately writes
-observability events. `evidence-run` itself writes stdout JSON plus daily and
-weekly evidence artifacts; it does not automatically create
+observability events. `evidence-run` itself writes stdout JSON, a durable JSON
+payload, a run manifest, failed-run markers for nonzero exits, and daily/weekly
+evidence artifacts; it does not automatically create
 `var/events/research-observability.jsonl`.
 
 ```bash
@@ -510,20 +521,30 @@ set -u
 repo="${CRYPTO_ALPHA_AGENT_REPO:-/path/to/Crypto_Research_Agent}"
 run_date="$(date -u +%F)"
 week="$(date -u +%G-W%V)"
-lock="$repo/var/locks/evidence-run.lock"
-stdout_log="$repo/var/log/evidence-run/$run_date.out.log"
-stderr_log="$repo/var/log/evidence-run/$run_date.err.log"
+run_id="$run_date-funding-extremity"
+lock="var/locks/evidence-run.lock"
+stdout_log="var/log/evidence-run/$run_date.out.log"
+stderr_log="var/log/evidence-run/$run_date.err.log"
 
-mkdir -p "$repo/var/locks" "$repo/var/log/evidence-run" \
-  "$repo/var/reports/daily" "$repo/var/reports/weekly"
+mkdir -p var/locks var/log/evidence-run var/reports/daily \
+  var/reports/weekly var/run-manifests/evidence-run var/run-manifests/failed
 
 cd "$repo" || exit 1
 
-flock -n "$lock" uv run --extra dev crypto-alpha-agent evidence-run \
+uv run --extra dev crypto-alpha-agent evidence-run \
   --db var/research.sqlite \
   --memory var/memory/evidence.jsonl \
+  --run-id "$run_id" \
   --report-out "var/reports/daily/$run_date.md" \
+  --research-report-out "var/reports/daily/$run_date.research.md" \
   --weekly-report-out "var/reports/weekly/$week.md" \
+  --json-out "var/reports/daily/$run_date.json" \
+  --manifest-out "var/run-manifests/evidence-run/$run_id.json" \
+  --latest-report-out "var/reports/daily/latest.md" \
+  --latest-json-out "var/reports/daily/latest.json" \
+  --latest-manifest-out "var/run-manifests/latest.json" \
+  --lock-path "$lock" \
+  --failed-marker-out "var/run-manifests/failed/$run_id.json" \
   --current-capital-usd 300 \
   --allow-network \
   --ccxt-exchange binance \
@@ -542,9 +563,11 @@ fi
 exit "$status"
 ```
 
-The wrapper shows log paths and run locking explicitly. It keeps stdout/stderr
-separate; stdout is the command JSON output for review. Adjust the notification
-hook to local email, chat, pager, or ticketing.
+The wrapper shows log paths and product-level run locking explicitly. It keeps
+stdout/stderr separate; stdout is the command JSON output for review. Do not
+wrap the same lock path with `flock` unless you also pass `--no-lock`, because
+the CLI lock uses exclusive file creation. Adjust the notification hook to local
+email, chat, pager, or ticketing.
 
 Recommended cron shape:
 

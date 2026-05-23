@@ -61,6 +61,8 @@ Implemented:
 - Evidence system operations:
   - `evidence-run` one-shot pipeline for daily research, paper simulation, and
     evidence artifact generation.
+  - Product-level `evidence-run` locking, run manifests, JSON payloads, latest
+    pointers, failed-run markers, and source-health network-route recording.
   - `plan-experiments` for bounded operator-facing experiment planning.
   - `evidence-report` daily and weekly Markdown builders.
   - `rollout-review` CLI that preserves the strategy-specific evidence package.
@@ -543,6 +545,29 @@ Completion standard:
 - Output from this phase is operational smoke evidence only. The formal
   historical bootstrap and 30/60/90-observation validation campaign belong to
   Phase 7 after Phases 8-12.
+
+Phase 4 completion record: implemented by
+`docs/goals/phase-reports/2026-05-23-phase-4-evidence-run-infrastructure-completion-report.md`.
+
+Completed behavior:
+
+- `evidence-run` now owns a local lock by default at the database root
+  (`<db parent>/locks/evidence-run.lock`) so different report directories still
+  serialize against the same SQLite and memory artifacts.
+- The command writes a machine-readable JSON payload, run manifest, latest JSON
+  and manifest pointers, separate daily and research-loop Markdown reports, and
+  a failed-run marker for nonzero exits.
+- Run manifests record redacted inputs, run id, network route, source health,
+  steps, decision reason codes, artifact paths, artifact existence, memory
+  path, report paths, completion status, and safe flags.
+- Source health now records `direct`, `proxy`, `blocked`, or `not_applicable`
+  network route and redacts URLs, API keys, Dune parameter values, GraphQL
+  variable values, and Graph query text from failure paths.
+- Artifact path collisions are rejected before the pipeline runs, generated
+  run ids are unique for fast retries, and the runbook documents exact cron and
+  systemd wrapper shapes without requiring an external daemon.
+- Phase 4 did not add live trading, wallet-key access, exchange order routing,
+  MEV, premium RPC, speed-edge execution, or real-capital authority.
 
 #### Immediate Phase 5: Data And Strategy Expansion
 

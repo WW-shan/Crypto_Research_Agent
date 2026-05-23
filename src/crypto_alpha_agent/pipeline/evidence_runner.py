@@ -25,6 +25,11 @@ from crypto_alpha_agent.pipeline.evidence_reports import (
     load_stopped_strategy_families,
     record_stopped_family_override_used,
 )
+from crypto_alpha_agent.pipeline.evidence_run_ops import (
+    NetworkRoute,
+    network_route_from_environment,
+    redacted_failure as redact_evidence_failure,
+)
 from crypto_alpha_agent.pipeline.markdown import render_research_loop_markdown
 from crypto_alpha_agent.pipeline.memory import (
     replace_paper_outcome_memory,
@@ -66,6 +71,7 @@ class SourceHealthSummary(BaseModel):
     source: str = Field(min_length=1)
     feed: str = Field(min_length=1)
     status: Literal["success", "failure", "blocked", "skipped", "not_configured"]
+    network_route: NetworkRoute = "unknown"
     records_written: int = Field(default=0, ge=0)
     reason_code: str | None = None
     failure: str | None = None
@@ -173,6 +179,14 @@ def run_daily_evidence_pipeline(
             stopped_family_override_used=stopped_family_override_used,
         )
 
+    network_route = network_route_from_environment(allow_network=allow_network)
+    failure_secrets = _source_failure_secret_values(
+        dune_api_key,
+        dune_params,
+        subgraph_url,
+        graph_query,
+        graph_variables,
+    )
     steps: list[EvidenceRunnerStep] = []
     source_health: list[SourceHealthSummary] = []
     decision_reason_codes: list[str] = []
@@ -210,7 +224,12 @@ def run_daily_evidence_pipeline(
             )
         )
         source_health.append(
-            _source_health_from_summary(ohlcv_summary.source, ohlcv_summary.feed, ohlcv_summary.records_written)
+            _source_health_from_summary(
+                ohlcv_summary.source,
+                ohlcv_summary.feed,
+                ohlcv_summary.records_written,
+                network_route=network_route,
+            )
         )
 
         funding_summary = ingest_ccxt_funding_rate_history(
@@ -230,7 +249,12 @@ def run_daily_evidence_pipeline(
             )
         )
         source_health.append(
-            _source_health_from_summary(funding_summary.source, funding_summary.feed, funding_summary.records_written)
+            _source_health_from_summary(
+                funding_summary.source,
+                funding_summary.feed,
+                funding_summary.records_written,
+                network_route=network_route,
+            )
         )
     except Exception as exc:
         decision_reason_codes.append("core_source_failed")
@@ -246,8 +270,9 @@ def run_daily_evidence_pipeline(
                 source="ccxt",
                 feed="core",
                 status="failure",
+                network_route=network_route,
                 reason_code="core_source_failed",
-                failure=str(exc),
+                failure=_redact_failure(str(exc), secrets=failure_secrets),
             )
         )
         return _report(
@@ -272,6 +297,8 @@ def run_daily_evidence_pipeline(
     optional_records = _run_optional_sources(
         db_path=db,
         allow_network=True,
+        network_route=network_route,
+        failure_secrets=failure_secrets,
         include_defillama=include_defillama,
         include_dexscreener=include_dexscreener,
         dex_query=dex_query,
@@ -462,6 +489,8 @@ def _run_optional_sources(
     *,
     db_path: Path,
     allow_network: bool,
+    network_route: NetworkRoute,
+    failure_secrets: Sequence[str | None],
     include_defillama: bool,
     include_dexscreener: bool,
     dex_query: str | None,
@@ -489,6 +518,8 @@ def _run_optional_sources(
         include=include_dexscreener,
         dex_query=dex_query,
         dex_client=dex_client,
+        network_route=network_route,
+        failure_secrets=failure_secrets,
         health=health,
         reasons=reasons,
     )
@@ -498,6 +529,8 @@ def _run_optional_sources(
         include=include_defillama,
         min_tvl_usd=min_tvl_usd,
         defillama_client=defillama_client,
+        network_route=network_route,
+        failure_secrets=failure_secrets,
         health=health,
         reasons=reasons,
     )
@@ -509,6 +542,8 @@ def _run_optional_sources(
         api_key=dune_api_key,
         params=dune_params,
         client=dune_client,
+        network_route=network_route,
+        failure_secrets=failure_secrets,
         health=health,
         reasons=reasons,
     )
@@ -520,6 +555,8 @@ def _run_optional_sources(
         graph_query=graph_query,
         variables=graph_variables,
         client=thegraph_client,
+        network_route=network_route,
+        failure_secrets=failure_secrets,
         health=health,
         reasons=reasons,
     )
@@ -538,6 +575,8 @@ def _optional_dexscreener(
     include: bool,
     dex_query: str | None,
     dex_client: Any | None,
+    network_route: NetworkRoute,
+    failure_secrets: Sequence[str | None],
     health: list[SourceHealthSummary],
     reasons: list[str],
 ) -> int:
@@ -556,9 +595,24 @@ def _optional_dexscreener(
         )
     except Exception as exc:
         reasons.append("optional_source_failed")
-        health.append(_optional_failure("dexscreener", "pairs", exc))
+        health.append(
+            _optional_failure(
+                "dexscreener",
+                "pairs",
+                exc,
+                network_route=network_route,
+                secrets=failure_secrets,
+            )
+        )
         return 0
-    health.append(_source_health_from_summary(summary.source, summary.feed, summary.records_written))
+    health.append(
+        _source_health_from_summary(
+            summary.source,
+            summary.feed,
+            summary.records_written,
+            network_route=network_route,
+        )
+    )
     return summary.records_written
 
 
@@ -569,6 +623,8 @@ def _optional_defillama(
     include: bool,
     min_tvl_usd: float | None,
     defillama_client: Any | None,
+    network_route: NetworkRoute,
+    failure_secrets: Sequence[str | None],
     health: list[SourceHealthSummary],
     reasons: list[str],
 ) -> int:
@@ -584,9 +640,24 @@ def _optional_defillama(
         )
     except Exception as exc:
         reasons.append("optional_source_failed")
-        health.append(_optional_failure("defillama", "yield_pools", exc))
+        health.append(
+            _optional_failure(
+                "defillama",
+                "yield_pools",
+                exc,
+                network_route=network_route,
+                secrets=failure_secrets,
+            )
+        )
         return 0
-    health.append(_source_health_from_summary(summary.source, summary.feed, summary.records_written))
+    health.append(
+        _source_health_from_summary(
+            summary.source,
+            summary.feed,
+            summary.records_written,
+            network_route=network_route,
+        )
+    )
     return summary.records_written
 
 
@@ -599,6 +670,8 @@ def _optional_dune(
     api_key: str | None,
     params: dict[str, Any] | None,
     client: Any | None,
+    network_route: NetworkRoute,
+    failure_secrets: Sequence[str | None],
     health: list[SourceHealthSummary],
     reasons: list[str],
 ) -> int:
@@ -619,9 +692,24 @@ def _optional_dune(
         )
     except Exception as exc:
         reasons.append("optional_source_failed")
-        health.append(_optional_failure("dune", "dune_query_result", exc))
+        health.append(
+            _optional_failure(
+                "dune",
+                "dune_query_result",
+                exc,
+                network_route=network_route,
+                secrets=failure_secrets,
+            )
+        )
         return 0
-    health.append(_source_health_from_summary(summary.source, summary.feed, summary.records_written))
+    health.append(
+        _source_health_from_summary(
+            summary.source,
+            summary.feed,
+            summary.records_written,
+            network_route=network_route,
+        )
+    )
     return summary.records_written
 
 
@@ -634,6 +722,8 @@ def _optional_thegraph(
     graph_query: str | None,
     variables: dict[str, Any] | None,
     client: Any | None,
+    network_route: NetworkRoute,
+    failure_secrets: Sequence[str | None],
     health: list[SourceHealthSummary],
     reasons: list[str],
 ) -> int:
@@ -654,9 +744,24 @@ def _optional_thegraph(
         )
     except Exception as exc:
         reasons.append("optional_source_failed")
-        health.append(_optional_failure("thegraph", "thegraph_query_result", exc))
+        health.append(
+            _optional_failure(
+                "thegraph",
+                "thegraph_query_result",
+                exc,
+                network_route=network_route,
+                secrets=failure_secrets,
+            )
+        )
         return 0
-    health.append(_source_health_from_summary(summary.source, summary.feed, summary.records_written))
+    health.append(
+        _source_health_from_summary(
+            summary.source,
+            summary.feed,
+            summary.records_written,
+            network_route=network_route,
+        )
+    )
     return summary.records_written
 
 
@@ -701,6 +806,7 @@ def _blocked_network_report(
                 source="ccxt",
                 feed="core",
                 status="blocked",
+                network_route="blocked",
                 reason_code="network_not_allowed",
             ),
             _not_configured("dexscreener", "pairs"),
@@ -761,11 +867,14 @@ def _source_health_from_summary(
     source: str,
     feed: str,
     records_written: int,
+    *,
+    network_route: NetworkRoute = "unknown",
 ) -> SourceHealthSummary:
     return SourceHealthSummary(
         source=source,
         feed=feed,
         status="success",
+        network_route=network_route,
         records_written=records_written,
     )
 
@@ -780,22 +889,50 @@ def _not_configured(
         source=source,
         feed=feed,
         status="skipped",
+        network_route="not_applicable",
         reason_code=reason_code,
     )
 
 
-def _optional_failure(source: str, feed: str, exc: Exception) -> SourceHealthSummary:
+def _optional_failure(
+    source: str,
+    feed: str,
+    exc: Exception,
+    *,
+    network_route: NetworkRoute,
+    secrets: Sequence[str | None] = (),
+) -> SourceHealthSummary:
     return SourceHealthSummary(
         source=source,
         feed=feed,
         status="failure",
+        network_route=network_route,
         reason_code="optional_source_failed",
-        failure=_redact_failure(str(exc)),
+        failure=_redact_failure(str(exc), secrets=secrets),
     )
 
 
-def _redact_failure(message: str) -> str:
-    return _URL_PATTERN.sub("[REDACTED_URL]", message)
+def _redact_failure(message: str, *, secrets: Sequence[str | None] = ()) -> str:
+    return _URL_PATTERN.sub(
+        "[REDACTED_URL]",
+        redact_evidence_failure(message, secrets=list(secrets)),
+    )
+
+
+def _source_failure_secret_values(*values: Any) -> list[str | None]:
+    secrets: list[str | None] = []
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str):
+            secrets.append(value)
+            continue
+        if isinstance(value, dict):
+            secrets.extend(str(item) for item in value.values() if item is not None)
+            continue
+        if isinstance(value, list | tuple):
+            secrets.extend(str(item) for item in value if item is not None)
+    return secrets
 
 
 def _validation_parameter_kwargs(

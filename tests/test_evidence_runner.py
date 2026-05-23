@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from crypto_alpha_agent.cli import main
 from crypto_alpha_agent.data.models import FundingRateRecord, MarketCandle
@@ -65,6 +66,35 @@ class RaisingOptionalClient:
 
     def yield_pools(self, *, min_tvl_usd):
         raise RuntimeError("optional source unavailable")
+
+
+def test_evidence_run_lock_blocks_second_holder_and_removes_file(tmp_path):
+    from crypto_alpha_agent.pipeline.evidence_run_ops import (
+        EvidenceRunLock,
+        EvidenceRunLockError,
+    )
+
+    lock_path = tmp_path / "locks" / "evidence-run.lock"
+    with EvidenceRunLock(lock_path, run_id="run-a"):
+        assert lock_path.exists()
+        try:
+            with EvidenceRunLock(lock_path, run_id="run-b"):
+                raise AssertionError("second lock should not be acquired")
+        except EvidenceRunLockError as exc:
+            assert exc.reason_code == "evidence_run_lock_held"
+    assert not lock_path.exists()
+
+
+def test_write_json_artifact_replaces_atomically_and_updates_latest(tmp_path):
+    from crypto_alpha_agent.pipeline.evidence_run_ops import write_json_artifact
+
+    target = tmp_path / "manifests" / "run.json"
+    latest = tmp_path / "manifests" / "latest.json"
+    write_json_artifact(target, {"status": "success", "run_id": "run-a"}, latest_path=latest)
+    write_json_artifact(target, {"status": "failed", "run_id": "run-a"}, latest_path=latest)
+
+    assert json.loads(target.read_text(encoding="utf-8"))["status"] == "failed"
+    assert json.loads(latest.read_text(encoding="utf-8"))["status"] == "failed"
 
 
 def test_evidence_runner_executes_complete_research_milestone(tmp_path):
@@ -192,12 +222,60 @@ def test_evidence_runner_records_source_health_on_optional_source_failure(tmp_pa
 
 class SecretUrlFailingGraphClient:
     def query(self, subgraph_url, query, *, variables=None):
-        del query, variables
-        raise RuntimeError(f"failed request to {subgraph_url}")
+        raise RuntimeError(
+            f"failed request to {subgraph_url} {query} {variables} "
+            "https://signed.example/path?token=abc"
+        )
+
+
+def test_evidence_runner_records_network_route_and_redacts_core_failure(
+    tmp_path,
+    monkeypatch,
+):
+    class FailingCoreCollector:
+        def fetch_ohlcv(self, *args, **kwargs):
+            del args, kwargs
+            raise RuntimeError("failed via https://secret.example/path")
+
+    monkeypatch.setenv("CRYPTO_ALPHA_AGENT_PROXY", "http://127.0.0.1:" + "10808")
+    report = run_daily_evidence_pipeline(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        report_out=tmp_path / "research.md",
+        allow_network=True,
+        symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        ccxt_collector=FailingCoreCollector(),
+    )
+
+    assert report.source_health.items[0].network_route == "proxy"
+    assert report.source_health.items[0].failure == "failed via [REDACTED_URL]"
+
+
+def test_evidence_runner_can_write_research_report_to_distinct_path(tmp_path):
+    research_out = tmp_path / "daily.research.md"
+    report = run_daily_evidence_pipeline(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        report_out=research_out,
+        allow_network=True,
+        symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        run_id="distinct-report",
+        ccxt_collector=DeterministicCcxtCollector(),
+    )
+
+    assert report.report_artifact == str(research_out)
+    assert research_out.exists()
+    assert "# Crypto Alpha Research Loop" in research_out.read_text(encoding="utf-8")
 
 
 def test_evidence_runner_redacts_thegraph_failure_urls(tmp_path):
     secret_url = "https://gateway.thegraph.com/api/SECRET_KEY/subgraphs/id/abc"
+    graph_query = "{ pools(secret: \"GRAPH_QUERY_SECRET\") { id } }"
+    graph_variables = {"owner": "GRAPH_VARIABLE_SECRET"}
 
     report = run_daily_evidence_pipeline(
         db_path=tmp_path / "research.sqlite",
@@ -211,21 +289,26 @@ def test_evidence_runner_redacts_thegraph_failure_urls(tmp_path):
         ccxt_collector=DeterministicCcxtCollector(),
         include_thegraph=True,
         subgraph_url=secret_url,
-        graph_query="{ pools { id } }",
+        graph_query=graph_query,
+        graph_variables=graph_variables,
         thegraph_client=SecretUrlFailingGraphClient(),
     )
 
     payload = report.model_dump(mode="json")
     payload_json = json.dumps(payload, sort_keys=True)
     assert "SECRET_KEY" not in payload_json
+    assert "GRAPH_QUERY_SECRET" not in payload_json
+    assert "GRAPH_VARIABLE_SECRET" not in payload_json
     assert secret_url not in payload_json
+    assert graph_query not in payload_json
     graph_failures = [
         item
         for item in report.source_health.items
         if item.source == "thegraph" and item.status == "failure"
     ]
     assert graph_failures
-    assert graph_failures[0].failure == "failed request to [REDACTED_URL]"
+    assert "[REDACTED_URL]" in graph_failures[0].failure
+    assert "<redacted>" in graph_failures[0].failure
 
 
 def test_evidence_runner_replaces_run_scoped_validation_and_research_memory(tmp_path):
@@ -353,7 +436,12 @@ def test_evidence_run_cli_outputs_safe_json_and_writes_report(tmp_path, capsys, 
     assert payload["uses_real_capital"] is False
     assert payload["live_order_routing"] is False
     assert payload["memory_records_written"] > 0
-    assert payload["report_artifact"] == str(report_out)
+    research_report_out = tmp_path / "daily.research.md"
+    assert payload["status"] == "success"
+    assert payload["exit_code"] == 0
+    assert payload["report_artifact"] == str(research_report_out)
+    assert payload["research_report_out"] == str(research_report_out)
+    assert payload["daily_report_out"] == str(report_out)
     assert payload["report"]["source_health"]["optional_source_skipped"] > 0
     assert [step["name"] for step in payload["steps"]] == [
         "ingest_ccxt_ohlcv",
@@ -366,6 +454,392 @@ def test_evidence_run_cli_outputs_safe_json_and_writes_report(tmp_path, capsys, 
         "daily_report",
     ]
     assert report_out.exists()
+    assert research_report_out.exists()
+    assert "# Daily Evidence Report" in report_out.read_text(encoding="utf-8")
+    assert "# Crypto Alpha Research Loop" in research_report_out.read_text(encoding="utf-8")
+    assert Path(payload["json_out"]).exists()
+    assert Path(payload["manifest_out"]).exists()
+    assert Path(payload["latest_report_out"]).exists()
+    assert Path(payload["latest_json_out"]).exists()
+    assert Path(payload["latest_manifest_out"]).exists()
+    manifest = json.loads(Path(payload["manifest_out"]).read_text(encoding="utf-8"))
+    assert manifest["status"] == "success"
+    assert manifest["artifacts"]["daily_report"] == str(report_out)
+    assert manifest["artifacts"]["research_report"] == str(research_report_out)
+    assert manifest["artifact_status"]["daily_report"]["exists"] is True
+    assert manifest["artifact_status"]["research_report"]["exists"] is True
+    assert manifest["artifact_status"]["json_payload"]["exists"] is True
+    assert manifest["artifact_status"]["manifest"]["exists"] is True
+    assert manifest["artifact_status"]["lock"]["exists"] is False
+
+
+def test_evidence_run_cli_lock_contention_writes_failed_marker(tmp_path, capsys):
+    from crypto_alpha_agent.pipeline.evidence_run_ops import EvidenceRunLock
+
+    lock_path = tmp_path / "locks" / "evidence-run.lock"
+    failed_marker_out = tmp_path / "failed" / "locked.json"
+    json_out = tmp_path / "payload.json"
+    manifest_out = tmp_path / "manifest.json"
+
+    with EvidenceRunLock(lock_path, run_id="active-run"):
+        exit_code = main(
+            [
+                "evidence-run",
+                "--db",
+                str(tmp_path / "research.sqlite"),
+                "--memory",
+                str(tmp_path / "memory.jsonl"),
+                "--report-out",
+                str(tmp_path / "daily.md"),
+                "--json-out",
+                str(json_out),
+                "--manifest-out",
+                str(manifest_out),
+                "--failed-marker-out",
+                str(failed_marker_out),
+                "--lock-path",
+                str(lock_path),
+                "--run-id",
+                "locked-run",
+                "--symbol",
+                "BTC/USDT",
+                "--funding-symbol",
+                "BTC/USDT:USDT",
+                "--timeframe",
+                "1h",
+            ]
+        )
+        payload = json.loads(capsys.readouterr().out)
+        assert lock_path.exists()
+
+    assert exit_code == 2
+    assert payload["status"] == "failed"
+    assert payload["reason_code"] == "evidence_run_lock_held"
+    assert failed_marker_out.exists()
+    assert json.loads(json_out.read_text(encoding="utf-8"))["status"] == "failed"
+    marker = json.loads(failed_marker_out.read_text(encoding="utf-8"))
+    assert marker["reason_code"] == "evidence_run_lock_held"
+    assert marker["artifact_status"]["lock"]["exists"] is True
+    assert not lock_path.exists()
+
+
+def test_evidence_run_cli_default_lock_uses_db_root_across_report_dirs(tmp_path, capsys):
+    from crypto_alpha_agent.pipeline.evidence_run_ops import EvidenceRunLock
+
+    db_path = tmp_path / "state" / "research.sqlite"
+    lock_path = db_path.parent / "locks" / "evidence-run.lock"
+
+    with EvidenceRunLock(lock_path, run_id="active-run"):
+        exit_code = main(
+            [
+                "evidence-run",
+                "--db",
+                str(db_path),
+                "--memory",
+                str(tmp_path / "state" / "memory.jsonl"),
+                "--report-out",
+                str(tmp_path / "reports" / "different-dir" / "daily.md"),
+                "--run-id",
+                "default-lock-run",
+                "--symbol",
+                "BTC/USDT",
+                "--funding-symbol",
+                "BTC/USDT:USDT",
+                "--timeframe",
+                "1h",
+            ]
+        )
+        payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 2
+    assert payload["reason_code"] == "evidence_run_lock_held"
+    assert payload["lock_path"] == str(lock_path)
+
+
+def test_evidence_run_cli_failed_marker_redacts_configured_secret(
+    tmp_path,
+    capsys,
+    monkeypatch,
+):
+    secret = "dune-secret-token"
+
+    def fail_pipeline(**_kwargs):
+        raise RuntimeError(f"failed with {secret}")
+
+    monkeypatch.setattr("crypto_alpha_agent.cli.run_daily_evidence_pipeline", fail_pipeline)
+
+    failed_marker_out = tmp_path / "failed.json"
+    exit_code = main(
+        [
+            "evidence-run",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--memory",
+            str(tmp_path / "memory.jsonl"),
+            "--report-out",
+            str(tmp_path / "daily.md"),
+            "--failed-marker-out",
+            str(failed_marker_out),
+            "--include-dune",
+            "--dune-query-id",
+            "123456",
+            "--dune-api-key",
+            secret,
+            "--symbol",
+            "BTC/USDT",
+            "--funding-symbol",
+            "BTC/USDT:USDT",
+            "--timeframe",
+            "1h",
+        ]
+    )
+
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+    marker_text = failed_marker_out.read_text(encoding="utf-8")
+
+    assert exit_code == 2
+    assert payload["reason_code"] == "evidence_run_failed"
+    assert payload["failure"] == "failed with <redacted>"
+    assert secret not in stdout
+    assert secret not in marker_text
+    assert payload["manifest"]["inputs"]["dune_api_key_configured"] is True
+
+
+def test_evidence_run_cli_redacts_param_variable_and_query_values_from_artifacts(
+    tmp_path,
+    capsys,
+    monkeypatch,
+):
+    dune_value = "dune-param-secret"
+    graph_value = "graph-variable-secret"
+    graph_query = "{ token(secret: \"graph-query-secret\") { id } }"
+
+    def fail_pipeline(**_kwargs):
+        raise RuntimeError(
+            f"failed with {dune_value} {graph_value} {graph_query} "
+            "https://signed.example/path?token=abc"
+        )
+
+    monkeypatch.setattr("crypto_alpha_agent.cli.run_daily_evidence_pipeline", fail_pipeline)
+
+    json_out = tmp_path / "payload.json"
+    manifest_out = tmp_path / "manifest.json"
+    failed_marker_out = tmp_path / "failed.json"
+    exit_code = main(
+        [
+            "evidence-run",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--memory",
+            str(tmp_path / "memory.jsonl"),
+            "--report-out",
+            str(tmp_path / "daily.md"),
+            "--json-out",
+            str(json_out),
+            "--manifest-out",
+            str(manifest_out),
+            "--failed-marker-out",
+            str(failed_marker_out),
+            "--include-dune",
+            "--dune-query-id",
+            "123456",
+            "--dune-param",
+            f"alpha={dune_value}",
+            "--include-thegraph",
+            "--subgraph-url",
+            "https://example.test/subgraph",
+            "--graph-query",
+            graph_query,
+            "--graph-variable",
+            f"owner={graph_value}",
+            "--symbol",
+            "BTC/USDT",
+            "--funding-symbol",
+            "BTC/USDT:USDT",
+            "--timeframe",
+            "1h",
+        ]
+    )
+
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+    artifact_text = "\n".join(
+        [
+            stdout,
+            json_out.read_text(encoding="utf-8"),
+            manifest_out.read_text(encoding="utf-8"),
+            failed_marker_out.read_text(encoding="utf-8"),
+        ]
+    )
+    manifest_inputs = payload["manifest"]["inputs"]
+
+    assert exit_code == 2
+    assert payload["failure"] == (
+        "failed with <redacted> <redacted> <redacted> [REDACTED_URL]"
+    )
+    assert dune_value not in artifact_text
+    assert graph_value not in artifact_text
+    assert graph_query not in artifact_text
+    assert "dune_params" not in manifest_inputs
+    assert "graph_variables" not in manifest_inputs
+    assert "graph_query" not in manifest_inputs
+    assert manifest_inputs["dune_param_keys"] == ["alpha"]
+    assert manifest_inputs["graph_variable_keys"] == ["owner"]
+    assert manifest_inputs["graph_query_configured"] is True
+
+
+def test_evidence_run_cli_rejects_artifact_path_collisions(tmp_path, capsys):
+    report_out = tmp_path / "daily.md"
+    exit_code = main(
+        [
+            "evidence-run",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--memory",
+            str(tmp_path / "memory.jsonl"),
+            "--report-out",
+            str(report_out),
+            "--research-report-out",
+            str(report_out),
+            "--symbol",
+            "BTC/USDT",
+            "--funding-symbol",
+            "BTC/USDT:USDT",
+            "--timeframe",
+            "1h",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 2
+    assert payload["reason_code"] == "evidence_run_path_collision"
+    assert "daily_report" in payload["failure"]
+    assert "research_report" in payload["failure"]
+    assert not report_out.exists()
+    assert not Path(payload["json_out"]).exists()
+    assert not Path(payload["manifest_out"]).exists()
+    assert not Path(payload["failed_marker_out"]).exists()
+
+
+def test_evidence_run_cli_sanitizes_run_id_for_default_artifact_paths(
+    tmp_path,
+    capsys,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "crypto_alpha_agent.pipeline.evidence_runner.build_ccxt_collector",
+        lambda _exchange_id: DeterministicCcxtCollector(),
+    )
+    db_path = tmp_path / "state" / "research.sqlite"
+    raw_run_id = "../escape/../../signed?token=abc"
+
+    exit_code = main(
+        [
+            "evidence-run",
+            "--db",
+            str(db_path),
+            "--memory",
+            str(tmp_path / "state" / "memory.jsonl"),
+            "--report-out",
+            str(tmp_path / "reports" / "daily.md"),
+            "--run-id",
+            raw_run_id,
+            "--allow-network",
+            "--symbol",
+            "BTC/USDT",
+            "--funding-symbol",
+            "BTC/USDT:USDT",
+            "--timeframe",
+            "1h",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    manifest_out = Path(payload["manifest_out"]).resolve()
+    failed_marker_out = Path(payload["failed_marker_out"]).resolve()
+    manifest_root = (db_path.parent / "run-manifests").resolve()
+
+    assert exit_code == 0
+    assert payload["run_id"] == raw_run_id
+    assert manifest_out.is_relative_to(manifest_root)
+    assert failed_marker_out.is_relative_to(manifest_root)
+    assert ".." not in manifest_out.name
+    assert "/" not in manifest_out.name
+    assert manifest_out.exists()
+
+
+def test_generated_evidence_run_ids_are_unique_for_fast_retries(tmp_path):
+    from crypto_alpha_agent.cli import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "evidence-run",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--memory",
+            str(tmp_path / "memory.jsonl"),
+            "--report-out",
+            str(tmp_path / "daily.md"),
+            "--symbol",
+            "BTC/USDT",
+            "--funding-symbol",
+            "BTC/USDT:USDT",
+            "--timeframe",
+            "1h",
+        ]
+    )
+
+    first = args.handler.__globals__["_resolve_evidence_run_id"](args)
+    second = args.handler.__globals__["_resolve_evidence_run_id"](args)
+
+    assert first != second
+
+
+def test_evidence_run_cli_reported_core_failure_is_nonzero(
+    tmp_path,
+    capsys,
+    monkeypatch,
+):
+    class FailingCoreCollector:
+        def fetch_ohlcv(self, *args, **kwargs):
+            del args, kwargs
+            raise RuntimeError("core source down")
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.pipeline.evidence_runner.build_ccxt_collector",
+        lambda _exchange_id: FailingCoreCollector(),
+    )
+    failed_marker_out = tmp_path / "failed.json"
+
+    exit_code = main(
+        [
+            "evidence-run",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--memory",
+            str(tmp_path / "memory.jsonl"),
+            "--report-out",
+            str(tmp_path / "daily.md"),
+            "--failed-marker-out",
+            str(failed_marker_out),
+            "--allow-network",
+            "--symbol",
+            "BTC/USDT",
+            "--funding-symbol",
+            "BTC/USDT:USDT",
+            "--timeframe",
+            "1h",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 2
+    assert payload["status"] == "failed"
+    assert payload["reason_code"] == "core_source_failed"
+    assert payload["steps"][0]["status"] == "failed"
+    assert failed_marker_out.exists()
 
 
 def _research_and_validation_ids(records, run_id):

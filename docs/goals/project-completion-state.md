@@ -6,96 +6,82 @@ round.
 
 ## Current Round
 
-- Round: 5
-- Status: Immediate Phase 3 complete; commit and push pending
+- Round: 6
+- Status: Immediate Phase 4 complete; commit and push pending
 - Started: 2026-05-23
 - Completed: 2026-05-23
-- Active slice: Immediate Phase 3: Real LLM Test Policy
+- Active slice: Immediate Phase 4: Evidence Run Infrastructure
 - Active plan source:
-  `docs/superpowers/plans/2026-05-23-phase-3-real-llm-test-policy.md`
+  `docs/superpowers/plans/2026-05-23-phase-4-evidence-run-infrastructure.md`
 - Phase report:
-  `docs/goals/phase-reports/2026-05-23-phase-3-real-llm-test-policy-completion-report.md`
+  `docs/goals/phase-reports/2026-05-23-phase-4-evidence-run-infrastructure-completion-report.md`
 
 ## Completed This Round
 
-- Ran Phase 3 Smart Search deep research and fetched pytest marker/skip docs,
-  GitHub Actions secret docs, OpenAI production guidance, and Context7 pytest
-  marker references.
+- Ran Phase 4 Smart Search deep research and fetched Python standard-library
+  documentation for exclusive file creation, atomic replace, and JSON
+  serialization.
 - Verified local feasibility from the current worktree:
-  - only one real LLM integration test existed before Phase 3;
-  - `plan-experiments`, `research-loop`, and `evidence-report` already had real
-    LLM CLI wiring from Phase 2;
-  - fake adversarial tests existed but were not formalized as a test-policy
-    contract;
-  - Phase 2's completion report was referenced but missing from the repository.
-- Added `crypto_alpha_agent.security.secret_scan` for redacted scanning of
-  text, paths, and staged diffs.
-- Added shared real LLM test helpers in `tests/llm_integration_policy.py`.
-- Added real positive LLM integration tests for:
-  - configured adapter smoke;
-  - `plan-experiments`;
-  - `research-loop`;
-  - `evidence-report`.
-- Added `llm_integration` pytest marker and strict marker validation.
-- Added a deterministic policy contract that fake/injected adversarial coverage
-  remains present for invalid JSON, schema violations, live-order/private-key,
-  MEV/premium-RPC, high-capital, and raw-response metadata-only cases.
-- Debugged real LLM failures and strengthened schema hints to avoid prohibited
-  execution terms in free-text values.
-- Relaxed evidence-report summary list bounds to tolerate useful real summaries
-  while preserving bounded schema validation.
-- Repaired the missing Phase 2 completion report.
-- Updated the runbook and roadmap for the Phase 3 test policy.
+  - `evidence-run` already ran the pipeline but overwrote the research-loop
+    Markdown report with the daily evidence report;
+  - no durable run manifest, product-level lock, failed marker, or latest
+    pointer existed;
+  - source health did not record network route;
+  - optional slow-source redaction did not cover parameter and variable values.
+- Added `crypto_alpha_agent.pipeline.evidence_run_ops` with exclusive local
+  locking, atomic JSON/text artifact writes, network-route detection, redacted
+  manifest input handling, and failed-message redaction.
+- Updated `evidence-run` to:
+  - use a database-root lock by default;
+  - write separate daily and research-loop Markdown reports;
+  - write JSON payload, manifest, latest pointers, and failed-run markers;
+  - return nonzero exit code `2` for lock contention, path collisions, thrown
+    failures, and failed core pipeline steps;
+  - reject artifact path collisions before the pipeline runs;
+  - generate unique run ids for fast retries.
+- Updated source health to record direct/proxy/blocked/not-applicable network
+  route and to redact URLs, API keys, Dune parameter values, Graph variable
+  values, and Graph query text from source failures.
+- Updated README, runbook, and roadmap for the new operator command set,
+  product-level lock, manifest paths, failed marker, and retention expectations.
 
 ## Verification Evidence
 
 - Smart Search:
-  `/tmp/smart-search-evidence/2026-05-23-phase3-real-llm-test-policy/`
-  contains `00-doctor.json`, `01-deep-plan.json`, `02-broad-search.json`,
-  `03-pytest-markers.md`, `04-pytest-skipping.md`,
-  `05-github-actions-secrets.md`, `06-openai-production-best-practices.md`,
-  and `08-context7-pytest-docs.json`.
-- Initial integration collection:
-  `uv run --extra dev pytest --collect-only -q -m integration` collected 1
-  integration test before Phase 3 implementation.
-- Initial real LLM smoke:
-  `uv run --extra dev pytest tests/test_llm_configured_client.py::test_real_configured_llm_smoke_returns_valid_research_proposal_without_secret_leaks -q`
-  passed with 1 test before Phase 3 implementation.
-- Secret scanner RED/GREEN:
-  `uv run --extra dev pytest tests/test_secret_scan_policy.py -q` failed first
-  because `crypto_alpha_agent.security` did not exist, then later passed with 6
-  tests after adding regression coverage for path and label redaction.
-- Real LLM policy RED:
-  `uv run --extra dev pytest tests/test_real_llm_integration_policy.py tests/test_real_llm_test_policy_contract.py -q`
-  failed first because `llm_integration_policy` did not exist.
-- Real LLM debugging:
-  the first real policy run exposed `charter_violation` in planner output and
-  `invalid_summary` in evidence-report output; schema hints and summary bounds
-  were adjusted. Later review exposed transient provider `504` failures,
-  public finding label leakage, weak adversarial policy checks, and a false
-  safety-echo normalizer that could mask an unsafe follow-on instruction; all
-  were fixed and re-reviewed.
-- Focused Phase 3 verification:
-  `uv run --extra dev pytest tests/test_secret_scan_policy.py tests/test_real_llm_test_policy_contract.py tests/test_evidence_reports.py::test_report_summarizer_accepts_common_caveats_alias_without_extra_raw_text tests/test_evidence_reports.py::test_report_summarizer_normalizes_false_safety_flag_echoes_without_raw_text tests/test_evidence_reports.py::test_report_summarizer_rejects_valid_unsafe_instruction_without_raw_text tests/test_llm_configured_client.py::test_real_configured_llm_smoke_returns_valid_research_proposal_without_secret_leaks tests/test_real_llm_integration_policy.py -q`
+  `/tmp/smart-search-evidence/2026-05-23-phase4-evidence-run-infrastructure/`
+  contains `00-doctor.json`, `01-deep-plan.json`, `02-python-os-open.md`,
+  `03-python-os-replace.md`, and `04-python-json.md`. Doctor reported the main
+  route timed out but source fetch and documentation capability were usable.
+- Local prototype:
+  exclusive `os.open(..., O_CREAT | O_EXCL | O_WRONLY)` detected lock
+  contention and `os.replace` produced atomic JSON replacement.
+- Initial focused runner baseline:
+  `uv run --extra dev pytest tests/test_evidence_runner.py -q` passed with 8
+  tests before Phase 4 changes.
+- Phase 4 RED/GREEN coverage added for lock contention, atomic latest pointer
+  updates, network route, core failure redaction, distinct report artifacts,
+  manifest/json/latest artifact writes, failed markers, configured secret
+  redaction, default DB-root locking across report directories, artifact path
+  collisions, unique generated run ids, and slow-source failure redaction.
+- Focused Phase 4 runner verification:
+  `uv run --extra dev pytest tests/test_evidence_runner.py -q` passed with 19
+  tests.
+- Broader focused verification:
+  `uv run --extra dev pytest tests/test_scheduler_cli.py tests/test_documentation_contract.py -q`
+  passed with 17 tests.
+- Complete/degradation verification:
+  `uv run --extra dev pytest tests/test_complete_evidence_system.py::test_complete_safe_autonomous_evidence_system tests/test_evidence_degradation.py -q`
   passed with 16 tests.
-- Real LLM marker collection:
-  `uv run --extra dev pytest --collect-only -q -m llm_integration` collected 4
-  real LLM integration tests and deselected 781 tests.
-- Review pass 1 (spec/requirements) and review pass 2
-  (code-quality/secret-safety) found no Critical issues. Important issues were
-  fixed, and targeted re-review reported no Critical, Important, or Minor
+- Review pass 1 found Critical issues in manifest secret redaction and default
+  lock scoping plus Important artifact-path and run-id risks. Those were fixed
+  with regression tests. Re-review found no remaining Critical or Important
   findings.
-- Full tests:
-  `uv run --extra dev pytest -q` passed with 785 tests.
-- Ruff:
-  `uv run --extra dev ruff check .` passed with `All checks passed!`.
-- Diff check:
-  `git diff --check` passed.
-- Staged checks:
-  `git diff --cached --check` passed.
-- Staged secret-safety:
-  `uv run python -m crypto_alpha_agent.security.secret_scan --staged --fail-on-empty-with-untracked`
-  passed with `[]`.
+- Full verification:
+  `uv run --extra dev pytest -q` passed with 797 tests after a transient real
+  LLM summary rejection passed on immediate single-test rerun; `uv run --extra
+  dev ruff check .` passed; `git diff --check` passed.
+- Staged checks and staged secret-safety remain required before the Phase 4
+  commit and push.
 
 ## Current Project Target
 
@@ -127,15 +113,16 @@ charter:
 ## Known Remaining Gaps
 
 The first complete research-loop milestone remains complete under the current
-charter. Post-milestone Phase 0, Immediate Phase 1, Immediate Phase 2, and
-Immediate Phase 3 are complete. Phase 3 still requires commit and push before
-the next Phase may start.
+charter. Post-milestone Phase 0, Immediate Phase 1, Immediate Phase 2,
+Immediate Phase 3, and Immediate Phase 4 are complete. Phase 4 still requires
+staged checks, staged secret-safety, commit, and push before the next Phase may
+start.
 
 Future work is now ordered as an evidence-factory buildout before the formal
 evidence campaign:
 
-- Immediate Phase 4-5: keep evidence-run infrastructure operable while
-  preparing data and strategy expansion.
+- Immediate Phase 5: start data and strategy expansion after the Phase 4
+  infrastructure commit is pushed.
 - Phase 8: qualify and deepen public data sources, including proxy-aware
   source probes.
 - Phase 9: expand deterministic strategy validators and watchlists.
@@ -155,7 +142,7 @@ charter revision.
 
 ## Next Round Entry Instructions
 
-If work continues after Phase 3:
+If work continues after Phase 4:
 
 1. Read `docs/project-charter.md` before any new plan.
 2. Read `docs/goals/project-completion-goal.md` and follow its Per-Round
@@ -170,9 +157,10 @@ If work continues after Phase 3:
    `docs/roadmap.md`.
 4. Treat Phase 6 as merged into Immediate Phase 0 / Immediate Phase 1 entry
    readiness, not as a later standalone feature phase.
-5. Start with Immediate Phase 4: Evidence Run Infrastructure. Phase 3
-   formalized real LLM integration tests, fake adversarial policy coverage, and
-   secret-scan tooling. Do not reimplement Phase 1, Phase 2, or Phase 3.
+5. Start with Immediate Phase 5: Data And Strategy Expansion. Phase 4 added
+   evidence-run manifests, locking, failed markers, artifact latest pointers,
+   and source-health route/redaction. Do not reimplement Phase 1, Phase 2,
+   Phase 3, or Phase 4.
 6. Treat live execution, wallet keys, exchange order routing, private RPC,
    MEV, and speed-edge paths as blocked unless the owner explicitly revises the
    charter.
@@ -203,4 +191,5 @@ If work continues after Phase 3:
 | 2 | 2026-05-23 | Immediate Phase 0 / merged Phase 6 worktree and configuration closeout | focused Phase 0 checks 8 passed; pytest 750 passed; ruff passed; diff check passed; staged secret review passed | Phase 0 completion commit `docs: complete phase 0 closeout` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 3 | 2026-05-23 | Immediate Phase 1 real LLM adapter | tests 762 passed; ruff passed; diff check passed; staged secret review passed | Phase 1 completion commit `feat: add real llm adapter` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 4 | 2026-05-23 | Immediate Phase 2 connect LLM to research loop | tests 770 passed; ruff passed; diff check passed; staged secret review passed | `ae3e601 feat: connect llm to research loop` | `https://github.com/WW-shan/Crypto_Research_Agent` |
-| 5 | 2026-05-23 | Immediate Phase 3 real LLM test policy | focused Phase 3 tests 16 passed; pytest 785 passed; ruff passed; diff check passed; staged secret review passed | pending Phase 3 commit `test: formalize real llm policy` | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 5 | 2026-05-23 | Immediate Phase 3 real LLM test policy | focused Phase 3 tests 16 passed; pytest 785 passed; ruff passed; diff check passed; staged secret review passed | `9fb1945 test: formalize real llm policy` | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 6 | 2026-05-23 | Immediate Phase 4 evidence run infrastructure | focused Phase 4 runner tests 19 passed; scheduler/docs 17 passed; complete/degradation 16 passed; pytest 797 passed; ruff passed; diff check passed | pending Phase 4 commit `feat: add evidence run infrastructure` | `https://github.com/WW-shan/Crypto_Research_Agent` |

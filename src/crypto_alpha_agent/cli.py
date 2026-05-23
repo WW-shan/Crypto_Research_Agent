@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
+import re
+import uuid
+from contextlib import nullcontext
 from collections import Counter
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -30,6 +34,17 @@ from crypto_alpha_agent.observability.logging import load_events
 from crypto_alpha_agent.observability.reports import generate_daily_report
 from crypto_alpha_agent.orchestrator import build_llm_research_graph
 from crypto_alpha_agent.pipeline.evidence_runner import run_daily_evidence_pipeline
+from crypto_alpha_agent.pipeline.evidence_run_ops import (
+    EvidenceRunArtifact,
+    EvidenceRunLock,
+    EvidenceRunLockError,
+    EvidenceRunManifest,
+    network_route_from_environment,
+    redacted_evidence_run_inputs,
+    redacted_failure,
+    write_json_artifact,
+    write_text_artifact,
+)
 from crypto_alpha_agent.pipeline.evidence_reports import (
     build_daily_evidence_report,
     build_weekly_evidence_report,
@@ -52,12 +67,16 @@ from crypto_alpha_agent.scheduler import build_daily_schedule_plan
 from crypto_alpha_agent.strategy import default_strategy_registry
 
 
+class EvidenceRunConfigurationError(ValueError):
+    reason_code = "evidence_run_path_collision"
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     payload = args.handler(args)
     print(json.dumps(payload, sort_keys=True))
-    return 0
+    return int(payload.get("exit_code", 0) or 0)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -374,7 +393,52 @@ def build_parser() -> argparse.ArgumentParser:
     evidence_run_parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite research data store.")
     evidence_run_parser.add_argument("--memory", required=True, type=Path, help="Path to the JSONL memory store.")
     evidence_run_parser.add_argument("--report-out", required=True, type=Path, help="Path for the daily Markdown report.")
+    evidence_run_parser.add_argument(
+        "--research-report-out",
+        type=Path,
+        help="Optional path for the research-loop Markdown report; defaults to a .research.md sidecar.",
+    )
     evidence_run_parser.add_argument("--weekly-report-out", type=Path, help="Optional path for weekly evidence Markdown.")
+    evidence_run_parser.add_argument(
+        "--json-out",
+        type=Path,
+        help="Optional path for the machine-readable evidence-run payload JSON.",
+    )
+    evidence_run_parser.add_argument(
+        "--manifest-out",
+        type=Path,
+        help="Optional path for the evidence-run manifest JSON.",
+    )
+    evidence_run_parser.add_argument(
+        "--latest-report-out",
+        type=Path,
+        help="Optional latest-pointer path for the daily Markdown report.",
+    )
+    evidence_run_parser.add_argument(
+        "--latest-json-out",
+        type=Path,
+        help="Optional latest-pointer path for the evidence-run payload JSON.",
+    )
+    evidence_run_parser.add_argument(
+        "--latest-manifest-out",
+        type=Path,
+        help="Optional latest-pointer path for the evidence-run manifest JSON.",
+    )
+    evidence_run_parser.add_argument(
+        "--lock-path",
+        type=Path,
+        help="Optional local lock path preventing overlapping evidence-run invocations.",
+    )
+    evidence_run_parser.add_argument(
+        "--failed-marker-out",
+        type=Path,
+        help="Optional path for the failed-run marker JSON.",
+    )
+    evidence_run_parser.add_argument(
+        "--no-lock",
+        action="store_true",
+        help="Disable the local evidence-run lock for controlled test or recovery runs.",
+    )
     evidence_run_parser.add_argument(
         "--current-capital-usd",
         type=_positive_finite_float,
@@ -1307,72 +1371,533 @@ def _apply_evidence_report_summary(
 
 
 def _handle_evidence_run(args: argparse.Namespace) -> dict[str, Any]:
+    started_at = datetime.now(tz=UTC)
+    run_id = _resolve_evidence_run_id(args)
     strategy_families = args.strategy_family or ["funding_extremity_price_confirmation"]
+    paths = _resolve_evidence_run_paths(args, run_id)
+    report = None
     try:
-        report = run_daily_evidence_pipeline(
-            db_path=args.db,
-            memory_path=args.memory,
-            report_out=args.report_out,
-            current_capital_usd=args.current_capital_usd,
-            allow_network=args.allow_network,
-            ccxt_exchange=args.ccxt_exchange,
-            symbol=args.symbol,
-            funding_symbol=args.funding_symbol,
-            timeframe=args.timeframe,
-            limit=args.limit,
-            strategy_families=strategy_families,
-            run_id=args.run_id,
-            include_defillama=args.include_defillama,
-            include_dexscreener=args.include_dexscreener,
-            dex_query=args.dex_query,
-            min_tvl_usd=args.min_tvl_usd,
-            include_dune=args.include_dune,
-            dune_query_id=args.dune_query_id,
-            dune_api_key=args.dune_api_key,
-            dune_params=_key_value_pairs_to_dict(args.dune_param) if args.dune_param else None,
-            include_thegraph=args.include_thegraph,
-            subgraph_url=args.subgraph_url,
-            graph_query=args.graph_query,
-            graph_variables=_key_value_pairs_to_dict(args.graph_variable) if args.graph_variable else None,
-            allow_stopped_family=args.allow_stopped_family,
+        _validate_evidence_run_artifact_paths(args, paths)
+        lock_context = (
+            nullcontext()
+            if args.no_lock
+            else EvidenceRunLock(paths["lock_path"], run_id=run_id)
         )
-    except ValueError as exc:
-        args.parser.error(str(exc))
+        with lock_context:
+            report = run_daily_evidence_pipeline(
+                db_path=args.db,
+                memory_path=args.memory,
+                report_out=paths["research_report_out"],
+                current_capital_usd=args.current_capital_usd,
+                allow_network=args.allow_network,
+                ccxt_exchange=args.ccxt_exchange,
+                symbol=args.symbol,
+                funding_symbol=args.funding_symbol,
+                timeframe=args.timeframe,
+                limit=args.limit,
+                strategy_families=strategy_families,
+                run_id=run_id,
+                include_defillama=args.include_defillama,
+                include_dexscreener=args.include_dexscreener,
+                dex_query=args.dex_query,
+                min_tvl_usd=args.min_tvl_usd,
+                include_dune=args.include_dune,
+                dune_query_id=args.dune_query_id,
+                dune_api_key=args.dune_api_key,
+                dune_params=_key_value_pairs_to_dict(args.dune_param) if args.dune_param else None,
+                include_thegraph=args.include_thegraph,
+                subgraph_url=args.subgraph_url,
+                graph_query=args.graph_query,
+                graph_variables=(
+                    _key_value_pairs_to_dict(args.graph_variable)
+                    if args.graph_variable
+                    else None
+                ),
+                allow_stopped_family=args.allow_stopped_family,
+            )
 
-    daily_evidence_report = build_daily_evidence_report(
-        db_path=args.db,
-        memory_path=args.memory,
-        strategy_families=strategy_families,
-    )
-    args.report_out.parent.mkdir(parents=True, exist_ok=True)
-    args.report_out.write_text(
-        render_daily_evidence_report_markdown(daily_evidence_report),
-        encoding="utf-8",
-    )
+            daily_evidence_report = build_daily_evidence_report(
+                db_path=args.db,
+                memory_path=args.memory,
+                strategy_families=strategy_families,
+            )
+            write_text_artifact(
+                args.report_out,
+                render_daily_evidence_report_markdown(daily_evidence_report),
+                latest_path=paths["latest_report_out"],
+            )
 
-    payload = {
-        "command": "evidence-run",
-        "uses_real_capital": False,
-        "live_order_routing": False,
-        "memory_records_written": report.memory_records_written,
-        "report_artifact": report.report_artifact,
-        "daily_report_out": str(args.report_out),
-        "steps": [step.model_dump(mode="json") for step in report.steps],
-        "report": report.model_dump(mode="json"),
-        "stopped_family_override_used": report.stopped_family_override_used,
+            if args.weekly_report_out is not None:
+                weekly_evidence_report = build_weekly_evidence_report(
+                    db_path=args.db,
+                    memory_path=args.memory,
+                )
+                write_text_artifact(
+                    args.weekly_report_out,
+                    render_weekly_evidence_report_markdown(weekly_evidence_report),
+                )
+
+            status = _evidence_run_status(report)
+            reason_code, failure = _evidence_run_status_reason(report, status=status)
+            manifest = _build_evidence_run_manifest(
+                args=args,
+                run_id=run_id,
+                strategy_families=strategy_families,
+                paths=paths,
+                started_at=started_at,
+                status=status,
+                reason_code=reason_code,
+                failure=failure,
+                report=report,
+                lock_exists=False,
+            )
+            payload = _build_evidence_run_payload(
+                args=args,
+                run_id=run_id,
+                paths=paths,
+                status=status,
+                exit_code=2 if status == "failed" else 0,
+                reason_code=reason_code,
+                failure=failure,
+                report=report,
+                manifest=manifest,
+            )
+            _write_evidence_run_payload_artifacts(
+                paths=paths,
+                payload=payload,
+                manifest=manifest,
+                lock_exists=False,
+                write_failed_marker=status == "failed",
+            )
+            return payload
+    except EvidenceRunConfigurationError as exc:
+        return _finalize_evidence_run_failure(
+            args=args,
+            run_id=run_id,
+            strategy_families=strategy_families,
+            paths=paths,
+            started_at=started_at,
+            reason_code=exc.reason_code,
+            failure=redacted_failure(str(exc), secrets=_evidence_run_secret_values(args)),
+            report=report,
+            lock_exists=False,
+            write_artifacts=False,
+        )
+    except EvidenceRunLockError as exc:
+        return _finalize_evidence_run_failure(
+            args=args,
+            run_id=run_id,
+            strategy_families=strategy_families,
+            paths=paths,
+            started_at=started_at,
+            reason_code=exc.reason_code,
+            failure=redacted_failure(str(exc), secrets=_evidence_run_secret_values(args)),
+            report=report,
+            lock_exists=True,
+        )
+    except Exception as exc:
+        return _finalize_evidence_run_failure(
+            args=args,
+            run_id=run_id,
+            strategy_families=strategy_families,
+            paths=paths,
+            started_at=started_at,
+            reason_code="evidence_run_failed",
+            failure=redacted_failure(str(exc), secrets=_evidence_run_secret_values(args)),
+            report=report,
+            lock_exists=False,
+        )
+
+
+def _resolve_evidence_run_id(args: argparse.Namespace) -> str:
+    if args.run_id is not None and args.run_id.strip():
+        return args.run_id.strip()
+    timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    return f"evidence-run-{timestamp}-{uuid.uuid4().hex[:8]}"
+
+
+def _resolve_evidence_run_paths(args: argparse.Namespace, run_id: str) -> dict[str, Path]:
+    report_out = args.report_out
+    operation_root = args.db.parent
+    run_id_fragment = _run_id_path_fragment(run_id)
+    json_out = args.json_out or _default_evidence_run_json_out(report_out)
+    manifest_out = args.manifest_out or _default_evidence_run_manifest_out(operation_root, run_id_fragment)
+    return {
+        "research_report_out": args.research_report_out
+        or _default_evidence_run_research_report_out(report_out),
+        "json_out": json_out,
+        "manifest_out": manifest_out,
+        "latest_report_out": args.latest_report_out
+        or _default_evidence_run_latest_report_out(report_out),
+        "latest_json_out": args.latest_json_out
+        or _default_evidence_run_latest_json_out(json_out),
+        "latest_manifest_out": args.latest_manifest_out
+        or _default_evidence_run_latest_manifest_out(manifest_out),
+        "lock_path": args.lock_path or _default_evidence_run_lock_path(operation_root),
+        "failed_marker_out": args.failed_marker_out
+        or _default_evidence_run_failed_marker_out(operation_root, run_id_fragment),
+    }
+
+
+def _run_id_path_fragment(run_id: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "-", run_id).strip("-_")
+    if not cleaned:
+        cleaned = "run"
+    cleaned = cleaned[:48]
+    digest = hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:8]
+    return f"{cleaned}-{digest}"
+
+
+def _validate_evidence_run_artifact_paths(
+    args: argparse.Namespace,
+    paths: dict[str, Path],
+) -> None:
+    named_paths: list[tuple[str, Path]] = [
+        ("daily_report", args.report_out),
+        ("research_report", paths["research_report_out"]),
+        ("json_payload", paths["json_out"]),
+        ("manifest", paths["manifest_out"]),
+        ("latest_report", paths["latest_report_out"]),
+        ("latest_json", paths["latest_json_out"]),
+        ("latest_manifest", paths["latest_manifest_out"]),
+        ("failed_marker", paths["failed_marker_out"]),
+        ("lock", paths["lock_path"]),
+    ]
+    if args.weekly_report_out is not None:
+        named_paths.append(("weekly_report", args.weekly_report_out))
+
+    by_path: dict[Path, list[str]] = {}
+    for name, path in named_paths:
+        by_path.setdefault(_normalized_artifact_path(path), []).append(name)
+    collisions = [
+        f"{', '.join(names)} -> {path}"
+        for path, names in by_path.items()
+        if len(names) > 1
+    ]
+    if collisions:
+        raise EvidenceRunConfigurationError(
+            "evidence-run artifact path collision: " + "; ".join(collisions)
+        )
+
+
+def _normalized_artifact_path(path: Path) -> Path:
+    return path.expanduser().resolve(strict=False)
+
+
+def _default_evidence_run_research_report_out(report_out: Path) -> Path:
+    suffix = report_out.suffix or ".md"
+    return report_out.with_name(f"{report_out.stem}.research{suffix}")
+
+
+def _default_evidence_run_json_out(report_out: Path) -> Path:
+    return report_out.with_name(f"{report_out.stem}.json")
+
+
+def _default_evidence_run_manifest_out(operation_root: Path, run_id: str) -> Path:
+    return operation_root / "run-manifests" / "evidence-run" / f"{run_id}.json"
+
+
+def _default_evidence_run_latest_report_out(report_out: Path) -> Path:
+    suffix = report_out.suffix or ".md"
+    return report_out.with_name(f"latest{suffix}")
+
+
+def _default_evidence_run_latest_json_out(json_out: Path) -> Path:
+    return json_out.with_name("latest.evidence-run.json")
+
+
+def _default_evidence_run_latest_manifest_out(manifest_out: Path) -> Path:
+    return manifest_out.with_name("latest.manifest.json")
+
+
+def _default_evidence_run_lock_path(operation_root: Path) -> Path:
+    return operation_root / "locks" / "evidence-run.lock"
+
+
+def _default_evidence_run_failed_marker_out(operation_root: Path, run_id: str) -> Path:
+    return operation_root / "run-manifests" / "failed" / f"{run_id}.json"
+
+
+def _evidence_run_status(report: Any) -> str:
+    step_statuses = [step.status for step in report.steps]
+    if "failed" in step_statuses:
+        return "failed"
+    if "blocked" in step_statuses:
+        return "blocked"
+    return "success"
+
+
+def _evidence_run_status_reason(report: Any, *, status: str) -> tuple[str | None, str | None]:
+    if status == "success":
+        return None, None
+    target_status = "failed" if status == "failed" else "blocked"
+    step = next((item for item in report.steps if item.status == target_status), None)
+    reason_code = None if step is None else step.reason_code
+    if status == "blocked":
+        return reason_code or "evidence_run_blocked", None
+    failure = next(
+        (
+            item.failure
+            for item in report.source_health.failures
+            if item.failure
+        ),
+        None,
+    )
+    if failure is None and step is not None:
+        failure = f"failed step {step.name}: {reason_code or 'unknown'}"
+    return reason_code or "evidence_run_failed", failure
+
+
+def _evidence_run_artifacts(args: argparse.Namespace, paths: dict[str, Path]) -> dict[str, str | None]:
+    artifacts: dict[str, str | None] = {
+        "research_report": str(paths["research_report_out"]),
+        "daily_report": str(args.report_out),
+        "json_payload": str(paths["json_out"]),
+        "manifest": str(paths["manifest_out"]),
+        "latest_report": str(paths["latest_report_out"]),
+        "latest_json": str(paths["latest_json_out"]),
+        "latest_manifest": str(paths["latest_manifest_out"]),
+        "lock": str(paths["lock_path"]),
+        "failed_marker": str(paths["failed_marker_out"]),
     }
     if args.weekly_report_out is not None:
-        weekly_evidence_report = build_weekly_evidence_report(
-            db_path=args.db,
-            memory_path=args.memory,
+        artifacts["weekly_report"] = str(args.weekly_report_out)
+    return artifacts
+
+
+def _evidence_run_artifact_status(
+    artifacts: dict[str, str | None],
+    *,
+    lock_exists: bool,
+) -> dict[str, EvidenceRunArtifact]:
+    statuses: dict[str, EvidenceRunArtifact] = {}
+    for name, raw_path in artifacts.items():
+        if raw_path is None:
+            continue
+        path = Path(raw_path)
+        statuses[name] = EvidenceRunArtifact(
+            path=str(path),
+            exists=lock_exists if name == "lock" else path.exists(),
         )
-        args.weekly_report_out.parent.mkdir(parents=True, exist_ok=True)
-        args.weekly_report_out.write_text(
-            render_weekly_evidence_report_markdown(weekly_evidence_report),
-            encoding="utf-8",
-        )
+    return statuses
+
+
+def _build_evidence_run_manifest(
+    *,
+    args: argparse.Namespace,
+    run_id: str,
+    strategy_families: Sequence[str],
+    paths: dict[str, Path],
+    started_at: datetime,
+    status: str,
+    reason_code: str | None,
+    failure: str | None,
+    report: Any | None,
+    lock_exists: bool,
+) -> EvidenceRunManifest:
+    report_payload = report.model_dump(mode="json") if report is not None else {}
+    artifacts = _evidence_run_artifacts(args, paths)
+    run_started_at = report_payload.get("started_at", started_at.isoformat())
+    return EvidenceRunManifest(
+        run_id=run_id,
+        status=status,
+        started_at=run_started_at,
+        completed_at=datetime.now(tz=UTC).isoformat(),
+        inputs=_evidence_run_inputs(args, run_id, strategy_families, paths),
+        network_route=network_route_from_environment(allow_network=args.allow_network),
+        artifacts=artifacts,
+        artifact_status=_evidence_run_artifact_status(
+            artifacts,
+            lock_exists=lock_exists,
+        ),
+        source_health=report_payload.get("source_health", {}),
+        steps=report_payload.get("steps", []),
+        decision_reason_codes=report_payload.get("decision_reason_codes", []),
+        reason_code=reason_code,
+        failure=failure,
+    )
+
+
+def _evidence_run_inputs(
+    args: argparse.Namespace,
+    run_id: str,
+    strategy_families: Sequence[str],
+    paths: dict[str, Path],
+) -> dict[str, Any]:
+    return redacted_evidence_run_inputs(
+        {
+            "run_id": run_id,
+            "db_path": args.db,
+            "memory_path": args.memory,
+            "report_out": args.report_out,
+            "research_report_out": paths["research_report_out"],
+            "json_out": paths["json_out"],
+            "manifest_out": paths["manifest_out"],
+            "weekly_report_out": args.weekly_report_out,
+            "current_capital_usd": args.current_capital_usd,
+            "allow_network": args.allow_network,
+            "ccxt_exchange": args.ccxt_exchange,
+            "symbol": args.symbol,
+            "funding_symbol": args.funding_symbol,
+            "timeframe": args.timeframe,
+            "limit": args.limit,
+            "strategy_families": list(strategy_families),
+            "allow_stopped_family": args.allow_stopped_family,
+            "include_defillama": args.include_defillama,
+            "include_dexscreener": args.include_dexscreener,
+            "dex_query": args.dex_query,
+            "min_tvl_usd": args.min_tvl_usd,
+            "include_dune": args.include_dune,
+            "dune_query_id": args.dune_query_id,
+            "dune_api_key": args.dune_api_key,
+            "dune_params": list(args.dune_param or []),
+            "include_thegraph": args.include_thegraph,
+            "subgraph_url": args.subgraph_url,
+            "graph_query": args.graph_query,
+            "graph_variables": list(args.graph_variable or []),
+            "no_lock": args.no_lock,
+        }
+    )
+
+
+def _build_evidence_run_payload(
+    *,
+    args: argparse.Namespace,
+    run_id: str,
+    paths: dict[str, Path],
+    status: str,
+    exit_code: int,
+    reason_code: str | None,
+    failure: str | None,
+    report: Any | None,
+    manifest: EvidenceRunManifest,
+) -> dict[str, Any]:
+    report_payload = report.model_dump(mode="json") if report is not None else None
+    payload: dict[str, Any] = {
+        "command": "evidence-run",
+        "status": status,
+        "exit_code": exit_code,
+        "run_id": run_id,
+        "uses_real_capital": False,
+        "live_order_routing": False,
+        "network_route": manifest.network_route,
+        "memory_records_written": 0 if report is None else report.memory_records_written,
+        "report_artifact": None if report is None else report.report_artifact,
+        "daily_report_out": str(args.report_out),
+        "research_report_out": str(paths["research_report_out"]),
+        "json_out": str(paths["json_out"]),
+        "manifest_out": str(paths["manifest_out"]),
+        "latest_report_out": str(paths["latest_report_out"]),
+        "latest_json_out": str(paths["latest_json_out"]),
+        "latest_manifest_out": str(paths["latest_manifest_out"]),
+        "lock_path": str(paths["lock_path"]),
+        "failed_marker_out": str(paths["failed_marker_out"]),
+        "reason_code": reason_code,
+        "failure": failure,
+        "steps": [] if report is None else [step.model_dump(mode="json") for step in report.steps],
+        "report": report_payload,
+        "manifest": manifest.model_dump(mode="json"),
+        "stopped_family_override_used": False
+        if report is None
+        else report.stopped_family_override_used,
+    }
+    if args.weekly_report_out is not None:
         payload["weekly_report_out"] = str(args.weekly_report_out)
     return payload
+
+
+def _write_evidence_run_payload_artifacts(
+    *,
+    paths: dict[str, Path],
+    payload: dict[str, Any],
+    manifest: EvidenceRunManifest,
+    lock_exists: bool,
+    write_failed_marker: bool,
+) -> EvidenceRunManifest:
+    def write_once(current_manifest: EvidenceRunManifest) -> None:
+        manifest_payload = current_manifest.model_dump(mode="json")
+        payload["manifest"] = manifest_payload
+        write_json_artifact(paths["json_out"], payload, latest_path=paths["latest_json_out"])
+        write_json_artifact(
+            paths["manifest_out"],
+            manifest_payload,
+            latest_path=paths["latest_manifest_out"],
+        )
+        if write_failed_marker:
+            write_json_artifact(paths["failed_marker_out"], manifest_payload)
+
+    write_once(manifest)
+    final_manifest = manifest.model_copy(
+        update={
+            "completed_at": datetime.now(tz=UTC).isoformat(),
+            "artifact_status": _evidence_run_artifact_status(
+                manifest.artifacts,
+                lock_exists=lock_exists,
+            ),
+        }
+    )
+    write_once(final_manifest)
+    return final_manifest
+
+
+def _finalize_evidence_run_failure(
+    *,
+    args: argparse.Namespace,
+    run_id: str,
+    strategy_families: Sequence[str],
+    paths: dict[str, Path],
+    started_at: datetime,
+    reason_code: str,
+    failure: str,
+    report: Any | None,
+    lock_exists: bool,
+    write_artifacts: bool = True,
+) -> dict[str, Any]:
+    manifest = _build_evidence_run_manifest(
+        args=args,
+        run_id=run_id,
+        strategy_families=strategy_families,
+        paths=paths,
+        started_at=started_at,
+        status="failed",
+        reason_code=reason_code,
+        failure=failure,
+        report=report,
+        lock_exists=lock_exists,
+    )
+    payload = _build_evidence_run_payload(
+        args=args,
+        run_id=run_id,
+        paths=paths,
+        status="failed",
+        exit_code=2,
+        reason_code=reason_code,
+        failure=failure,
+        report=report,
+        manifest=manifest,
+    )
+    if write_artifacts:
+        try:
+            _write_evidence_run_payload_artifacts(
+                paths=paths,
+                payload=payload,
+                manifest=manifest,
+                lock_exists=lock_exists,
+                write_failed_marker=True,
+            )
+        except OSError as exc:
+            payload["artifact_write_failure"] = redacted_failure(
+                str(exc),
+                secrets=_evidence_run_secret_values(args),
+            )
+    return payload
+
+
+def _evidence_run_secret_values(args: argparse.Namespace) -> list[str | None]:
+    secrets: list[str | None] = [args.dune_api_key, args.subgraph_url, args.graph_query]
+    secrets.extend(value for _key, value in args.dune_param or [])
+    secrets.extend(value for _key, value in args.graph_variable or [])
+    return secrets
 
 
 def _has_ccxt_ingestion_intent(args: argparse.Namespace) -> bool:

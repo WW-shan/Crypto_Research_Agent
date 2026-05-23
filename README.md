@@ -48,8 +48,17 @@ reports. It is safe because it records `uses_real_capital=false` and
 uv run --extra dev crypto-alpha-agent evidence-run \
   --db var/research.sqlite \
   --memory var/memory/evidence.jsonl \
+  --run-id 2026-05-18-funding-extremity \
   --report-out var/reports/daily/2026-05-18.md \
+  --research-report-out var/reports/daily/2026-05-18.research.md \
   --weekly-report-out var/reports/weekly/2026-W21.md \
+  --json-out var/reports/daily/2026-05-18.json \
+  --manifest-out var/run-manifests/evidence-run/2026-05-18-funding-extremity.json \
+  --latest-report-out var/reports/daily/latest.md \
+  --latest-json-out var/reports/daily/latest.json \
+  --latest-manifest-out var/run-manifests/latest.json \
+  --lock-path var/locks/evidence-run.lock \
+  --failed-marker-out var/run-manifests/failed/2026-05-18-funding-extremity.json \
   --current-capital-usd 300 \
   --allow-network \
   --ccxt-exchange binance \
@@ -65,7 +74,9 @@ uv run --extra dev crypto-alpha-agent evidence-run \
 ```
 
 Use explicit date or run-id naming in artifact paths when a run must be
-preserved for recovery or rollout review.
+preserved for recovery or rollout review. The command writes a run manifest,
+machine-readable JSON payload, latest pointers, and a failed-run marker on
+nonzero exits while keeping live execution disabled.
 
 ## Low-Capital Real Data Ingestion
 
