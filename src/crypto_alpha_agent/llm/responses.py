@@ -77,11 +77,15 @@ class OpenAIResponsesAdapter:
             task_payload = task
         else:
             task_payload = {"task": str(task)}
+        schema_hint = _schema_hint_for_task(task)
         return (
             "You are a research-only crypto alpha assistant. Return only valid JSON "
             "that matches the caller's requested schema. Do not request prohibited "
             "execution capabilities, secret material, privileged infrastructure, "
-            "or capital beyond the supplied profile.\n\n"
+            "or capital beyond the supplied profile. Do not wrap JSON in markdown "
+            "fences.\n\n"
+            f"{schema_hint}\n\n"
+            "Task JSON:\n"
             + json.dumps(task_payload, sort_keys=True, default=str)
         )
 
@@ -142,3 +146,34 @@ def _strip_json_fence(text: str) -> str:
     if len(lines) >= 3 and lines[0].startswith("```") and lines[-1].strip() == "```":
         return "\n".join(lines[1:-1]).strip()
     return value
+
+
+def _schema_hint_for_task(task: Any) -> str:
+    task_type = type(task).__name__
+    if task_type == "ResearchTask":
+        return (
+            "Schema instructions: return exactly one HypothesisProposal JSON object "
+            "with these fields: proposal_id, thesis, hypothesis, assumptions, "
+            "evidence, disconfirmation, data_needed, capital_required_usd, "
+            "speed_dependency, rpc_dependency, action_mode. Use action_mode "
+            '"research_only"; use speed_dependency and rpc_dependency values "none", '
+            '"low", "medium", or "high"; keep capital_required_usd within the '
+            "supplied current_capital_usd."
+        )
+    if task_type == "ExperimentPlannerTask":
+        return (
+            "Schema instructions: return JSON for bounded ExperimentProposal "
+            "items. Prefer an object with a proposals list. Each proposal should "
+            "include strategy_family, parameter_changes, why_it_might_improve_edge, "
+            "disconfirmation_tests, stop_conditions, uses_real_capital=false, and "
+            "live_order_routing=false. Use only registered strategy families and "
+            "do not repeat blocked parameter sets from the task context."
+        )
+    if task_type == "EvidenceReportSummaryTask":
+        return (
+            "Schema instructions: return exactly one EvidenceReportNarrativeSummary "
+            "JSON object with report_type, summary, metric_refs, caveats, "
+            "uses_real_capital=false, and live_order_routing=false. Summarize only "
+            "the deterministic metrics supplied in the task."
+        )
+    return "Schema instructions: return only a valid JSON object for the caller."

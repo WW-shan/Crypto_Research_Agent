@@ -26,11 +26,11 @@ No exchange keys, wallet private keys, RPC secrets, or live API credentials are
 required for the current operator workflow.
 
 Local LLM credentials are optional operator configuration for offline-only
-runs, but the Phase 1 real LLM adapter uses them by default whenever a local
-operator or integration test explicitly requests a configured LLM. Keep them in
-`.env` or the shell environment only, and never commit or paste the values into
-docs, reports, memory, logs, screenshots, or tests. The expected variable names
-are:
+runs, but the real LLM paths use them for `plan-experiments`,
+`research-loop`, and `evidence-report` when those commands are not explicitly
+forced offline. Keep them in `.env` or the shell environment only, and never
+commit or paste the values into docs, reports, memory, logs, screenshots, or
+tests. The expected variable names are:
 
 ```env
 OPENAI_BASE_URL=
@@ -56,6 +56,33 @@ can return schema-valid research-only JSON. If this test fails because the
 external provider is down or rejects the configured model, treat it as an
 integration environment failure and keep deterministic fake LLM tests for
 adversarial cases.
+
+To run the CLI LLM paths explicitly in real mode, use `--no-offline-only`:
+
+```bash
+uv run --extra dev crypto-alpha-agent plan-experiments \
+  --db var/research.sqlite \
+  --memory var/memory/evidence.jsonl \
+  --current-capital-usd 300 \
+  --no-offline-only
+
+uv run --extra dev crypto-alpha-agent research-loop \
+  --db var/research.sqlite \
+  --memory var/memory/evidence.jsonl \
+  --no-offline-only
+
+uv run --extra dev crypto-alpha-agent evidence-report \
+  --daily \
+  --db var/research.sqlite \
+  --memory var/memory/evidence.jsonl \
+  --out var/reports/daily.md \
+  --no-offline-only
+```
+
+Use `--offline-only` when you want deterministic local behavior regardless of
+local credentials. In pytest runs, real LLM CLI paths are opt-in via
+`CRYPTO_ALPHA_AGENT_RUN_REAL_LLM_TESTS=1` so the standard regression suite stays
+deterministic.
 
 Some public crypto data endpoints may fail or timeout on the direct network
 route. The operator may use a local proxy for source probes and data ingestion.

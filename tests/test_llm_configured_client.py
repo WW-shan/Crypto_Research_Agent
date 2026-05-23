@@ -9,6 +9,11 @@ import pytest
 from pydantic import BaseModel, ConfigDict
 
 from crypto_alpha_agent.agents.llm_contracts import HypothesisProposal, ResearchTask
+from crypto_alpha_agent.pipeline.experiment_planner import (
+    ExperimentPlannerInput,
+    ExperimentPlannerMemoryContext,
+    ExperimentPlannerTask,
+)
 from crypto_alpha_agent.config import LLMSettings, build_configured_llm_settings
 from crypto_alpha_agent.llm import LLMProviderError, OpenAIResponsesAdapter, build_configured_llm
 from crypto_alpha_agent.llm.redaction import redact_text
@@ -262,6 +267,86 @@ def test_responses_adapter_extracts_nested_output_items_and_strips_json_fences()
         adapter(_DummyTask(task_id="adapter-task-2", objective="Return JSON"))
         == '{"proposal_id":"p2"}'
     )
+
+
+def test_responses_adapter_includes_hypothesis_schema_hint_for_research_task() -> None:
+    session = _FakeSession(_FakeResponse(payload={"output_text": "{}"}))
+    adapter = OpenAIResponsesAdapter(_settings(), session=session)
+
+    adapter(
+        ResearchTask(
+            task_id="research-schema-hint",
+            agent_role="hypothesis_generator",
+            objective="Generate one hypothesis.",
+            context={"run_id": "schema-hint-run"},
+            evidence=["funding validation evidence exists"],
+            allowed_tools=["local_report", "charter_guard"],
+            network_policy="offline",
+            current_capital_usd=300.0,
+        )
+    )
+
+    prompt = str(session.calls[0]["json"]["input"])
+    for field_name in [
+        "HypothesisProposal",
+        "proposal_id",
+        "thesis",
+        "hypothesis",
+        "assumptions",
+        "evidence",
+        "disconfirmation",
+        "data_needed",
+        "capital_required_usd",
+        "speed_dependency",
+        "rpc_dependency",
+        "action_mode",
+    ]:
+        assert field_name in prompt
+    assert "markdown" in prompt.lower()
+
+
+def test_responses_adapter_includes_experiment_schema_hint_for_planner_task() -> None:
+    session = _FakeSession(_FakeResponse(payload={"output_text": "{}"}))
+    adapter = OpenAIResponsesAdapter(_settings(), session=session)
+    task = ExperimentPlannerTask(
+        task_id="planner-schema-hint",
+        objective="Plan bounded experiments.",
+        planner_input=ExperimentPlannerInput(
+            db_path="research.sqlite",
+            memory_path="memory.jsonl",
+            strategy_family="funding_extremity_price_confirmation",
+            max_proposals=1,
+            current_capital_usd=300.0,
+            offline_only=False,
+        ),
+        validation_evidence_summaries=[],
+        paper_evidence_packages=[],
+        degraded_strategy_families=[],
+        blocked_parameter_sets={},
+        memory_context=ExperimentPlannerMemoryContext(
+            degraded_strategy_families=[],
+            blocked_parameter_sets={},
+            blocked_parameter_set_count=0,
+        ),
+        current_capital_usd=300.0,
+    )
+
+    adapter(task)
+
+    prompt = str(session.calls[0]["json"]["input"])
+    for field_name in [
+        "ExperimentProposal",
+        "proposals",
+        "strategy_family",
+        "parameter_changes",
+        "why_it_might_improve_edge",
+        "disconfirmation_tests",
+        "stop_conditions",
+        "uses_real_capital",
+        "live_order_routing",
+    ]:
+        assert field_name in prompt
+    assert "false" in prompt
 
 
 def test_responses_adapter_provider_errors_are_redacted() -> None:

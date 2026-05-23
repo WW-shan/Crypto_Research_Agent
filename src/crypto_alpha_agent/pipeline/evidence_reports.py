@@ -15,6 +15,7 @@ from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
 from crypto_alpha_agent.evidence.models import PaperSimulationOutcome, ValidationEvidence
 from crypto_alpha_agent.evidence.paper import PaperEvidencePackage, aggregate_paper_evidence
 from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
+from crypto_alpha_agent.agents.report_summarizer import EvidenceReportNarrativeSummary
 from crypto_alpha_agent.memory.store import MemoryRecord, MemoryStore
 from crypto_alpha_agent.pipeline.experiment_planner import ExperimentPlannerResult, plan_next_experiments
 
@@ -90,6 +91,9 @@ class DailyEvidenceReport(BaseModel):
     near_paper_eligibility: bool
     near_tiny_live_review: bool
     reason_codes: list[str] = Field(default_factory=list)
+    llm_summary: EvidenceReportNarrativeSummary | None = None
+    llm_summary_rejected_reason_codes: list[str] = Field(default_factory=list)
+    llm_summary_metadata: dict[str, Any] = Field(default_factory=dict)
     uses_real_capital: bool = False
     live_order_routing: bool = False
 
@@ -108,6 +112,9 @@ class WeeklyEvidenceReport(BaseModel):
     near_paper_eligibility: bool
     near_tiny_live_review: bool
     reason_codes: list[str] = Field(default_factory=list)
+    llm_summary: EvidenceReportNarrativeSummary | None = None
+    llm_summary_rejected_reason_codes: list[str] = Field(default_factory=list)
+    llm_summary_metadata: dict[str, Any] = Field(default_factory=dict)
     uses_real_capital: bool = False
     live_order_routing: bool = False
 

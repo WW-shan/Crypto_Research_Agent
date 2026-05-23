@@ -18,6 +18,7 @@ from crypto_alpha_agent.pipeline.markdown import (
     render_daily_evidence_report_markdown,
     render_weekly_evidence_report_markdown,
 )
+from crypto_alpha_agent.agents.report_summarizer import summarize_evidence_report
 
 
 STRATEGY_FAMILY = "funding_extremity_price_confirmation"
@@ -199,6 +200,131 @@ def test_evidence_report_cli_writes_daily_and_weekly_markdown(capsys, tmp_path):
     assert weekly_exit == 0
     assert weekly_payload["weekly_report_out"] == str(weekly_out)
     assert weekly_out.read_text(encoding="utf-8").startswith("# Weekly Evidence Report")
+
+
+def test_evidence_report_can_use_fast_summary_llm(capsys, monkeypatch, tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "memory.jsonl"
+    daily_out = tmp_path / "daily-llm.md"
+    _seed_daily_fixture(db_path, memory_path)
+    seen: dict[str, object] = {}
+    monkeypatch.setenv("CRYPTO_ALPHA_AGENT_RUN_REAL_LLM_TESTS", "1")
+
+    def fake_llm(task):
+        seen["task"] = task
+        return json.dumps(
+            {
+                "report_type": "daily",
+                "summary": "Daily evidence has validation records, paper outcomes, and an active data collection need.",
+                "metric_refs": ["validation_evidence_count=2", "paper_outcome_count=2"],
+                "caveats": ["Narrative summary is secondary."],
+                "uses_real_capital": False,
+                "live_order_routing": False,
+            }
+        )
+
+    def fake_build_configured_llm(*, role, required=False, **_kwargs):
+        seen["role"] = role
+        seen["required"] = required
+        return fake_llm
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.build_configured_llm",
+        fake_build_configured_llm,
+        raising=False,
+    )
+
+    exit_code = main(
+        [
+            "evidence-report",
+            "--daily",
+            "--db",
+            str(db_path),
+            "--memory",
+            str(memory_path),
+            "--out",
+            str(daily_out),
+            "--strategy-family",
+            STRATEGY_FAMILY,
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    markdown = daily_out.read_text(encoding="utf-8")
+
+    assert exit_code == 0
+    assert seen["role"] == "summary"
+    assert seen["required"] is False
+    assert payload["llm_used"] is True
+    assert payload["report"]["validation_evidence_count"] == 2
+    assert payload["report"]["paper_outcome_count"] == 2
+    assert payload["report"]["llm_summary"]["summary"].startswith("Daily evidence")
+    assert "## LLM Narrative Summary" in markdown
+    assert "Validation evidence: 2" in markdown
+
+
+def test_daily_evidence_report_can_render_llm_summary_without_changing_metrics(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "memory.jsonl"
+    _seed_daily_fixture(db_path, memory_path)
+    report = build_daily_evidence_report(
+        db_path=db_path,
+        memory_path=memory_path,
+        strategy_families=[STRATEGY_FAMILY],
+    )
+    original = report.model_dump(mode="json")
+
+    def fake_llm(task):
+        assert task.report_type == "daily"
+        assert task.deterministic_report["validation_evidence_count"] == 2
+        return json.dumps(
+            {
+                "report_type": "daily",
+                "summary": "Validation is active, paper samples remain below target, and more data collection is still required.",
+                "metric_refs": ["validation_evidence_count=2", "paper_outcome_count=2"],
+                "caveats": ["Summary is secondary to deterministic metrics."],
+                "uses_real_capital": False,
+                "live_order_routing": False,
+            }
+        )
+
+    summary_result = summarize_evidence_report(report, report_type="daily", llm=fake_llm)
+    enriched = report.model_copy(
+        update={
+            "llm_summary": summary_result.summary,
+            "llm_summary_metadata": summary_result.llm_response_metadata,
+        }
+    )
+    markdown = render_daily_evidence_report_markdown(enriched)
+
+    assert summary_result.accepted is True
+    assert enriched.validation_evidence_count == original["validation_evidence_count"]
+    assert enriched.paper_outcome_count == original["paper_outcome_count"]
+    assert enriched.next_experiments.model_dump(mode="json") == original["next_experiments"]
+    assert "## LLM Narrative Summary" in markdown
+    assert "Validation is active" in markdown
+
+
+def test_report_summarizer_rejects_invalid_or_unsafe_output_without_raw_text(tmp_path):
+    report = build_daily_evidence_report(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        strategy_families=[STRATEGY_FAMILY],
+    )
+    unsafe_response = "{not json} private-key seed phrase live order"
+
+    def fake_llm(_task):
+        return unsafe_response
+
+    summary_result = summarize_evidence_report(report, report_type="daily", llm=fake_llm)
+    payload = json.dumps(summary_result.model_dump(mode="json"), sort_keys=True)
+
+    assert summary_result.accepted is False
+    assert "invalid_json" in summary_result.rejected_reason_codes
+    assert summary_result.llm_response_metadata["raw_response_omitted"] is True
+    assert summary_result.llm_response_metadata["raw_response_length"] == len(unsafe_response)
+    assert "private-key seed phrase" not in payload
+    assert "live order" not in payload
 
 
 def _seed_daily_fixture(db_path, memory_path) -> None:

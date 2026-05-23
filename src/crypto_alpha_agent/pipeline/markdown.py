@@ -252,6 +252,7 @@ def render_daily_evidence_report_markdown(report: DailyEvidenceReport) -> str:
             )
     else:
         lines.append("- none")
+    lines.extend(_llm_summary_lines(report))
     return "\n".join(lines) + "\n"
 
 
@@ -327,7 +328,26 @@ def render_weekly_evidence_report_markdown(report: WeeklyEvidenceReport) -> str:
             lines.append(f"| {_escape_table_cell(family)} | {progress:g}/30 |")
     else:
         lines.append("| none | 0/30 |")
+    lines.extend(_llm_summary_lines(report))
     return "\n".join(lines) + "\n"
+
+
+def _llm_summary_lines(report: DailyEvidenceReport | WeeklyEvidenceReport) -> list[str]:
+    summary = getattr(report, "llm_summary", None)
+    if summary is None:
+        return []
+    lines = [
+        "",
+        "## LLM Narrative Summary",
+        _escape_text(summary.summary),
+        "",
+        "Metric refs:",
+    ]
+    lines.extend(_bullet_lines(list(summary.metric_refs)))
+    if summary.caveats:
+        lines.extend(["", "Caveats:"])
+        lines.extend(_bullet_lines(list(summary.caveats)))
+    return lines
 
 
 def _bool_text(value: bool) -> str:

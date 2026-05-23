@@ -431,6 +431,27 @@ Completion standard:
 - Report summaries never overwrite or reinterpret deterministic validation,
   paper, source-health, or cost metrics.
 
+Phase 2 completion record: implemented by
+`docs/goals/phase-reports/2026-05-23-phase-2-connect-llm-research-loop-completion-report.md`.
+
+Completed behavior:
+
+- `plan-experiments` now resolves the configured planning LLM by default in
+  operator runs, passes proposals through the existing strict
+  `ExperimentProposal` parser and charter guard, and persists rejected LLM
+  output as metadata-only memory.
+- `research-loop` can invoke the configured research LLM through the existing
+  LangGraph LLM research graph and write only metadata/hash/length status for
+  raw responses.
+- `evidence-report` can invoke the configured fast summary model to add an
+  optional `LLM Narrative Summary` section without changing deterministic
+  validation, paper, memory, source-health, or cost metrics.
+- `--offline-only` keeps deterministic behavior, while `--no-offline-only`
+  requires a configured real LLM and fails closed if local credentials are
+  missing.
+- No live trading, wallet-key access, exchange order routing, MEV, premium RPC,
+  or speed-edge execution path was added.
+
 #### Immediate Phase 3: Real LLM Test Policy
 
 Goal: Use the owner's real LLM for meaningful integration tests while keeping

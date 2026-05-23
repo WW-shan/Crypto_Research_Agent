@@ -600,3 +600,98 @@ def test_cli_plan_experiments_outputs_safe_json(tmp_path):
     assert payload["live_order_routing"] is False
     assert len(payload["proposals"]) == 1
     assert payload["proposals"][0]["max_notional_usd"] == 9.0
+
+
+def test_plan_experiments_auto_uses_configured_planning_llm(
+    capsys,
+    monkeypatch,
+    tmp_path,
+):
+    from crypto_alpha_agent.cli import main
+
+    seen: dict[str, Any] = {}
+    monkeypatch.setenv("CRYPTO_ALPHA_AGENT_RUN_REAL_LLM_TESTS", "1")
+
+    def fake_llm(task):
+        seen["task"] = task
+        return json.dumps(
+            {
+                "strategy_family": "funding_extremity_price_confirmation",
+                "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
+                "why_it_might_improve_edge": "Higher public funding extremity may survive fees.",
+                "disconfirmation_tests": ["Reject if fee-adjusted expectancy stays non-positive."],
+                "stop_conditions": ["Stop after two blocked validation runs."],
+            }
+        )
+
+    def fake_build_configured_llm(*, role, required=False, **_kwargs):
+        seen["role"] = role
+        seen["required"] = required
+        return fake_llm
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.build_configured_llm",
+        fake_build_configured_llm,
+        raising=False,
+    )
+
+    exit_code = main(
+        [
+            "plan-experiments",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--memory",
+            str(tmp_path / "memory.jsonl"),
+            "--strategy-family",
+            "funding_extremity_price_confirmation",
+            "--max-proposals",
+            "1",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert seen["role"] == "planning"
+    assert seen["required"] is False
+    assert seen["task"].task_id.startswith("experiment-planner:")
+    assert payload["llm_used"] is True
+    assert payload["llm_role"] == "planning"
+    assert payload["proposals"][0]["parameter_changes"] == {"threshold_abs": 0.001, "hold_bars": 2}
+
+
+def test_plan_experiments_offline_only_skips_configured_llm(
+    capsys,
+    monkeypatch,
+    tmp_path,
+):
+    from crypto_alpha_agent.cli import main
+
+    def fail_build_configured_llm(**_kwargs):
+        raise AssertionError("offline planning should not build configured LLM")
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.build_configured_llm",
+        fail_build_configured_llm,
+        raising=False,
+    )
+
+    exit_code = main(
+        [
+            "plan-experiments",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--memory",
+            str(tmp_path / "memory.jsonl"),
+            "--strategy-family",
+            "funding_extremity_price_confirmation",
+            "--max-proposals",
+            "1",
+            "--offline-only",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["llm_used"] is False
+    assert payload["llm_mode"] == "offline_only"
+    assert payload["accepted"] is True
