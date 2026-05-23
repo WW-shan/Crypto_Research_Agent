@@ -393,6 +393,12 @@ Completion standard:
   order requests, private-key requests, MEV, premium RPC, high capital, and
   other unsafe outputs.
 
+Phase 1 completion record: implemented by
+`docs/goals/phase-reports/2026-05-23-phase-1-real-llm-adapter-completion-report.md`.
+The adapter remains research-only and is not wired into Phase 2 research-loop,
+plan-experiments, evidence-run, report-summary, memory-persistence, or
+execution/live paths yet.
+
 #### Immediate Phase 2: Connect LLM To The Research Loop
 
 Goal: Use the real LLM as a research assistant across the existing evidence

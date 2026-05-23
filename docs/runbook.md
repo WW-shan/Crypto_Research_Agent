@@ -25,10 +25,12 @@ may call it without making the agent an always-on daemon.
 No exchange keys, wallet private keys, RPC secrets, or live API credentials are
 required for the current operator workflow.
 
-Local LLM credentials are optional operator configuration until the real LLM
-adapter is implemented. Keep them in `.env` or the shell environment only, and
-never commit or paste the values into docs, reports, memory, or logs. The
-expected variable names are:
+Local LLM credentials are optional operator configuration for offline-only
+runs, but the Phase 1 real LLM adapter uses them by default whenever a local
+operator or integration test explicitly requests a configured LLM. Keep them in
+`.env` or the shell environment only, and never commit or paste the values into
+docs, reports, memory, logs, screenshots, or tests. The expected variable names
+are:
 
 ```env
 OPENAI_BASE_URL=
@@ -39,6 +41,21 @@ OPENAI_RESEARCH_MODEL=
 OPENAI_CODER_MODEL=
 OPENAI_FAST_MODEL=
 ```
+
+To smoke-test the configured LLM adapter without exposing secrets, run:
+
+```bash
+uv run --extra dev pytest \
+  tests/test_llm_configured_client.py::test_real_configured_llm_smoke_returns_valid_research_proposal_without_secret_leaks \
+  -q
+```
+
+The smoke test prints no API key, provider URL, provider headers, or raw HTTP
+metadata. It validates only that the configured Responses-compatible endpoint
+can return schema-valid research-only JSON. If this test fails because the
+external provider is down or rejects the configured model, treat it as an
+integration environment failure and keep deterministic fake LLM tests for
+adversarial cases.
 
 Some public crypto data endpoints may fail or timeout on the direct network
 route. The operator may use a local proxy for source probes and data ingestion.

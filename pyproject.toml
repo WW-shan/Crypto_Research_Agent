@@ -30,3 +30,8 @@ crypto-alpha-agent = "crypto_alpha_agent.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests that call configured external services",
+]
