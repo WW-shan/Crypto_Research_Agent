@@ -225,9 +225,12 @@ Completion standard:
 - The system tracks net expectancy, drawdown, hit rate, and failure reasons.
 - Candidates that degrade are automatically removed from paper consideration.
 
-## Phase 5: Tiny Live Readiness Review - Artifact Only
+## Completed Legacy Phase 5: Tiny Live Readiness Review - Artifact Only
 
 Goal: Decide whether a narrow strategy family is ready for tiny live testing.
+
+This is completed historical scope. The current immediate Phase 5 is the
+separate Data And Strategy Expansion preparation slice below.
 
 Delivered:
 
@@ -300,15 +303,16 @@ The next work therefore has seven priorities:
 
 ### Immediate Sequence: Worktree Then Real LLM
 
-This is the next concrete implementation sequence. It refines the broader
-post-milestone phases below and must happen before long-running evidence
-collection is treated as operational.
+This immediate sequence is complete through Immediate Phase 4. Immediate Phase
+5 prepares data and strategy expansion before long-running evidence collection
+is treated as operational.
 
 The execution order after the immediate LLM work is intentionally not numeric:
-Phase 6 is merged into the Phase 1 entry gate, then Phase 8, Phase 9, Phase 10,
-Phase 11, and Phase 12 build the evidence factory, then Phase 7 runs the
-historical bootstrap and future out-of-sample evidence campaign, and Phase 13
-becomes the ongoing report and artifact review loop.
+Phase 6 is merged into the Phase 1 entry gate, Immediate Phase 5 prepares the
+expansion path, then Phase 8, Phase 9, Phase 10, Phase 11, and Phase 12 build
+the evidence factory, then Phase 7 runs the historical bootstrap and future
+out-of-sample evidence campaign, and Phase 13 becomes the ongoing report and
+artifact review loop.
 
 #### Immediate Phase 0: Worktree And Configuration Closeout
 
@@ -575,6 +579,8 @@ Goal: Start the expansion path after the real LLM adapter and evidence-run
 infrastructure are working. This phase feeds the later Phase 8 and Phase 9
 implementation plans.
 
+Status as of 2026-05-23: complete.
+
 Priority order:
 
 1. Open interest.
@@ -594,6 +600,23 @@ Completion standard:
   the owner's low-capital constraints.
 - Weekly reports can compare strategy families side by side and identify which
   family should continue, stop, redesign, or receive additional data.
+
+Phase 5 completion record: implemented by
+`docs/goals/phase-reports/2026-05-23-phase-5-data-strategy-expansion-preparation-completion-report.md`.
+
+Completed behavior:
+
+- Weekly family summaries now include a recommended action of `continue`,
+  `stop`, `redesign`, or `add_data` with stable reason codes.
+- `expansion-prep-report` ranks source and strategy expansion candidates for
+  Phase 8 and Phase 9 without probing providers or broadening the experiment
+  planner.
+- Source candidates fail closed when source-health records are missing,
+  failed, credential-gated, or have no typed records.
+- Strategy candidates fail closed when a deterministic validator or
+  watchlist-only adapter is not registered.
+- Phase 5 did not add live trading, wallet-key access, exchange order routing,
+  MEV, premium RPC, speed-edge execution, or real-capital authority.
 
 ### Phase 6: Merged Phase 1 Entry Gate
 

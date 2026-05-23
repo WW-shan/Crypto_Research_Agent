@@ -5,7 +5,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -36,6 +36,7 @@ _FAILED_STATUSES = {"failed", "rejected", "blocked"}
 _PAPER_EXPECTANCY_STATUSES = {"closed", "failed"}
 _BLOCKED_OUTCOME_LIMIT = 3
 _DRAWDOWN_BREACH_LIMIT = 0.20
+FamilyRecommendedAction = Literal["continue", "stop", "redesign", "add_data"]
 
 
 class StrategyFamilyDegradationDecision(BaseModel):
@@ -63,6 +64,8 @@ class FamilyEvidenceSummary(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     strategy_family: str
+    recommended_action: FamilyRecommendedAction
+    action_reason_codes: list[str] = Field(default_factory=list)
     sample_size: int = Field(ge=0)
     closed_count: int = Field(ge=0)
     failed_count: int = Field(ge=0)
@@ -696,8 +699,20 @@ def _family_summary(
         ]
     )
     sample_size = 0 if package is None else package.sample_size
+    recommended_action, action_reason_codes = _family_recommended_action(
+        sample_size=sample_size,
+        closed_count=0 if package is None else package.closed_count,
+        failed_count=0 if package is None else package.failed_count,
+        blocked_count=0 if package is None else package.blocked_count,
+        net_pnl_usd=0.0 if package is None else package.net_pnl_usd,
+        validation_count=len(validation),
+        rejected_reasons=rejected_reasons,
+        memory_records=memory_records,
+    )
     return FamilyEvidenceSummary(
         strategy_family=family,
+        recommended_action=recommended_action,
+        action_reason_codes=action_reason_codes,
         sample_size=sample_size,
         closed_count=0 if package is None else package.closed_count,
         failed_count=0 if package is None else package.failed_count,
@@ -716,6 +731,38 @@ def _family_is_degraded(
     if any(_has_degraded_marker(record) for record in memory_records):
         return True
     return summary.failed_count >= 3 and summary.failed_count >= summary.closed_count
+
+
+def _family_recommended_action(
+    *,
+    sample_size: int,
+    closed_count: int,
+    failed_count: int,
+    blocked_count: int,
+    net_pnl_usd: float,
+    validation_count: int,
+    rejected_reasons: list[str],
+    memory_records: list[MemoryRecord],
+) -> tuple[FamilyRecommendedAction, list[str]]:
+    if any(_has_degraded_marker(record) for record in memory_records):
+        return "stop", ["degraded_family"]
+    if failed_count >= 3 and failed_count >= closed_count:
+        return "stop", ["too_many_failed_outcomes"]
+    if blocked_count >= 3:
+        return "redesign", ["too_many_blocked_outcomes"]
+
+    reason_codes: list[str] = []
+    if sample_size < PAPER_SAMPLE_TARGET:
+        reason_codes.append("sample_below_target")
+    if validation_count == 0:
+        reason_codes.append("missing_validation_evidence")
+    if rejected_reasons:
+        reason_codes.append("rejected_evidence_present")
+    if reason_codes:
+        return "add_data", _dedupe(reason_codes)
+    if net_pnl_usd <= 0.0 and closed_count > 0:
+        return "redesign", ["non_positive_weekly_pnl"]
+    return "continue", ["evidence_progressing"]
 
 
 def _best_improving_family(

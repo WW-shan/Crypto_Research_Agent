@@ -159,6 +159,24 @@ def test_weekly_report_summarizes_rejections_improvement_degradation_and_sample_
     assert "Close to tiny-live review: false" in markdown
 
 
+def test_weekly_report_assigns_family_actions_and_reasons(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "memory.jsonl"
+    _seed_weekly_fixture(db_path, memory_path)
+
+    report = build_weekly_evidence_report(db_path=db_path, memory_path=memory_path)
+    markdown = render_weekly_evidence_report_markdown(report)
+    summaries = {summary.strategy_family: summary for summary in report.family_summaries}
+
+    assert summaries[STRATEGY_FAMILY].recommended_action == "add_data"
+    assert "sample_below_target" in summaries[STRATEGY_FAMILY].action_reason_codes
+    assert summaries["dex_liquidity_watchlist"].recommended_action == "stop"
+    assert "degraded_family" in summaries["dex_liquidity_watchlist"].action_reason_codes
+    assert "| Strategy | Action |" in markdown
+    assert "add_data" in markdown
+    assert "stop" in markdown
+
+
 def test_evidence_report_cli_writes_daily_and_weekly_markdown(capsys, tmp_path):
     db_path = tmp_path / "research.sqlite"
     memory_path = tmp_path / "memory.jsonl"

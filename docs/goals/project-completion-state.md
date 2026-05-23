@@ -6,84 +6,69 @@ round.
 
 ## Current Round
 
-- Round: 6
-- Status: Immediate Phase 4 complete; committed and pushed
+- Round: 7
+- Status: Immediate Phase 5 complete; ready to commit and push
 - Started: 2026-05-23
 - Completed: 2026-05-23
-- Active slice: Immediate Phase 4: Evidence Run Infrastructure
+- Active slice: Immediate Phase 5: Data And Strategy Expansion preparation
 - Active plan source:
-  `docs/superpowers/plans/2026-05-23-phase-4-evidence-run-infrastructure.md`
+  `docs/superpowers/plans/2026-05-23-phase-5-data-strategy-expansion-preparation.md`
 - Phase report:
-  `docs/goals/phase-reports/2026-05-23-phase-4-evidence-run-infrastructure-completion-report.md`
+  `docs/goals/phase-reports/2026-05-23-phase-5-data-strategy-expansion-preparation-completion-report.md`
 
 ## Completed This Round
 
-- Ran Phase 4 Smart Search deep research and fetched Python standard-library
-  documentation for exclusive file creation, atomic replace, and JSON
-  serialization.
-- Verified local feasibility from the current worktree:
-  - `evidence-run` already ran the pipeline but overwrote the research-loop
-    Markdown report with the daily evidence report;
-  - no durable run manifest, product-level lock, failed marker, or latest
-    pointer existed;
-  - source health did not record network route;
-  - optional slow-source redaction did not cover parameter and variable values.
-- Added `crypto_alpha_agent.pipeline.evidence_run_ops` with exclusive local
-  locking, atomic JSON/text artifact writes, network-route detection, redacted
-  manifest input handling, and failed-message redaction.
-- Updated `evidence-run` to:
-  - use a database-root lock by default;
-  - write separate daily and research-loop Markdown reports;
-  - write JSON payload, manifest, latest pointers, and failed-run markers;
-  - return nonzero exit code `2` for lock contention, path collisions, thrown
-    failures, and failed core pipeline steps;
-  - reject artifact path collisions before the pipeline runs;
-  - generate unique run ids for fast retries.
-- Updated source health to record direct/proxy/blocked/not-applicable network
-  route and to redact URLs, API keys, Dune parameter values, Graph variable
-  values, and Graph query text from source failures.
-- Updated README, runbook, and roadmap for the new operator command set,
-  product-level lock, manifest paths, failed marker, and retention expectations.
+- Ran Phase 5 Smart Search deep research for open interest, funding plus OI
+  crowding, liquidation history, cross-exchange funding dispersion,
+  DefiLlama slow fundamentals, and DEX liquidity migration candidates.
+- Verified local feasibility:
+  - watchlist adapters already existed for DeFi yield regimes and DEX
+    liquidity/volume migration;
+  - source health and data-quality reports already existed;
+  - weekly evidence reports compared families but did not yet recommend a
+    per-family action;
+  - the experiment planner intentionally filters to executable funding/price
+    families and is not the right seam for watchlist expansion preparation.
+- Added weekly family action decisions of `continue`, `stop`, `redesign`, or
+  `add_data` with stable action reason codes.
+- Added the read-only `crypto_alpha_agent.pipeline.expansion_preparation`
+  report builder and Markdown renderer for Phase 8/Phase 9 expansion
+  candidates.
+- Added `crypto-alpha-agent expansion-prep-report`.
+- Added fail-closed source and strategy candidate checks for missing source
+  health, malformed source health, optional credentials, no typed records,
+  insufficient current capital, missing open-interest confirmation, and
+  unregistered validators or watchlists.
+- Updated runbook and roadmap docs for the new report and the completed Phase 5
+  preparation slice.
 
 ## Verification Evidence
 
-- Smart Search:
-  `/tmp/smart-search-evidence/2026-05-23-phase4-evidence-run-infrastructure/`
-  contains `00-doctor.json`, `01-deep-plan.json`, `02-python-os-open.md`,
-  `03-python-os-replace.md`, and `04-python-json.md`. Doctor reported the main
-  route timed out but source fetch and documentation capability were usable.
+- Smart Search evidence:
+  `/tmp/smart-search-evidence/2026-05-23-phase5-data-strategy-expansion/`
+  contains source-backed evidence for Binance USD-M open interest and funding,
+  CCXT derivatives methods, DefiLlama TVL/stablecoin/yield/fee/revenue
+  surfaces, DEX Screener pair liquidity snapshots, and Coinalyze optional
+  derivatives history.
 - Local prototype:
-  exclusive `os.open(..., O_CREAT | O_EXCL | O_WRONLY)` detected lock
-  contention and `os.replace` produced atomic JSON replacement.
-- Initial focused runner baseline:
-  `uv run --extra dev pytest tests/test_evidence_runner.py -q` passed with 8
-  tests before Phase 4 changes.
-- Phase 4 RED/GREEN coverage added for lock contention, atomic latest pointer
-  updates, network route, core failure redaction, distinct report artifacts,
-  manifest/json/latest artifact writes, failed markers, configured secret
-  redaction, default DB-root locking across report directories, artifact path
-  collisions, unique generated run ids, and slow-source failure redaction.
-- Focused Phase 4 runner verification:
-  `uv run --extra dev pytest tests/test_evidence_runner.py -q` passed with 19
-  tests.
-- Broader focused verification:
-  `uv run --extra dev pytest tests/test_scheduler_cli.py tests/test_documentation_contract.py -q`
-  passed with 17 tests.
-- Complete/degradation verification:
-  `uv run --extra dev pytest tests/test_complete_evidence_system.py::test_complete_safe_autonomous_evidence_system tests/test_evidence_degradation.py -q`
-  passed with 16 tests.
-- Review pass 1 found Critical issues in manifest secret redaction and default
-  lock scoping plus Important artifact-path and run-id risks. Those were fixed
-  with regression tests. Re-review found no remaining Critical or Important
-  findings.
+  `default_strategy_registry(current_capital_usd=300.0).list_families()`
+  returned the two executable funding families and two watchlist families, and
+  an empty weekly report exposed the existing weekly fields to extend.
+- Focused verification:
+  `uv run --extra dev pytest tests/test_expansion_preparation.py tests/test_evidence_reports.py tests/test_documentation_contract.py -q`
+  passed with 29 tests.
 - Full verification:
-  `uv run --extra dev pytest -q` passed with 797 tests after a transient real
-  LLM summary rejection passed on immediate single-test rerun; `uv run --extra
-  dev ruff check .` passed; `git diff --check` passed.
-- Staged checks:
-  `git diff --cached --check` passed, and
-  `uv run python -m crypto_alpha_agent.security.secret_scan --staged --fail-on-empty-with-untracked`
-  passed with `[]`.
+  `uv run --extra dev pytest -q` passed with 802 tests; `uv run --extra dev
+  ruff check .` passed.
+- Review pass 1 found Important fail-closed gaps for credential-gated sources
+  and registered-but-blocked strategy candidates. Regression tests were added
+  and the classifier was fixed.
+- Review pass 2 found Important fail-closed gaps for current-capital handling
+  and malformed source-health payload parsing. Regression tests were added and
+  the classifier was fixed.
+- Final re-review found no Critical or Important findings.
+- Final diff, staged diff, and staged secret-safety checks are run before the
+  Phase 5 commit.
 
 ## Current Project Target
 
@@ -116,13 +101,11 @@ charter:
 
 The first complete research-loop milestone remains complete under the current
 charter. Post-milestone Phase 0, Immediate Phase 1, Immediate Phase 2,
-Immediate Phase 3, and Immediate Phase 4 are complete, committed, and pushed.
+Immediate Phase 3, Immediate Phase 4, and Immediate Phase 5 are complete.
 
 Future work is now ordered as an evidence-factory buildout before the formal
 evidence campaign:
 
-- Immediate Phase 5: start data and strategy expansion after the Phase 4
-  infrastructure commit is pushed.
 - Phase 8: qualify and deepen public data sources, including proxy-aware
   source probes.
 - Phase 9: expand deterministic strategy validators and watchlists.
@@ -142,7 +125,7 @@ charter revision.
 
 ## Next Round Entry Instructions
 
-If work continues after Phase 4:
+If work continues after Phase 5:
 
 1. Read `docs/project-charter.md` before any new plan.
 2. Read `docs/goals/project-completion-goal.md` and follow its Per-Round
@@ -157,10 +140,9 @@ If work continues after Phase 4:
    `docs/roadmap.md`.
 4. Treat Phase 6 as merged into Immediate Phase 0 / Immediate Phase 1 entry
    readiness, not as a later standalone feature phase.
-5. Start with Immediate Phase 5: Data And Strategy Expansion. Phase 4 added
-   evidence-run manifests, locking, failed markers, artifact latest pointers,
-   and source-health route/redaction. Do not reimplement Phase 1, Phase 2,
-   Phase 3, or Phase 4.
+5. Start with Phase 8: Data Depth And Quality Expansion. Phase 5 added weekly
+   family action decisions and the read-only `expansion-prep-report`; do not
+   reimplement Phase 1, Phase 2, Phase 3, Phase 4, or Phase 5.
 6. Treat live execution, wallet keys, exchange order routing, private RPC,
    MEV, and speed-edge paths as blocked unless the owner explicitly revises the
    charter.
@@ -169,7 +151,9 @@ If work continues after Phase 4:
    LLM tests for deterministic adversarial cases, and make real positive tests
    explicit and secret-safe.
 8. Use the local proxy variables in `.env` for public-data endpoints that fail
-   direct probing, and record source health as direct, proxy, or failed.
+   direct probing, and record source health with route `direct`, `proxy`,
+   `blocked`, or `not_applicable`; record provider failures as separate
+   failure reasons.
 9. Build Phase 8, Phase 9, Phase 10, Phase 11, and Phase 12 before starting the
    formal Phase 7 evidence campaign.
 10. In Phase 7, first run historical bootstrap over qualified data, then treat
@@ -193,3 +177,4 @@ If work continues after Phase 4:
 | 4 | 2026-05-23 | Immediate Phase 2 connect LLM to research loop | tests 770 passed; ruff passed; diff check passed; staged secret review passed | `ae3e601 feat: connect llm to research loop` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 5 | 2026-05-23 | Immediate Phase 3 real LLM test policy | focused Phase 3 tests 16 passed; pytest 785 passed; ruff passed; diff check passed; staged secret review passed | `9fb1945 test: formalize real llm policy` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 6 | 2026-05-23 | Immediate Phase 4 evidence run infrastructure | focused Phase 4 runner tests 19 passed; scheduler/docs 17 passed; complete/degradation 16 passed; pytest 797 passed; ruff passed; diff/staged checks passed; staged secret scan passed | `a31bda7 feat: add evidence run infrastructure` plus docs closeout follow-up | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 7 | 2026-05-23 | Immediate Phase 5 data and strategy expansion preparation | focused Phase 5 tests 29 passed; pytest 802 passed; ruff passed; review re-check found no Critical or Important findings | pending Phase 5 commit | `https://github.com/WW-shan/Crypto_Research_Agent` |

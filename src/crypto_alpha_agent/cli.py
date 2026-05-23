@@ -49,8 +49,10 @@ from crypto_alpha_agent.pipeline.evidence_reports import (
     build_daily_evidence_report,
     build_weekly_evidence_report,
 )
+from crypto_alpha_agent.pipeline.expansion_preparation import build_expansion_preparation_report
 from crypto_alpha_agent.pipeline.markdown import (
     render_daily_evidence_report_markdown,
+    render_expansion_preparation_markdown,
     render_research_loop_markdown,
     render_weekly_evidence_report_markdown,
 )
@@ -385,6 +387,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_offline_only_llm_argument(evidence_report_parser)
     evidence_report_parser.set_defaults(handler=_handle_evidence_report, parser=evidence_report_parser)
+
+    expansion_prep_parser = subparsers.add_parser(
+        "expansion-prep-report",
+        help="Generate the read-only Phase 5 data and strategy expansion preparation report.",
+    )
+    expansion_prep_parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite research data store.")
+    expansion_prep_parser.add_argument("--memory", required=True, type=Path, help="Path to the JSONL memory store.")
+    expansion_prep_parser.add_argument("--out", required=True, type=Path, help="Path for the Markdown report.")
+    expansion_prep_parser.add_argument(
+        "--current-capital-usd",
+        type=_non_negative_finite_float,
+        default=300.0,
+        help="Operator capital profile used to evaluate registry constraints.",
+    )
+    expansion_prep_parser.set_defaults(handler=_handle_expansion_prep_report, parser=expansion_prep_parser)
 
     evidence_run_parser = subparsers.add_parser(
         "evidence-run",
@@ -1331,6 +1348,23 @@ def _handle_evidence_report(args: argparse.Namespace) -> dict[str, Any]:
         "live_order_routing": False,
         **llm_metadata,
         **summary_payload,
+    }
+
+
+def _handle_expansion_prep_report(args: argparse.Namespace) -> dict[str, Any]:
+    report = build_expansion_preparation_report(
+        db_path=args.db,
+        memory_path=args.memory,
+        current_capital_usd=args.current_capital_usd,
+    )
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(render_expansion_preparation_markdown(report), encoding="utf-8")
+    return {
+        "command": "expansion-prep-report",
+        "expansion_prep_report_out": str(args.out),
+        "report": report.model_dump(mode="json"),
+        "uses_real_capital": False,
+        "live_order_routing": False,
     }
 
 

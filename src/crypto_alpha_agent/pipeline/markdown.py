@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from crypto_alpha_agent.pipeline.expansion_preparation import ExpansionPreparationReport
 from crypto_alpha_agent.pipeline.evidence_reports import DailyEvidenceReport, WeeklyEvidenceReport
 from crypto_alpha_agent.pipeline.research_loop import ResearchLoopReport
 
@@ -273,8 +274,8 @@ def render_weekly_evidence_report_markdown(report: WeeklyEvidenceReport) -> str:
         f"Reason codes: {_escape_text(', '.join(report.reason_codes) or 'none')}",
         "",
         "## Strategy Families",
-        "| Strategy | Sample size | Closed | Failed | Blocked | Net PnL USD | Validation | Near tiny-live review | Rejected reasons |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+        "| Strategy | Action | Action reasons | Sample size | Closed | Failed | Blocked | Net PnL USD | Validation | Near tiny-live review | Rejected reasons |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     if report.family_summaries:
         for summary in report.family_summaries:
@@ -283,6 +284,8 @@ def render_weekly_evidence_report_markdown(report: WeeklyEvidenceReport) -> str:
                 + " | ".join(
                     [
                         _escape_table_cell(summary.strategy_family),
+                        _escape_table_cell(summary.recommended_action),
+                        _escape_table_cell(", ".join(summary.action_reason_codes) or "none"),
                         f"{summary.sample_size:g}",
                         f"{summary.closed_count:g}",
                         f"{summary.failed_count:g}",
@@ -296,7 +299,7 @@ def render_weekly_evidence_report_markdown(report: WeeklyEvidenceReport) -> str:
                 + " |"
             )
     else:
-        lines.append("| none | 0 | 0 | 0 | 0 | 0 | 0 | false | none |")
+        lines.append("| none | add_data | no_family_evidence | 0 | 0 | 0 | 0 | 0 | 0 | false | none |")
 
     lines.extend(
         [
@@ -329,6 +332,94 @@ def render_weekly_evidence_report_markdown(report: WeeklyEvidenceReport) -> str:
     else:
         lines.append("| none | 0/30 |")
     lines.extend(_llm_summary_lines(report))
+    return "\n".join(lines) + "\n"
+
+
+def render_expansion_preparation_markdown(report: ExpansionPreparationReport) -> str:
+    lines = [
+        "# Phase 5 Expansion Preparation Report",
+        "",
+        "## Safety",
+        f"Real capital: {_bool_text(report.uses_real_capital)}",
+        f"Live order routing: {_bool_text(report.live_order_routing)}",
+        "",
+        "## Decision",
+        f"Reason codes: {_escape_text(', '.join(report.reason_codes) or 'none')}",
+        "",
+        "## Source Readiness",
+        "| Readiness | Count |",
+        "| --- | ---: |",
+    ]
+    if report.source_readiness_counts:
+        for readiness, count in sorted(report.source_readiness_counts.items()):
+            lines.append(f"| {_escape_table_cell(readiness)} | {count:g} |")
+    else:
+        lines.append("| none | 0 |")
+    lines.extend(
+        [
+            "",
+            "## Source Candidates",
+            "| Priority | Source | Provider | Feed | Credentials | Health | Route | Readiness | Blocked reasons | Next phase |",
+            "| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    for source in report.source_candidates:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    f"{source.priority:g}",
+                    _escape_table_cell(source.source_id),
+                    _escape_table_cell(source.provider),
+                    _escape_table_cell(source.feed),
+                    _escape_table_cell(source.credential_requirement),
+                    _bool_text(source.source_health_present),
+                    _escape_table_cell(source.latest_source_health_route),
+                    _escape_table_cell(source.readiness),
+                    _escape_table_cell(", ".join(source.blocked_reasons) or "none"),
+                    _escape_table_cell(source.next_phase),
+                ]
+            )
+            + " |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Strategy Actions",
+            "| Action | Count |",
+            "| --- | ---: |",
+        ]
+    )
+    if report.strategy_action_counts:
+        for action, count in sorted(report.strategy_action_counts.items()):
+            lines.append(f"| {_escape_table_cell(action)} | {count:g} |")
+    else:
+        lines.append("| none | 0 |")
+    lines.extend(
+        [
+            "",
+            "## Strategy Candidates",
+            "| Priority | Strategy | Adapter | Readiness | Action | Action reasons | Blocked reasons | Next phase |",
+            "| ---: | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    for strategy in report.strategy_candidates:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    f"{strategy.priority:g}",
+                    _escape_table_cell(strategy.strategy_family),
+                    _escape_table_cell(strategy.adapter_kind),
+                    _escape_table_cell(strategy.readiness),
+                    _escape_table_cell(strategy.recommended_action),
+                    _escape_table_cell(", ".join(strategy.action_reason_codes) or "none"),
+                    _escape_table_cell(", ".join(strategy.blocked_reasons) or "none"),
+                    _escape_table_cell(strategy.next_phase),
+                ]
+            )
+            + " |"
+        )
     return "\n".join(lines) + "\n"
 
 

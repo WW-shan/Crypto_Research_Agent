@@ -247,7 +247,21 @@ The normal operator baseline is:
      --out var/reports/weekly/2026-W21.md
    ```
 
-2. Run bounded planning for the next experiments:
+2. Build the Phase 5 expansion preparation report:
+
+   ```bash
+   uv run --extra dev crypto-alpha-agent expansion-prep-report \
+     --db var/research.sqlite \
+     --memory var/memory/evidence.jsonl \
+     --out var/reports/phase5/expansion-prep.md \
+     --current-capital-usd 300
+   ```
+
+   The report is read-only. It ranks future source and strategy expansion
+   candidates, surfaces stable blocked reasons, and keeps live execution
+   blocked.
+
+3. Run bounded planning for the next experiments:
 
    ```bash
    uv run --extra dev crypto-alpha-agent plan-experiments \
@@ -259,7 +273,7 @@ The normal operator baseline is:
      --offline-only
    ```
 
-3. If a strategy has at least 30 paper observations and clean walk-forward
+4. If a strategy has at least 30 paper observations and clean walk-forward
    evidence, build a review artifact without enabling live execution:
 
    ```bash
