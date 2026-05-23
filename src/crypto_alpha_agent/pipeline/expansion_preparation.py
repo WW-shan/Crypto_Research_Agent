@@ -296,11 +296,28 @@ def _source_candidate(
         route = str(payload.get("network_route", "unknown"))
         success = _strict_bool(payload.get("success"))
         records_written = _non_negative_int_or_none(payload.get("records_written"))
-        if success is None or records_written is None:
+        typed_record_count = _non_negative_int_or_none(payload.get("typed_record_count"))
+        has_typed_record_count = "typed_record_count" in payload
+        provider_status = str(payload.get("provider_status", "unknown"))
+        usable_record_count = (
+            typed_record_count
+            if typed_record_count is not None
+            else records_written
+        )
+        if (
+            success is None
+            or records_written is None
+            or (has_typed_record_count and typed_record_count is None)
+        ):
             blocked_reasons.append("source_health_malformed")
         elif not success:
             blocked_reasons.append("source_health_failed")
-        if records_written is not None and records_written <= 0:
+        elif (
+            provider_status
+            not in {"unknown", "ResearchUsable", "ProductionResearchSource"}
+        ):
+            blocked_reasons.append("source_probe_not_research_usable")
+        if usable_record_count is not None and usable_record_count <= 0:
             blocked_reasons.append("no_typed_records")
         readiness = "health_recorded"
     if definition["credential_requirement"] == "required_api_key":

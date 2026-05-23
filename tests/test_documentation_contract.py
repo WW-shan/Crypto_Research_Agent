@@ -15,6 +15,8 @@ DOC_PATHS = {
     "roadmap": ROOT / "docs" / "roadmap.md",
     "rollout": ROOT / "docs" / "rollout-gates.md",
     "tiny_live": ROOT / "docs" / "tiny-live-readiness.md",
+    "source_coverage": ROOT / "docs" / "source-coverage-matrix.md",
+    "source_query_catalog": ROOT / "docs" / "source-query-catalog.md",
 }
 
 
@@ -42,6 +44,11 @@ def test_operator_workflow_contract_is_documented_across_docs() -> None:
         docs,
         [
             "evidence-run",
+            "source-probe",
+            "source coverage matrix",
+            "query catalog",
+            "reachableviaproxy",
+            "productionresearchsource",
             "plan-experiments",
             "rollout-review",
             "ingest",
@@ -108,6 +115,16 @@ def test_documented_representative_cli_examples_parse(tmp_path) -> None:
     parser = build_parser()
 
     commands = [
+        ["source-probe", "--list-targets"],
+        [
+            "source-probe",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--target",
+            "binance_usdm_open_interest_history",
+            "--route",
+            "direct",
+        ],
         ["ingest", "--offline-check", "--db", str(tmp_path / "research.sqlite")],
         [
             "ingest",
@@ -290,6 +307,8 @@ def test_readme_documents_safe_operator_examples() -> None:
             "dune_api_key",
             "local operator config",
             "thegraph",
+            "source-probe",
+            "open-interest-history",
             "paper-sim-loop",
             "evidence-report --daily",
             "evidence-report --weekly",
@@ -312,6 +331,11 @@ def test_runbook_documents_complete_operator_handoff() -> None:
         [
             "daily sequence",
             "weekly sequence",
+            "source qualification workflow",
+            "source-probe",
+            "source coverage matrix",
+            "query catalog",
+            "productionresearchsource",
             "binance public data",
             "ccxt",
             "dexscreener",

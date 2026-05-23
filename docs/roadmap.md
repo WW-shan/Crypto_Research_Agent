@@ -683,6 +683,8 @@ Completion standard:
 Goal: Expand the public-data layer from basic OHLCV and funding into the slow
 variables most likely to matter for low-capital, non-speed strategies.
 
+Status as of 2026-05-24: complete.
+
 Why this matters:
 
 - Funding-only signals are often noisy. They become more useful when combined
@@ -732,9 +734,9 @@ Deliverables:
   optional.
 - A `source-probe` CLI or equivalent provider qualification workflow that can
   test each source with direct networking and with the local proxy route.
-- Proxy-aware source health. The system must record `direct`, `proxy`, or
-  `unavailable` as the network route and distinguish `ReachableViaProxy` from
-  general provider success.
+- Proxy-aware source health. The system must record `direct`, `proxy`,
+  `blocked`, or `unavailable` as the source-probe network route and distinguish
+  `ReachableViaProxy` from general provider success.
 - Local proxy support through standard variables:
   `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, lowercase variants, `NO_PROXY`, and
   the project-specific `CRYPTO_ALPHA_AGENT_PROXY`.
@@ -764,6 +766,30 @@ Completion standard:
   health, and passes a multi-day canary for the fields used by a validator.
 - Optional paid or credentialed data remains optional and redacted from logs,
   reports, scheduler plans, and memory.
+
+Phase 8 completion record: implemented by
+`docs/goals/phase-reports/2026-05-24-phase-8-data-depth-quality-expansion-completion-report.md`.
+
+Completed behavior:
+
+- Added multi-source symbol normalization for compact CEX spot symbols,
+  perpetual settlement symbols, OKX swap symbols, and DEX chain/token
+  identifiers.
+- Added typed `open_interest` records, CCXT open-interest-history ingestion,
+  CLI support through `--ccxt-feed open-interest-history`, and quality checks
+  for non-positive values, gaps, stale rows, duplicate semantic records, and
+  timestamp skew.
+- Added `source-probe` with target catalog coverage for Binance USD-M, Bybit,
+  OKX, DexScreener, DefiLlama, Dune, and The Graph. Probe results persist
+  source-health evidence with route, provider status, status transitions, HTTP
+  status, parse status, typed record count, URL family, schema version, and
+  blocked reason.
+- Added `docs/source-coverage-matrix.md` and `docs/source-query-catalog.md` to
+  make source promotion and optional query work explicit before Phase 9.
+- `ProductionResearchSource` remains a documented canary-gated promotion state;
+  one-shot probes can only make a source `ResearchUsable`.
+- Phase 8 did not add live trading, wallet-key access, exchange order routing,
+  MEV, premium RPC, speed-edge execution, or real-capital authority.
 
 ### Phase 9: Strategy Validator Library Expansion
 

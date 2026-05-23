@@ -17,6 +17,7 @@ from crypto_alpha_agent.data.models import (
     DexPairSnapshot,
     FundingRateRecord,
     MarketCandle,
+    OpenInterestRecord,
     SourceRecord,
 )
 from crypto_alpha_agent.data.store import ResearchDataStore
@@ -44,7 +45,7 @@ class CcxtIngestionSummary(BaseModel):
 
     source: str
     db_path: str
-    feed: Literal["ohlcv", "funding_rate_history"]
+    feed: Literal["ohlcv", "funding_rate_history", "open_interest_history"]
     symbols: list[str]
     records_fetched: int
     records_written: int
@@ -358,6 +359,67 @@ def ingest_ccxt_funding_rate_history(
     )
 
 
+def ingest_ccxt_open_interest_history(
+    db_path: str | Path,
+    *,
+    symbol: str,
+    timeframe: str,
+    since: int | None = None,
+    limit: int | None = None,
+    allow_network: bool = False,
+    exchange_id: str = "binance",
+    collector: Any | None = None,
+) -> CcxtIngestionSummary:
+    if not allow_network:
+        raise ValueError("allow_network is required for CCXT ingestion")
+
+    ccxt_collector = collector or CcxtResearchCollector(exchange_id=exchange_id)
+    store = ResearchDataStore(db_path)
+    try:
+        open_interest_history = ccxt_collector.fetch_open_interest_history(
+            symbol,
+            timeframe,
+            since=since,
+            limit=limit,
+            params=None,
+        )
+        records = [_open_interest_to_source_record(record) for record in open_interest_history]
+        records_written = store.upsert_records(records)
+    except Exception as exc:
+        _write_source_health(
+            store,
+            source="ccxt",
+            feed="open_interest_history",
+            success=False,
+            attempts=1,
+            failure=str(exc),
+            records_fetched=0,
+            records_written=0,
+        )
+        raise
+    _write_source_health(
+        store,
+        source="ccxt",
+        feed="open_interest_history",
+        success=True,
+        attempts=1,
+        failure=None,
+        records_fetched=len(open_interest_history),
+        records_written=records_written,
+    )
+    return CcxtIngestionSummary(
+        source="ccxt",
+        db_path=str(db_path),
+        feed="open_interest_history",
+        symbols=[symbol],
+        records_fetched=len(open_interest_history),
+        records_written=records_written,
+        network_allowed=True,
+        uses_real_capital=False,
+        live_order_routing=False,
+    )
+
+
 def _dex_pair_to_source_record(pair: DexPairSnapshot) -> SourceRecord:
     safe_chain = _research_safe_component(pair.chain)
     safe_dex = _research_safe_component(pair.dex)
@@ -419,6 +481,10 @@ def _funding_rate_to_source_record(record: FundingRateRecord) -> SourceRecord:
         observed_at=record.timestamp,
         payload=record.model_dump(mode="json"),
     )
+
+
+def _open_interest_to_source_record(record: OpenInterestRecord) -> SourceRecord:
+    return record.to_source_record()
 
 
 def _ccxt_safe_component(value: str) -> str:

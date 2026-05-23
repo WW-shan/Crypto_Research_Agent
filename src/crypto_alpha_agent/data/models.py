@@ -11,6 +11,7 @@ ExecutionRole = Literal["research_only", "research_and_paper", "paper_candidate"
 RecordType = Literal[
     "market_candle",
     "funding_rate",
+    "open_interest",
     "dex_pair",
     "defi_yield",
     "research_snapshot",
@@ -69,6 +70,36 @@ class FundingRateRecord(BaseModel):
     raw: dict[str, Any] = Field(default_factory=dict)
 
 
+class OpenInterestRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    source: str
+    venue: str
+    symbol: str
+    timestamp: datetime
+    timeframe: str
+    open_interest: float = Field(ge=0)
+    open_interest_value: float | None = Field(default=None, ge=0)
+    suitability: DataSuitability = Field(default_factory=DataSuitability)
+    raw: dict[str, Any] = Field(default_factory=dict)
+
+    def to_source_record(self) -> SourceRecord:
+        timestamp = self.timestamp.isoformat()
+        safe_venue = _safe_component(self.venue)
+        safe_symbol = _safe_symbol(self.symbol)
+        safe_timeframe = _safe_component(self.timeframe)
+        return SourceRecord(
+            record_id=(
+                f"{self.source}:{safe_venue}:{safe_symbol}:open_interest:"
+                f"{safe_timeframe}:{timestamp}"
+            ),
+            source=self.source,
+            record_type="open_interest",
+            observed_at=self.timestamp,
+            payload=self.model_dump(mode="json"),
+        )
+
+
 class DexPairSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -108,3 +139,11 @@ class SourceRecord(BaseModel):
     record_type: RecordType
     observed_at: datetime
     payload: dict[str, Any]
+
+
+def _safe_component(value: str) -> str:
+    return value.strip().lower().replace("/", "-").replace(":", "-")
+
+
+def _safe_symbol(symbol: str) -> str:
+    return symbol.strip().replace("/", "").replace(":", "-").upper()

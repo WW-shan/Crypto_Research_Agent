@@ -92,6 +92,50 @@ def test_expansion_preparation_report_uses_registry_weekly_actions_and_source_he
     assert report.reason_codes
 
 
+def test_expansion_preparation_accepts_research_usable_source_probe_health(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    observed_at = datetime(2026, 5, 24, tzinfo=UTC)
+    ResearchDataStore(db_path).upsert_records(
+        [
+            SourceRecord(
+                record_id=f"binance_usdm:open_interest_history:source_probe:{observed_at.isoformat()}",
+                source="binance_usdm",
+                record_type="source_health",
+                observed_at=observed_at,
+                payload={
+                    "source": "binance_usdm",
+                    "feed": "open_interest_history",
+                    "success": True,
+                    "attempts": 1,
+                    "failure": None,
+                    "observed_at": observed_at.isoformat(),
+                    "records_fetched": 1,
+                    "records_written": 0,
+                    "network_route": "direct",
+                    "provider_status": "ResearchUsable",
+                    "parse_status": "parsed",
+                    "typed_record_count": 1,
+                    "blocked_reason": None,
+                },
+            )
+        ]
+    )
+
+    report = build_expansion_preparation_report(
+        db_path=db_path,
+        memory_path=tmp_path / "memory.jsonl",
+        current_capital_usd=300.0,
+    )
+    candidate = {
+        source.source_id: source
+        for source in report.source_candidates
+    }["binance_usdm_open_interest_history"]
+
+    assert candidate.source_health_present is True
+    assert candidate.readiness == "health_recorded"
+    assert candidate.blocked_reasons == []
+
+
 def test_credential_required_source_remains_blocked_even_with_successful_health(tmp_path):
     db_path = tmp_path / "research.sqlite"
     ResearchDataStore(db_path).upsert_records(

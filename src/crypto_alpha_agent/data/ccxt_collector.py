@@ -9,6 +9,7 @@ from crypto_alpha_agent.data.models import (
     DataSuitability,
     FundingRateRecord,
     MarketCandle,
+    OpenInterestRecord,
 )
 
 
@@ -85,6 +86,57 @@ class CcxtResearchCollector:
             for payload in payloads
         ]
 
+    def fetch_open_interest_history(
+        self,
+        symbol: str,
+        timeframe: str,
+        since: int | None = None,
+        limit: int | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> list[OpenInterestRecord]:
+        fetch_history = getattr(self.exchange, "fetch_open_interest_history", None)
+        if not callable(fetch_history):
+            raise NotImplementedError(
+                f"{self.exchange.id} does not support fetch_open_interest_history"
+            )
+
+        if params is None:
+            payloads = fetch_history(symbol, timeframe, since=since, limit=limit)
+        else:
+            payloads = fetch_history(
+                symbol,
+                timeframe,
+                since=since,
+                limit=limit,
+                params=params,
+            )
+        return [
+            OpenInterestRecord(
+                source="ccxt",
+                venue=self.exchange.id,
+                symbol=payload.get("symbol", symbol),
+                timestamp=_timestamp_ms_to_datetime(payload["timestamp"]),
+                timeframe=timeframe,
+                open_interest=_payload_float(
+                    payload,
+                    "openInterest",
+                    "open_interest",
+                    "openInterestAmount",
+                    "amount",
+                ),
+                open_interest_value=_payload_optional_float(
+                    payload,
+                    "openInterestValue",
+                    "open_interest_value",
+                    "value",
+                    "sumOpenInterestValue",
+                ),
+                suitability=_research_suitability(),
+                raw=payload,
+            )
+            for payload in payloads
+        ]
+
 
 def _research_suitability() -> DataSuitability:
     return DataSuitability(
@@ -103,3 +155,17 @@ def _optional_timestamp_ms_to_datetime(timestamp: Any) -> datetime | None:
     if timestamp is None:
         return None
     return _timestamp_ms_to_datetime(timestamp)
+
+
+def _payload_float(payload: dict[str, Any], *keys: str) -> float:
+    for key in keys:
+        if key in payload and payload[key] is not None:
+            return float(payload[key])
+    raise KeyError(keys[0])
+
+
+def _payload_optional_float(payload: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        if key in payload and payload[key] is not None:
+            return float(payload[key])
+    return None

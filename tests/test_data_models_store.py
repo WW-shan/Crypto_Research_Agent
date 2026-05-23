@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from crypto_alpha_agent.data.models import (
     DataSuitability,
     MarketCandle,
+    OpenInterestRecord,
     SourceRecord,
 )
 from crypto_alpha_agent.data.store import ResearchDataStore
@@ -53,3 +54,28 @@ def test_store_round_trips_source_records(tmp_path):
 
     assert [item.record_id for item in loaded] == [record.record_id]
     assert loaded[0].payload["symbol"] == "BTC/USDT"
+
+
+def test_open_interest_record_round_trips_as_typed_slow_data(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    store = ResearchDataStore(db_path)
+    open_interest = OpenInterestRecord(
+        source="ccxt",
+        venue="binance",
+        symbol="BTC/USDT:USDT",
+        timestamp=datetime(2026, 5, 16, tzinfo=UTC),
+        timeframe="1h",
+        open_interest=20403.637,
+        open_interest_value=150570784.07809979,
+        raw={"sumOpenInterest": "20403.63700000"},
+    )
+
+    store.upsert_records([open_interest.to_source_record()])
+    loaded = store.load_records(record_type="open_interest", source="ccxt")
+
+    assert [item.record_id for item in loaded] == [
+        "ccxt:binance:BTCUSDT-USDT:open_interest:1h:2026-05-16T00:00:00+00:00"
+    ]
+    assert loaded[0].payload["symbol"] == "BTC/USDT:USDT"
+    assert loaded[0].payload["open_interest"] == 20403.637
+    assert loaded[0].payload["suitability"]["execution_role"] == "research_and_paper"

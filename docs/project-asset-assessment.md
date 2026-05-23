@@ -33,8 +33,11 @@ and strengthened first.
   low-capital, no-speed-edge, no-live-execution operating profile.
 - `src/crypto_alpha_agent/data/store.py`, `models.py`, `quality.py`: durable
   SQLite records, typed data models, and data-quality reporting.
-- Binance Public Data and CCXT ingestion: historical OHLCV, funding, and future
-  derivatives data expansion.
+- Binance Public Data and CCXT ingestion: historical OHLCV, funding, and
+  typed open-interest history where the exchange supports public market data.
+- `source-probe`, `docs/source-coverage-matrix.md`, and
+  `docs/source-query-catalog.md`: source qualification, proxy-aware
+  source-health evidence, and query inventory for Phase 9 validator work.
 - `research-loop`: stored data to scanner, anomaly, hypothesis, validation, and
   report.
 - `paper-sim-loop`: deterministic historical and paper simulation outcomes.
@@ -67,10 +70,11 @@ or better evidence contracts before they become central.
   open-interest, cost, and out-of-sample evidence.
 - `data/dexscreener.py`: prioritize storing local snapshots over time before
   treating it as historical evidence.
-- `data/defillama.py`: expand for slow fundamentals, TVL, stablecoins, yields,
+- `data/defillama.py`: expand from existing yield snapshots and Phase 8
+  source-probe fundamentals into typed slow fundamentals, TVL, stablecoins,
   fees, and revenue.
-- `tools/dune.py` and `tools/thegraph.py`: promote only with a query catalog
-  and source-specific schema checks.
+- `tools/dune.py` and `tools/thegraph.py`: promote only after their query
+  catalog entries pass source-specific schema checks and repeated canary runs.
 - `scheduler.py`: upgrade with run manifests, locks, failed-run markers, and
   artifact retention.
 - `observability/` and `tools/http.py`: reuse for source probes, retries,

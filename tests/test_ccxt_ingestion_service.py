@@ -8,9 +8,10 @@ import pytest
 from crypto_alpha_agent.cli import main
 from crypto_alpha_agent.data.ingestion import (
     ingest_ccxt_funding_rate_history,
+    ingest_ccxt_open_interest_history,
     ingest_ccxt_ohlcv,
 )
-from crypto_alpha_agent.data.models import FundingRateRecord, MarketCandle
+from crypto_alpha_agent.data.models import FundingRateRecord, MarketCandle, OpenInterestRecord
 from crypto_alpha_agent.data.store import ResearchDataStore
 
 
@@ -45,6 +46,21 @@ class FakeCcxtCollector:
                 symbol=symbol,
                 timestamp=datetime(2026, 5, 17, tzinfo=UTC),
                 funding_rate=0.0007,
+            )
+        ]
+
+    def fetch_open_interest_history(self, symbol, timeframe, since=None, limit=None, params=None):
+        self.open_interest_calls = getattr(self, "open_interest_calls", [])
+        self.open_interest_calls.append((symbol, timeframe, since, limit, params))
+        return [
+            OpenInterestRecord(
+                source="ccxt",
+                venue="binance",
+                symbol=symbol,
+                timestamp=datetime(2026, 5, 17, tzinfo=UTC),
+                timeframe=timeframe,
+                open_interest=20403.637,
+                open_interest_value=150570784.07809979,
             )
         ]
 
@@ -166,6 +182,26 @@ def test_ingest_ccxt_funding_writes_funding_records(tmp_path):
     assert records[0].payload["funding_rate"] == 0.0007
 
 
+def test_ingest_ccxt_open_interest_writes_open_interest_records(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    collector = FakeCcxtCollector()
+
+    summary = ingest_ccxt_open_interest_history(
+        db_path,
+        symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        limit=1,
+        allow_network=True,
+        collector=collector,
+    )
+
+    records = ResearchDataStore(db_path).load_records(record_type="open_interest", source="ccxt")
+    assert summary.feed == "open_interest_history"
+    assert summary.records_written == 1
+    assert records[0].payload["open_interest"] == 20403.637
+    assert collector.open_interest_calls == [("BTC/USDT:USDT", "1h", None, 1, None)]
+
+
 def test_ingest_ccxt_funding_keeps_same_timestamp_records_by_venue_and_settlement(tmp_path):
     db_path = tmp_path / "research.sqlite"
 
@@ -196,6 +232,18 @@ def test_ccxt_ingestion_requires_explicit_network_gate(tmp_path):
         assert "allow_network" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_ingest_ccxt_open_interest_requires_explicit_network_gate(tmp_path):
+    collector = FakeCcxtCollector()
+
+    with pytest.raises(ValueError, match="allow_network"):
+        ingest_ccxt_open_interest_history(
+            tmp_path / "research.sqlite",
+            symbol="BTC/USDT:USDT",
+            timeframe="1h",
+            collector=collector,
+        )
 
 
 def test_ingest_cli_runs_ccxt_ohlcv_with_network_gate(capsys, tmp_path, monkeypatch):
@@ -234,6 +282,42 @@ def test_ingest_cli_runs_ccxt_ohlcv_with_network_gate(capsys, tmp_path, monkeypa
     assert payload["ingestion"]["feed"] == "ohlcv"
     assert payload["uses_real_capital"] is False
     assert ResearchDataStore(db_path).load_records(record_type="market_candle", source="ccxt")
+
+
+def test_ingest_cli_runs_ccxt_open_interest_history_with_network_gate(capsys, tmp_path, monkeypatch):
+    db_path = tmp_path / "research.sqlite"
+
+    class PatchedCollector(FakeCcxtCollector):
+        pass
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.data.ingestion.CcxtResearchCollector",
+        lambda exchange_id="binance": PatchedCollector(),
+    )
+
+    exit_code = main(
+        [
+            "ingest",
+            "--db",
+            str(db_path),
+            "--source",
+            "ccxt",
+            "--allow-network",
+            "--ccxt-feed",
+            "open-interest-history",
+            "--symbol",
+            "BTC/USDT:USDT",
+            "--timeframe",
+            "1h",
+            "--limit",
+            "1",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["ingestion"]["feed"] == "open_interest_history"
+    assert ResearchDataStore(db_path).load_records(record_type="open_interest", source="ccxt")
 
 
 def test_ingest_cli_rejects_offline_check_with_ccxt_source(tmp_path, monkeypatch):
@@ -289,5 +373,31 @@ def test_ingest_cli_rejects_timeframe_with_funding_rate_history(tmp_path, monkey
                 "BTC/USDT:USDT",
                 "--timeframe",
                 "1h",
+            ]
+        )
+
+
+def test_ingest_cli_rejects_open_interest_without_timeframe(tmp_path, monkeypatch):
+    class PatchedCollector(FakeCcxtCollector):
+        pass
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.data.ingestion.CcxtResearchCollector",
+        lambda exchange_id="binance": PatchedCollector(),
+    )
+
+    with pytest.raises(SystemExit):
+        main(
+            [
+                "ingest",
+                "--db",
+                str(tmp_path / "research.sqlite"),
+                "--source",
+                "ccxt",
+                "--allow-network",
+                "--ccxt-feed",
+                "open-interest-history",
+                "--symbol",
+                "BTC/USDT:USDT",
             ]
         )

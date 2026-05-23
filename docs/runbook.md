@@ -157,6 +157,56 @@ Dune is optional and credentialed. If used, load `DUNE_API_KEY` from a local
 operator config outside git or from the shell environment. Do not paste real
 keys into docs, commands saved in shell history, reports, or commits.
 
+## Source Qualification Workflow
+
+Run `source-probe` before treating a new endpoint as strategy evidence. The
+workflow is:
+
+1. Read the source coverage matrix in `docs/source-coverage-matrix.md` and the
+   query catalog in `docs/source-query-catalog.md`.
+2. List available targets without network access.
+3. Probe without `--allow-network` first if you only want a blocked
+   source-health row for audit.
+4. Probe the direct route with `--allow-network --route direct`.
+5. If direct public networking fails or times out, configure a local proxy in
+   the shell environment and probe with `--route proxy`.
+6. Inspect source-health rows before using the data in reports or validators.
+
+```bash
+uv run --extra dev crypto-alpha-agent source-probe --list-targets
+
+uv run --extra dev crypto-alpha-agent source-probe \
+  --db var/research.sqlite \
+  --target binance_usdm_open_interest_history
+
+uv run --extra dev crypto-alpha-agent source-probe \
+  --db var/research.sqlite \
+  --target binance_usdm_open_interest_history \
+  --allow-network \
+  --route direct
+
+uv run --extra dev crypto-alpha-agent source-probe \
+  --db var/research.sqlite \
+  --target dexscreener_pairs \
+  --allow-network \
+  --route proxy
+```
+
+`source-probe` writes source-health fields such as `network_route`,
+`provider_status`, `status_transitions`, `http_status`, `parse_status`,
+`typed_record_count`, `endpoint_family`, `url_family`, `schema_version`, and
+`blocked_reason`. `ReachableViaProxy` means the local proxy route reached the
+provider; it does not mean the source is production-ready. A source may become
+`ResearchUsable` after a successful parse with nonzero typed rows.
+`ProductionResearchSource` is reserved for repeated canary evidence with
+fresh, non-duplicated, non-skewed data used by a typed validator.
+
+Proxy configuration stays local. The JSON payload and source-health rows record
+the route class, not the proxy URL or credentials. `DUNE_API_KEY` and optional
+The Graph credentials are represented only by local configuration state or a
+redacted credential marker; do not copy real values into memory, reports,
+logs, screenshots, tests, or commits.
+
 ## Operator Baseline
 
 Before and after local runs, check the worktree:
@@ -333,6 +383,16 @@ uv run --extra dev crypto-alpha-agent ingest \
   --ccxt-feed funding-rate-history \
   --exchange binance \
   --symbol BTC/USDT:USDT \
+  --limit 200
+
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source ccxt \
+  --allow-network \
+  --ccxt-feed open-interest-history \
+  --exchange binance \
+  --symbol BTC/USDT:USDT \
+  --timeframe 1h \
   --limit 200
 ```
 

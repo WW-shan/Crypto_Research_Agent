@@ -133,6 +133,15 @@ uv run --extra dev crypto-alpha-agent ingest \
   --exchange binance \
   --symbol BTC/USDT:USDT \
   --limit 200
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source ccxt \
+  --allow-network \
+  --ccxt-feed open-interest-history \
+  --exchange binance \
+  --symbol BTC/USDT:USDT \
+  --timeframe 1h \
+  --limit 200
 
 # DexScreener discovery snapshots.
 uv run --extra dev crypto-alpha-agent ingest \
@@ -166,6 +175,35 @@ uv run --extra dev crypto-alpha-agent ingest \
   --subgraph-url "$THEGRAPH_SUBGRAPH_URL" \
   --graph-query '{ pools(first: 5) { id totalValueLockedUSD } }'
 ```
+
+## Source Qualification
+
+Use `source-probe` before relying on a new public-data endpoint in research or
+validator work. It records source-health evidence for the tested endpoint
+family, network route, HTTP status, parse status, typed record count, schema
+version, and blocked reason. The command is read-only and records
+`uses_real_capital=false` and `live_order_routing=false`.
+
+```bash
+uv run --extra dev crypto-alpha-agent source-probe --list-targets
+
+uv run --extra dev crypto-alpha-agent source-probe \
+  --db var/research.sqlite \
+  --target binance_usdm_open_interest_history
+
+uv run --extra dev crypto-alpha-agent source-probe \
+  --db var/research.sqlite \
+  --target binance_usdm_open_interest_history \
+  --allow-network \
+  --route direct
+```
+
+When a direct route fails but the operator has a local proxy configured, rerun
+with `--route proxy`. Proxy values stay in local shell configuration and are
+not printed in the JSON payload. See
+[`docs/source-coverage-matrix.md`](docs/source-coverage-matrix.md) and
+[`docs/source-query-catalog.md`](docs/source-query-catalog.md) before promoting
+any source beyond `ResearchUsable`.
 
 ## Phase 1 Research Loop
 

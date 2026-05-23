@@ -18,6 +18,7 @@ from crypto_alpha_agent.config import LLMRole, build_configured_llm
 from crypto_alpha_agent.data.ingestion import (
     ingest_binance_public_month,
     ingest_ccxt_funding_rate_history,
+    ingest_ccxt_open_interest_history,
     ingest_ccxt_ohlcv,
     ingest_defillama_yield_pools,
     ingest_dexscreener_pairs,
@@ -26,6 +27,7 @@ from crypto_alpha_agent.data.onchain_ingestion import (
     ingest_dune_query_result,
     ingest_thegraph_query_result,
 )
+from crypto_alpha_agent.data.source_probe import available_probe_targets, probe_target
 from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
 from crypto_alpha_agent.llm import LLMProviderError
@@ -163,6 +165,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=(
             "market_candle",
             "funding_rate",
+            "open_interest",
             "dex_pair",
             "defi_yield",
             "research_snapshot",
@@ -536,6 +539,35 @@ def build_parser() -> argparse.ArgumentParser:
     )
     evidence_run_parser.set_defaults(handler=_handle_evidence_run, parser=evidence_run_parser)
 
+    source_probe_parser = subparsers.add_parser(
+        "source-probe",
+        help="Qualify public data sources and persist proxy-aware source health.",
+    )
+    source_probe_parser.add_argument(
+        "--list-targets",
+        action="store_true",
+        help="List source-probe targets without network access.",
+    )
+    source_probe_parser.add_argument("--db", type=Path, help="Path to the SQLite research data store.")
+    source_probe_parser.add_argument("--target", help="Source-probe target id.")
+    source_probe_parser.add_argument(
+        "--allow-network",
+        action="store_true",
+        help="Required explicit gate before a source probe performs network access.",
+    )
+    source_probe_parser.add_argument(
+        "--route",
+        choices=("auto", "direct", "proxy"),
+        default="auto",
+        help="Network route to test; proxy requires local proxy environment configuration.",
+    )
+    source_probe_parser.add_argument(
+        "--credential-configured",
+        action="store_true",
+        help="Record that a required local credential exists without passing its value.",
+    )
+    source_probe_parser.set_defaults(handler=_handle_source_probe, parser=source_probe_parser)
+
     ingest_parser = subparsers.add_parser(
         "ingest",
         help="Initialize safe research data ingestion without live capital or order routing.",
@@ -566,7 +598,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ingest_parser.add_argument(
         "--ccxt-feed",
-        choices=("ohlcv", "funding-rate-history"),
+        choices=("ohlcv", "funding-rate-history", "open-interest-history"),
         help="CCXT feed to ingest when --source ccxt is provided.",
     )
     ingest_parser.add_argument(
@@ -1189,6 +1221,38 @@ def _handle_ingest(args: argparse.Namespace) -> dict[str, Any]:
     if ingestion is not None:
         payload["ingestion"] = ingestion.model_dump(mode="json")
     return payload
+
+
+def _handle_source_probe(args: argparse.Namespace) -> dict[str, Any]:
+    if args.list_targets:
+        return {
+            "command": "source-probe",
+            "targets": [
+                target.model_dump(mode="json")
+                for target in available_probe_targets()
+            ],
+            "uses_real_capital": False,
+            "live_order_routing": False,
+            "exit_code": 0,
+        }
+    if args.db is None or args.target is None:
+        args.parser.error("--db and --target are required unless --list-targets is provided")
+
+    result = probe_target(
+        db_path=args.db,
+        target_id=args.target,
+        allow_network=args.allow_network,
+        route=args.route,
+        env=dict(os.environ),
+        credential_configured=args.credential_configured,
+    )
+    return {
+        "command": "source-probe",
+        "result": result.model_dump(mode="json"),
+        "uses_real_capital": False,
+        "live_order_routing": False,
+        "exit_code": result.exit_code,
+    }
 
 
 def _handle_paper_sim_loop(args: argparse.Namespace) -> dict[str, Any]:
@@ -2087,7 +2151,7 @@ def _validate_ccxt_ingest_args(args: argparse.Namespace) -> None:
         )
         if value is None
     ]
-    if args.ccxt_feed == "ohlcv" and args.timeframe is None:
+    if args.ccxt_feed in {"ohlcv", "open-interest-history"} and args.timeframe is None:
         missing.append("--timeframe")
     if missing:
         args.parser.error(f"{', '.join(missing)} required when --source ccxt is provided")
@@ -2098,6 +2162,16 @@ def _validate_ccxt_ingest_args(args: argparse.Namespace) -> None:
 def _run_ccxt_ingestion(args: argparse.Namespace):
     if args.ccxt_feed == "ohlcv":
         return ingest_ccxt_ohlcv(
+            args.db,
+            symbol=args.symbol,
+            timeframe=args.timeframe,
+            since=args.since,
+            limit=args.limit,
+            allow_network=True,
+            exchange_id=args.exchange,
+        )
+    if args.ccxt_feed == "open-interest-history":
+        return ingest_ccxt_open_interest_history(
             args.db,
             symbol=args.symbol,
             timeframe=args.timeframe,

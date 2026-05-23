@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from crypto_alpha_agent.data.ingestion import ingest_ccxt_ohlcv
-from crypto_alpha_agent.data.models import MarketCandle, SourceRecord
+from crypto_alpha_agent.data.models import MarketCandle, OpenInterestRecord, SourceRecord
 from crypto_alpha_agent.data.quality import build_data_quality_report
 from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.pipeline.markdown import render_research_loop_markdown
@@ -81,6 +81,54 @@ def test_quality_report_flags_non_positive_prices_and_zero_volume():
     assert "zero_volume" in _reason_codes(report)
 
 
+def test_quality_report_flags_open_interest_gaps_staleness_and_timestamp_skew():
+    records = [
+        _open_interest_record(NOW - timedelta(hours=4)),
+        _open_interest_record(
+            NOW - timedelta(hours=1),
+            payload_timestamp=NOW - timedelta(hours=3),
+        ),
+    ]
+
+    report = build_data_quality_report(records, now=NOW)
+
+    assert "missing_open_interest_bars" in _reason_codes(report)
+    assert "timestamp_skew" in _reason_codes(report)
+
+    stale_report = build_data_quality_report([_open_interest_record(NOW - timedelta(hours=4))], now=NOW)
+    assert "stale_source" in _reason_codes(stale_report)
+
+
+def test_quality_report_flags_non_positive_open_interest():
+    record = _open_interest_record(NOW - timedelta(hours=1))
+    record.payload["open_interest"] = 0.0
+
+    report = build_data_quality_report([record], now=NOW)
+
+    assert "non_positive_open_interest" in _reason_codes(report)
+
+
+def test_quality_report_flags_malformed_open_interest_timestamp_as_source_error():
+    record = _open_interest_record(NOW - timedelta(hours=1))
+    record.payload["timestamp"] = "not-a-date"
+
+    report = build_data_quality_report([record], now=NOW)
+
+    assert "source_error" in _reason_codes(report)
+
+
+def test_quality_report_flags_duplicate_open_interest_by_semantic_key():
+    timestamp = NOW - timedelta(hours=1)
+    records = [
+        _open_interest_record(timestamp, record_id="open-interest-a"),
+        _open_interest_record(timestamp, record_id="open-interest-b"),
+    ]
+
+    report = build_data_quality_report(records, now=NOW)
+
+    assert "duplicate_semantic_record" in _reason_codes(report)
+
+
 def test_source_health_rows_are_written_after_ingestion_success_and_failure(tmp_path):
     db_path = tmp_path / "research.sqlite"
 
@@ -108,6 +156,28 @@ def test_source_health_rows_are_written_after_ingestion_success_and_failure(tmp_
     assert records[0].payload["records_fetched"] == 1
     assert records[0].payload["records_written"] == 1
     assert records[1].payload["failure"] == "upstream unavailable"
+
+
+def test_malformed_source_health_missing_feed_reports_source_error():
+    record = SourceRecord(
+        record_id="ccxt:source_health:malformed",
+        source="ccxt",
+        record_type="source_health",
+        observed_at=NOW,
+        payload={
+            "source": "ccxt",
+            "success": True,
+            "attempts": 1,
+            "observed_at": NOW.isoformat(),
+            "records_fetched": 1,
+            "records_written": 1,
+        },
+    )
+
+    report = build_data_quality_report([record], now=NOW)
+
+    assert _reason_codes(report) == ["source_error"]
+    assert report.issues[0].message == "malformed source_health payload"
 
 
 def test_research_loop_and_markdown_include_data_quality_section(tmp_path):
@@ -144,6 +214,28 @@ def _market_record(
     if record_id is None:
         return candle
     return candle.model_copy(update={"record_id": record_id})
+
+
+def _open_interest_record(
+    timestamp: datetime,
+    *,
+    record_id: str | None = None,
+    payload_timestamp: datetime | None = None,
+) -> SourceRecord:
+    record = OpenInterestRecord(
+        source="ccxt",
+        venue="binance",
+        symbol="BTC/USDT:USDT",
+        timestamp=timestamp,
+        timeframe="1h",
+        open_interest=1000.0,
+        open_interest_value=100000.0,
+    ).to_source_record()
+    if payload_timestamp is not None:
+        record.payload["timestamp"] = payload_timestamp.isoformat()
+    if record_id is None:
+        return record
+    return record.model_copy(update={"record_id": record_id})
 
 
 def _reason_codes(report) -> list[str]:
