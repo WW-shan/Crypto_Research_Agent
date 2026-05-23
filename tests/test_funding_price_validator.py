@@ -385,3 +385,34 @@ def test_funding_price_validator_fails_closed_on_excessive_drawdown(tmp_path):
     assert result.approved is False
     assert result.max_drawdown > 0.001
     assert "excessive_drawdown" in result.blocked_reasons
+
+
+def test_funding_price_validator_fails_closed_on_invalid_funding_alignment(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    store = ResearchDataStore(db_path)
+    candles = [
+        _candle(i, close)
+        for i, close in enumerate([100, 103, 101, 99, 102, 104, 101, 100, 98, 101])
+    ]
+    invalid_funding = _funding(1, 0.0008).model_copy(
+        update={"next_funding_at": datetime(2026, 5, 17, 1, tzinfo=UTC)}
+    )
+    fundings = [invalid_funding, _funding(4, -0.0009), _funding(6, 0.0007)]
+    store.upsert_records([item.to_source_record() for item in candles])
+    store.upsert_records([_funding_record(item) for item in fundings])
+
+    result = validate_funding_price_confirmation(
+        db_path,
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        threshold_abs=0.0005,
+        hold_bars=2,
+        fee_rate=0.001,
+        slippage_rate=0.0005,
+        min_trades=2,
+        require_walk_forward=False,
+    )
+
+    assert result.approved is False
+    assert "funding_alignment_invalid" in result.blocked_reasons

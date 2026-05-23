@@ -447,6 +447,9 @@ def test_default_registry_runs_paper_for_supported_funding_families(strategy_fam
         "exit_price",
         "raw_return",
         "direction",
+        "entry_volume",
+        "exit_volume",
+        "next_funding_at",
     }
 
 

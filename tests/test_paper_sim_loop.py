@@ -107,6 +107,22 @@ def _patch_paper_registry(monkeypatch: pytest.MonkeyPatch, report) -> None:
     )
 
 
+def _simulated_paper_report(*trades: dict[str, object]):
+    from crypto_alpha_agent.strategy.models import StrategyPaperReport
+
+    return StrategyPaperReport(
+        strategy_family="funding_extremity_price_confirmation",
+        status="simulated",
+        supports_paper_simulation=True,
+        blocked_reasons=[],
+        metrics={
+            "validation": _approved_validation_payload(),
+            "paper_trades": list(trades),
+            "observed_at": "2026-05-17T03:00:00+00:00",
+        },
+    )
+
+
 def test_run_paper_sim_loop_writes_outcomes_without_live_capital(tmp_path):
     from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
 
@@ -143,16 +159,22 @@ def test_run_paper_sim_loop_writes_outcomes_without_live_capital(tmp_path):
     assert {item.status for item in loaded} == {"closed"}
     assert all(item.touched_real_capital is False for item in loaded)
     assert all(item.live_order_routing is False for item in loaded)
-    assert all(item.notional_usd == 25.0 for item in loaded)
+    assert all(0 < item.notional_usd <= 25.0 for item in loaded)
+    assert all(item.cost_model_mode == "pessimistic" for item in loaded)
+    assert all(item.venue == "binance" for item in loaded)
+    assert all(item.fee_model_id.startswith("binance:") for item in loaded)
+    assert all(item.stale_signal_status == "fresh" for item in loaded)
+    assert all(item.fill_status == "full" for item in loaded)
 
     first = loaded[0]
     assert first.signal_timestamp == datetime(2026, 5, 17, 1, tzinfo=UTC)
     assert first.entry_price == 103.0
     assert first.exit_price == 99.0
-    assert first.quantity == pytest.approx(25.0 / 103.0)
-    assert first.gross_pnl_usd == pytest.approx(25.0 * (4.0 / 103.0))
-    assert first.fees_usd == pytest.approx(25.0 * 0.001 * 2.0)
-    assert first.slippage_usd == pytest.approx(25.0 * 0.0005 * 2.0)
+    assert first.quantity == pytest.approx(first.notional_usd / 103.0)
+    assert first.gross_pnl_usd == pytest.approx(first.notional_usd * (4.0 / 103.0))
+    assert first.fees_usd == pytest.approx(first.entry_fee_usd + first.exit_fee_usd)
+    assert first.fees_usd == pytest.approx(first.notional_usd * 0.001 * 2.0)
+    assert first.slippage_usd == pytest.approx(first.notional_usd * 0.0005 * 2.0)
     assert first.net_pnl_usd == pytest.approx(first.gross_pnl_usd - first.fees_usd - first.slippage_usd)
 
     assert len(report.paper_evidence_packages) == 1
@@ -162,6 +184,140 @@ def test_run_paper_sim_loop_writes_outcomes_without_live_capital(tmp_path):
     assert evidence.closed_count == report.outcome_count
     assert evidence.failed_count == 0
     assert evidence.net_pnl_usd == pytest.approx(sum(item.net_pnl_usd for item in loaded))
+    assert evidence.total_fees_usd == pytest.approx(sum(item.fees_usd for item in loaded))
+    assert evidence.total_slippage_usd == pytest.approx(sum(item.slippage_usd for item in loaded))
+
+
+def test_run_paper_sim_loop_blocks_when_min_notional_exceeds_owner_profile(tmp_path, monkeypatch):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+
+    db_path = _write_happy_path_fixture(tmp_path)
+    _patch_paper_registry(monkeypatch, _simulated_paper_report(_paper_trade_payload()))
+
+    report = run_paper_sim_loop(
+        db_path,
+        run_id="paper-min-notional-block",
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        min_notional_usd=30.0,
+        require_walk_forward=False,
+    )
+
+    assert report.outcome_count == 1
+    outcome = report.outcomes[0]
+    assert outcome.status == "blocked"
+    assert outcome.cost_model_mode == "pessimistic"
+    assert outcome.fill_status == "blocked"
+    assert "min_notional_exceeds_max_notional" in outcome.failure_reasons
+
+
+def test_run_paper_sim_loop_blocks_stale_signal_even_when_validation_approved(tmp_path, monkeypatch):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+
+    db_path = _write_happy_path_fixture(tmp_path)
+    stale_trade = _paper_trade_payload(
+        funding_timestamp="2026-05-17T01:00:00+00:00",
+        entry_timestamp="2026-05-17T03:00:00+00:00",
+        exit_timestamp="2026-05-17T04:00:00+00:00",
+    )
+    _patch_paper_registry(monkeypatch, _simulated_paper_report(stale_trade))
+
+    report = run_paper_sim_loop(
+        db_path,
+        run_id="paper-stale-signal-block",
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        max_signal_age_seconds=60.0,
+        require_walk_forward=False,
+    )
+
+    outcome = report.outcomes[0]
+    assert outcome.status == "blocked"
+    assert outcome.stale_signal_status == "stale"
+    assert outcome.signal_age_seconds == pytest.approx(7200.0)
+    assert "stale_signal" in outcome.failure_reasons
+
+
+def test_run_paper_sim_loop_records_partial_fill_when_enabled(tmp_path, monkeypatch):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+
+    db_path = _write_happy_path_fixture(tmp_path)
+    partial_trade = _paper_trade_payload(entry_volume=1.0, exit_volume=1.0)
+    _patch_paper_registry(monkeypatch, _simulated_paper_report(partial_trade))
+
+    report = run_paper_sim_loop(
+        db_path,
+        run_id="paper-partial-fill",
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        max_volume_participation_rate=0.10,
+        allow_partial_fills=True,
+        require_walk_forward=False,
+    )
+
+    outcome = report.outcomes[0]
+    assert outcome.status == "closed"
+    assert outcome.fill_status == "partial"
+    assert 0 < outcome.fill_ratio < 1
+    assert outcome.notional_usd == pytest.approx(10.0)
+    assert outcome.quantity == pytest.approx(0.1)
+
+
+def test_run_paper_sim_loop_blocks_missed_fill_when_liquidity_is_too_low(tmp_path, monkeypatch):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+
+    db_path = _write_happy_path_fixture(tmp_path)
+    low_liquidity_trade = _paper_trade_payload(entry_volume=0.01, exit_volume=0.01)
+    _patch_paper_registry(monkeypatch, _simulated_paper_report(low_liquidity_trade))
+
+    report = run_paper_sim_loop(
+        db_path,
+        run_id="paper-missed-fill",
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        max_volume_participation_rate=0.10,
+        require_walk_forward=False,
+    )
+
+    outcome = report.outcomes[0]
+    assert outcome.status == "blocked"
+    assert outcome.fill_status == "missed"
+    assert "missed_fill_assumed" in outcome.failure_reasons
+    assert report.paper_evidence_packages[0].missed_fill_count == 1
+
+
+def test_run_paper_sim_loop_blocks_positive_gross_pnl_erased_by_costs(tmp_path, monkeypatch):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+
+    db_path = _write_happy_path_fixture(tmp_path)
+    pre_cost_only_trade = _paper_trade_payload(raw_return=0.001)
+    _patch_paper_registry(monkeypatch, _simulated_paper_report(pre_cost_only_trade))
+
+    report = run_paper_sim_loop(
+        db_path,
+        run_id="paper-pre-cost-only-block",
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        require_walk_forward=False,
+    )
+
+    outcome = report.outcomes[0]
+    assert outcome.status == "blocked"
+    assert outcome.cost_model_mode == "pessimistic"
+    assert outcome.gross_pnl_usd > 0
+    assert outcome.net_pnl_usd <= 0
+    assert not any(item.status == "closed" for item in report.outcomes)
+    assert "pre_cost_only_profitable" in outcome.failure_reasons
 
 
 def test_run_paper_sim_loop_forwards_stale_source_gate_to_registry(tmp_path):
@@ -221,6 +377,38 @@ def test_run_paper_sim_loop_stable_ids_include_result_changing_stale_gate(tmp_pa
     assert first.outcomes[0].candidate_id != second.outcomes[0].candidate_id
 
 
+def test_run_paper_sim_loop_stable_ids_include_cost_model_assumptions(tmp_path):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+
+    first = run_paper_sim_loop(
+        _write_happy_path_fixture(tmp_path / "first-cost"),
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        threshold_abs=0.0005,
+        hold_bars=2,
+        min_trades=2,
+        require_walk_forward=False,
+        cost_model_mode="pessimistic",
+    )
+    second = run_paper_sim_loop(
+        _write_happy_path_fixture(tmp_path / "second-cost"),
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        threshold_abs=0.0005,
+        hold_bars=2,
+        min_trades=2,
+        require_walk_forward=False,
+        cost_model_mode="base",
+    )
+
+    assert first.run_id != second.run_id
+    assert first.outcomes[0].candidate_id != second.outcomes[0].candidate_id
+
+
 def test_run_paper_sim_loop_blocks_outcomes_when_validation_not_approved(tmp_path):
     from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
 
@@ -255,6 +443,15 @@ def test_run_paper_sim_loop_blocks_outcomes_when_validation_not_approved(tmp_pat
     assert outcome.net_pnl_usd == 0.0
     assert outcome.failure_reasons == tuple(report.validation.blocked_reasons)
     assert "insufficient_walk_forward_splits" in outcome.failure_reasons
+    assert outcome.cost_model_mode == "pessimistic"
+    assert outcome.venue == "binance"
+    assert outcome.fee_model_id.startswith("binance:")
+    assert outcome.taker_fee_rate > 0
+    assert outcome.applied_entry_fee_rate == pytest.approx(0.001)
+    assert outcome.applied_exit_fee_rate == pytest.approx(0.001)
+    assert outcome.slippage_bps == pytest.approx(5.0)
+    assert outcome.stale_signal_status == "not_evaluated"
+    assert outcome.fill_status == "blocked"
     assert "insufficient_walk_forward_splits" in report.notes
     assert outcome.touched_real_capital is False
     assert outcome.live_order_routing is False
@@ -544,7 +741,7 @@ def test_manual_run_id_replaces_previous_outcomes_when_parameters_change(tmp_pat
     assert {outcome.outcome_id for outcome in loaded} == {
         outcome.outcome_id for outcome in high_notional_report.outcomes
     }
-    assert {outcome.notional_usd for outcome in loaded} == {20.0}
+    assert all(0 < outcome.notional_usd <= 20.0 for outcome in loaded)
 
 
 def test_empty_store_records_one_blocked_no_signal_outcome(tmp_path):
@@ -581,6 +778,14 @@ def test_empty_store_records_one_blocked_no_signal_outcome(tmp_path):
     assert outcome.fees_usd == 0.0
     assert outcome.slippage_usd == 0.0
     assert outcome.net_pnl_usd == 0.0
+    assert outcome.cost_model_mode == "pessimistic"
+    assert outcome.venue == "binance"
+    assert outcome.fee_model_id.startswith("binance:")
+    assert outcome.applied_entry_fee_rate == pytest.approx(0.001)
+    assert outcome.applied_exit_fee_rate == pytest.approx(0.001)
+    assert outcome.slippage_bps == pytest.approx(5.0)
+    assert outcome.stale_signal_status == "not_evaluated"
+    assert outcome.fill_status == "blocked"
     assert outcome.touched_real_capital is False
     assert outcome.live_order_routing is False
     assert report.paper_evidence_packages[0].failed_count == 1
@@ -662,6 +867,20 @@ def test_cli_paper_sim_loop_outputs_json_and_persists_ledger(tmp_path):
         "0.001",
         "--slippage-rate",
         "0.0005",
+        "--venue",
+        "binance",
+        "--cost-model-mode",
+        "pessimistic",
+        "--max-signal-age-seconds",
+        "3600",
+        "--min-notional-usd",
+        "5",
+        "--quantity-step",
+        "0.001",
+        "--tick-size",
+        "0.1",
+        "--max-volume-participation-rate",
+        "0.05",
         "--min-trades",
         "2",
         "--no-require-walk-forward",
@@ -681,7 +900,12 @@ def test_cli_paper_sim_loop_outputs_json_and_persists_ledger(tmp_path):
     assert payload["report"]["run_id"] == "cli-paper"
     assert payload["report"]["outcome_count"] == 3
     assert payload["report"]["notional_usd"] == 25.0
+    assert payload["report"]["venue"] == "binance"
+    assert payload["report"]["cost_model_mode"] == "pessimistic"
+    assert payload["report"]["max_signal_age_seconds"] == 3600.0
     assert len(loaded) == payload["report"]["outcome_count"]
+    assert all(outcome.cost_model_mode == "pessimistic" for outcome in loaded)
+    assert all(outcome.venue == "binance" for outcome in loaded)
     assert report_payload == payload
 
 
@@ -732,7 +956,7 @@ def test_cli_paper_sim_loop_memory_writes_records_and_outputs_metadata(tmp_path)
     assert payload["memory_path"] == str(memory_path)
     assert len(records) == payload["memory_records_written"]
     assert {record.paper_trade_outcome["run_id"] for record in records} == {"cli-paper-memory"}
-    assert all(record.opportunity["notional"] == 25.0 for record in records)
+    assert all(0 < record.opportunity["notional"] <= 25.0 for record in records)
 
 
 def test_cli_paper_sim_loop_memory_replaces_same_run_records_when_rerun_blocks(tmp_path):

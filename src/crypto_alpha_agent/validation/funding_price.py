@@ -371,8 +371,14 @@ def _validate_funding_price_confirmation_from_history(
         if abs(float(funding.funding_rate)) >= threshold_abs
     ]
     non_positive_price = False
+    funding_alignment_invalid = False
     if not duplicate_price_timestamp and not duplicate_funding_timestamp:
         non_positive_price = _has_non_positive_trade_price(
+            bars,
+            extremes,
+            hold_bars=hold_bars,
+        )
+        funding_alignment_invalid = _has_invalid_funding_alignment(
             bars,
             extremes,
             hold_bars=hold_bars,
@@ -383,6 +389,7 @@ def _validate_funding_price_confirmation_from_history(
         not duplicate_price_timestamp
         and not duplicate_funding_timestamp
         and not non_positive_price
+        and not funding_alignment_invalid
     ):
         trades = extract_funding_price_trades(
             bars,
@@ -443,6 +450,7 @@ def _validate_funding_price_confirmation_from_history(
         duplicate_price_timestamp=duplicate_price_timestamp,
         duplicate_funding_timestamp=duplicate_funding_timestamp,
         non_positive_price=non_positive_price,
+        funding_alignment_invalid=funding_alignment_invalid,
         unsupported_symbol=unsupported_symbol,
         stale_source=stale_source,
     )
@@ -621,6 +629,40 @@ def _has_non_positive_trade_price(
     return False
 
 
+def _has_invalid_funding_alignment(
+    bars: list[CandleBar],
+    extremes: list[FundingRateRecord],
+    *,
+    hold_bars: int,
+) -> bool:
+    timestamps = [bar.timestamp for bar in bars]
+
+    for funding in extremes:
+        if funding.next_funding_at is None:
+            continue
+
+        funding_timestamp = _coerce_utc(funding.timestamp)
+        next_funding_at = _coerce_utc(funding.next_funding_at)
+        if next_funding_at <= funding_timestamp:
+            return True
+
+        entry_index = bisect_left(timestamps, funding.timestamp)
+        exit_index = entry_index + hold_bars
+        if entry_index >= len(bars) or exit_index >= len(bars):
+            continue
+
+        entry_timestamp = _coerce_utc(bars[entry_index].timestamp)
+        exit_timestamp = _coerce_utc(bars[exit_index].timestamp)
+        if entry_timestamp < funding_timestamp:
+            return True
+        if entry_timestamp >= next_funding_at:
+            return True
+        if exit_timestamp > next_funding_at:
+            return True
+
+    return False
+
+
 def _is_unsupported_symbol(
     *,
     price_symbol: str,
@@ -724,6 +766,7 @@ def _blocked_reasons(
     duplicate_price_timestamp: bool,
     duplicate_funding_timestamp: bool,
     non_positive_price: bool,
+    funding_alignment_invalid: bool,
     unsupported_symbol: bool,
     stale_source: bool,
 ) -> list[str]:
@@ -738,6 +781,8 @@ def _blocked_reasons(
         reasons.append("duplicate_funding_timestamp")
     if non_positive_price:
         reasons.append("non_positive_price")
+    if funding_alignment_invalid:
+        reasons.append("funding_alignment_invalid")
     if bar_count < hold_bars + 1:
         reasons.append("insufficient_price_bars")
     if funding_sample_count == 0:

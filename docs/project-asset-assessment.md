@@ -40,7 +40,12 @@ and strengthened first.
   source-health evidence, and query inventory for Phase 9 validator work.
 - `research-loop`: stored data to scanner, anomaly, hypothesis, validation, and
   report.
-- `paper-sim-loop`: deterministic historical and paper simulation outcomes.
+- `paper-sim-loop` and `execution/cost_model.py`: deterministic historical
+  and paper simulation outcomes with Phase 10 execution-realism assumptions.
+  Paper outcomes now record `cost_model_mode`, pessimistic maker/taker fee
+  assumptions, min-notional and precision feasibility, stale-signal status,
+  `pre_cost_only_profitable`, `missed_fill_assumed`, and `partial_fill`
+  evidence before any rollout review.
 - `evidence-run`: daily evidence pipeline foundation.
 - `evidence-report`: daily and weekly reporting foundation.
 - `validation/funding.py`, `validation/funding_price.py`,

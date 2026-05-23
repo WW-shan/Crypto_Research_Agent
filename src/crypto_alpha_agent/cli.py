@@ -285,6 +285,60 @@ def build_parser() -> argparse.ArgumentParser:
         help="One-way slippage rate charged on entry and exit.",
     )
     paper_sim_loop_parser.add_argument(
+        "--venue",
+        default="binance",
+        help="Public venue whose fee and market-constraint assumptions apply.",
+    )
+    paper_sim_loop_parser.add_argument(
+        "--cost-model-mode",
+        choices=("base", "pessimistic"),
+        default="pessimistic",
+        help="Execution cost model mode; pessimistic is the default rollout gate.",
+    )
+    paper_sim_loop_parser.add_argument(
+        "--max-notional-usd",
+        type=_positive_finite_float,
+        default=25.0,
+        help="Maximum per-trade notional allowed by the owner profile.",
+    )
+    paper_sim_loop_parser.add_argument(
+        "--max-signal-age-seconds",
+        type=_positive_finite_float,
+        default=3600.0,
+        help="Maximum age between signal and paper entry before stale_signal blocks.",
+    )
+    paper_sim_loop_parser.add_argument(
+        "--min-notional-usd",
+        type=_non_negative_finite_float,
+        help="Optional symbol-level minimum notional override.",
+    )
+    paper_sim_loop_parser.add_argument(
+        "--min-quantity",
+        type=_non_negative_finite_float,
+        help="Optional symbol-level minimum quantity override.",
+    )
+    paper_sim_loop_parser.add_argument(
+        "--quantity-step",
+        type=_non_negative_finite_float,
+        help="Optional symbol-level quantity step override.",
+    )
+    paper_sim_loop_parser.add_argument(
+        "--tick-size",
+        type=_non_negative_finite_float,
+        help="Optional symbol-level tick size override.",
+    )
+    paper_sim_loop_parser.add_argument(
+        "--max-volume-participation-rate",
+        type=_positive_finite_float,
+        default=0.05,
+        help="Maximum share of candle quote volume a paper fill may assume.",
+    )
+    paper_sim_loop_parser.add_argument(
+        "--allow-partial-fills",
+        action="store_true",
+        help="Allow low-liquidity paper fills to reduce notional instead of blocking.",
+    )
+    paper_sim_loop_parser.add_argument(
         "--min-trades",
         type=_non_negative_int,
         default=3,
@@ -1271,6 +1325,16 @@ def _handle_paper_sim_loop(args: argparse.Namespace) -> dict[str, Any]:
             hold_bars=args.hold_bars,
             fee_rate=args.fee_rate,
             slippage_rate=args.slippage_rate,
+            venue=args.venue,
+            cost_model_mode=args.cost_model_mode,
+            max_notional_usd=args.max_notional_usd,
+            max_signal_age_seconds=args.max_signal_age_seconds,
+            min_notional_usd=args.min_notional_usd,
+            min_quantity=args.min_quantity,
+            quantity_step=args.quantity_step,
+            tick_size=args.tick_size,
+            max_volume_participation_rate=args.max_volume_participation_rate,
+            allow_partial_fills=args.allow_partial_fills,
             min_trades=args.min_trades,
             require_walk_forward=args.require_walk_forward,
         )

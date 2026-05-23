@@ -73,6 +73,13 @@ def test_operator_workflow_contract_is_documented_across_docs() -> None:
             "volatility_compression_expansion_watchlist",
             "blocked_by_missing_data",
             "blocked_by_unqualified_source",
+            "cost_model_mode",
+            "pessimistic",
+            "min_notional_exceeds_max_notional",
+            "stale_signal",
+            "pre_cost_only_profitable",
+            "missed_fill_assumed",
+            "partial_fill",
         ],
     )
 

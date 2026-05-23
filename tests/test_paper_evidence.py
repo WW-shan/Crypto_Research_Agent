@@ -45,6 +45,9 @@ def test_aggregates_closed_paper_outcomes_for_strategy_family():
     assert package.max_drawdown_usd == 7.0
     assert package.failure_reasons == []
     assert package.approved_for_review is False
+    assert package.total_notional_usd == 0.0
+    assert package.total_fees_usd == 0.0
+    assert package.total_slippage_usd == 0.0
 
 
 def test_includes_failed_and_rejected_outcomes_with_deduped_failure_reasons():
@@ -93,6 +96,69 @@ def test_includes_failed_and_rejected_outcomes_with_deduped_failure_reasons():
         "guard_rejected",
         "capital_above_budget",
     ]
+
+
+def test_aggregates_phase_10_execution_realism_fields():
+    from crypto_alpha_agent.evidence.paper import aggregate_paper_evidence
+
+    packages = aggregate_paper_evidence(
+        [
+            {
+                "strategy_family": "funding_basis",
+                "trade_id": "trade-1",
+                "symbol": "ETH/USDT:USDT",
+                "status": "closed",
+                "notional_usd": 25.0,
+                "gross_pnl_usd": 1.0,
+                "fees_usd": 0.05,
+                "slippage_usd": 0.025,
+                "realized_net_pnl": 0.925,
+                "cost_model_mode": "pessimistic",
+                "stale_signal_status": "fresh",
+                "fill_status": "full",
+            },
+            {
+                "strategy_family": "funding_basis",
+                "trade_id": "trade-2",
+                "symbol": "ETH/USDT:USDT",
+                "status": "blocked",
+                "notional_usd": 0.0,
+                "gross_pnl_usd": 0.0,
+                "fees_usd": 0.0,
+                "slippage_usd": 0.0,
+                "realized_net_pnl": 0.0,
+                "cost_model_mode": "pessimistic",
+                "stale_signal_status": "stale",
+                "fill_status": "missed",
+                "failure_reasons": ["stale_signal", "missed_fill_assumed"],
+            },
+            {
+                "strategy_family": "funding_basis",
+                "trade_id": "trade-3",
+                "symbol": "ETH/USDT:USDT",
+                "status": "closed",
+                "notional_usd": 10.0,
+                "gross_pnl_usd": 0.4,
+                "fees_usd": 0.02,
+                "slippage_usd": 0.01,
+                "realized_net_pnl": 0.37,
+                "cost_model_mode": "pessimistic",
+                "stale_signal_status": "fresh",
+                "fill_status": "partial",
+            },
+        ]
+    )
+
+    package = packages[0]
+    assert package.total_notional_usd == pytest.approx(35.0)
+    assert package.gross_pnl_usd == pytest.approx(1.4)
+    assert package.total_fees_usd == pytest.approx(0.07)
+    assert package.total_slippage_usd == pytest.approx(0.035)
+    assert package.stale_signal_count == 1
+    assert package.missed_fill_count == 1
+    assert package.partial_fill_count == 1
+    assert package.cost_model_modes == ["pessimistic"]
+    assert package.failure_reasons == ["stale_signal", "missed_fill_assumed"]
 
 
 def test_groups_multiple_strategy_families_in_deterministic_order():

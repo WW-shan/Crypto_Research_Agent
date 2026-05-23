@@ -24,6 +24,13 @@ class PaperEvidenceInput(BaseModel):
     status: PaperEvidenceStatus
     realized_net_pnl: FiniteFloat | None = None
     max_drawdown_usd: NonNegativeFiniteFloat | None = None
+    notional_usd: NonNegativeFiniteFloat = 0.0
+    gross_pnl_usd: FiniteFloat = 0.0
+    fees_usd: NonNegativeFiniteFloat = 0.0
+    slippage_usd: NonNegativeFiniteFloat = 0.0
+    cost_model_mode: str | None = None
+    stale_signal_status: str | None = None
+    fill_status: str | None = None
     failure_reasons: list[str] = Field(default_factory=list)
 
     @field_validator("failure_reasons")
@@ -43,6 +50,14 @@ class PaperEvidencePackage(BaseModel):
     net_pnl_usd: FiniteFloat
     hit_rate: FiniteFloat
     max_drawdown_usd: NonNegativeFiniteFloat
+    total_notional_usd: NonNegativeFiniteFloat = 0.0
+    gross_pnl_usd: FiniteFloat = 0.0
+    total_fees_usd: NonNegativeFiniteFloat = 0.0
+    total_slippage_usd: NonNegativeFiniteFloat = 0.0
+    stale_signal_count: int = Field(default=0, ge=0)
+    missed_fill_count: int = Field(default=0, ge=0)
+    partial_fill_count: int = Field(default=0, ge=0)
+    cost_model_modes: list[str] = Field(default_factory=list)
     failure_reasons: list[str] = Field(default_factory=list)
     approved_for_review: bool = False
 
@@ -67,9 +82,29 @@ def aggregate_paper_evidence(
         pnl_values = [item.realized_net_pnl for item in family_items if item.realized_net_pnl is not None]
         failure_reasons: list[str] = []
         max_drawdown = 0.0
+        total_notional = 0.0
+        gross_pnl = 0.0
+        total_fees = 0.0
+        total_slippage = 0.0
+        stale_signal_count = 0
+        missed_fill_count = 0
+        partial_fill_count = 0
+        cost_model_modes: list[str] = []
 
         for item in family_items:
             failure_reasons.extend(item.failure_reasons)
+            total_notional += item.notional_usd
+            gross_pnl += item.gross_pnl_usd
+            total_fees += item.fees_usd
+            total_slippage += item.slippage_usd
+            if item.cost_model_mode:
+                cost_model_modes.append(item.cost_model_mode)
+            if item.stale_signal_status == "stale":
+                stale_signal_count += 1
+            if item.fill_status == "missed":
+                missed_fill_count += 1
+            if item.fill_status == "partial":
+                partial_fill_count += 1
             if item.max_drawdown_usd is not None:
                 max_drawdown = max(max_drawdown, item.max_drawdown_usd)
             if item.realized_net_pnl is not None and item.realized_net_pnl < 0:
@@ -85,6 +120,14 @@ def aggregate_paper_evidence(
                 net_pnl_usd=sum(pnl_values),
                 hit_rate=_hit_rate(closed_items),
                 max_drawdown_usd=max_drawdown,
+                total_notional_usd=total_notional,
+                gross_pnl_usd=gross_pnl,
+                total_fees_usd=total_fees,
+                total_slippage_usd=total_slippage,
+                stale_signal_count=stale_signal_count,
+                missed_fill_count=missed_fill_count,
+                partial_fill_count=partial_fill_count,
+                cost_model_modes=_dedupe(cost_model_modes),
                 failure_reasons=_dedupe(failure_reasons),
             )
         )
@@ -122,6 +165,13 @@ def _normalize_mapping(item: Mapping[str, Any], *, strategy_family: str | None =
         "status": item.get("status"),
         "realized_net_pnl": _pnl_value(item, sell=sell),
         "max_drawdown_usd": _drawdown_value(item, buy=buy, sell=sell),
+        "notional_usd": _first_present(item, "notional_usd", "effective_notional_usd"),
+        "gross_pnl_usd": _first_present(item, "gross_pnl_usd", "realized_gross_pnl"),
+        "fees_usd": _first_present(item, "fees_usd", "fee_usd"),
+        "slippage_usd": _first_present(item, "slippage_usd"),
+        "cost_model_mode": item.get("cost_model_mode"),
+        "stale_signal_status": item.get("stale_signal_status"),
+        "fill_status": item.get("fill_status"),
         "failure_reasons": _failure_reasons(item),
     }
     return {key: value for key, value in normalized.items() if value is not None}

@@ -475,9 +475,21 @@ uv run --extra dev crypto-alpha-agent paper-sim-loop \
   --timeframe 1h \
   --current-capital-usd 300 \
   --notional-usd 25 \
+  --venue binance \
+  --cost-model-mode pessimistic \
+  --max-signal-age-seconds 3600 \
+  --max-volume-participation-rate 0.05 \
   --memory var/memory/evidence.jsonl \
   --report-out var/reports/paper/funding-extremity.json
 ```
+
+The Phase 10 default for paper simulation is `cost_model_mode=pessimistic`.
+This records maker/taker fee assumptions for the configured public venue, uses
+taker-style fee floors unless explicitly overridden, applies fixed slippage
+bps, enforces symbol-level min notional, quantity step, and tick-size
+constraints, checks funding signal age, and models missed or `partial_fill`
+outcomes when candle volume cannot support the requested notional. Keep this
+mode as the default before rollout review.
 
 Blocked or failed paper outcomes are evidence. Do not delete them because they
 feed degradation detection and future experiment planning.
@@ -580,6 +592,11 @@ package.
 | `source_failure` | Optional public data source failed; prior evidence should remain visible. |
 | `insufficient_price_bars` | Paper simulation lacks enough OHLCV records. |
 | `insufficient_funding_records` | Paper simulation lacks enough funding-rate records. |
+| `min_notional_exceeds_max_notional` | The symbol cannot be tested inside the current `max_notional_usd <= 25` owner profile. |
+| `stale_signal` | The signal-to-entry delay exceeded the configured ordinary execution age limit. |
+| `pre_cost_only_profitable` | The candidate had positive gross PnL but fees and slippage made net PnL non-positive. |
+| `missed_fill_assumed` | Pessimistic volume participation says the requested notional would not fill. |
+| `partial_fill` | Partial-fill mode reduced paper notional because full liquidity was unavailable. |
 | `insufficient_walk_forward` | Validation evidence is not strong enough for paper or rollout gates. |
 | `stopped_family_skipped` | A degraded family marker exists and the run skipped that family by default. |
 | `stopped_family_override_used` | Operator explicitly used `--allow-stopped-family`; audit this. |

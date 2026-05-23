@@ -98,7 +98,8 @@ def test_positive_extreme_funding_after_price_drop_creates_short_mean_reversion_
     assert outcome.signal_timestamp == datetime(2026, 5, 17, 1, tzinfo=UTC)
     assert outcome.entry_price == 110.0
     assert outcome.exit_price == 104.0
-    assert outcome.gross_pnl_usd == pytest.approx(25.0 * (6.0 / 110.0))
+    assert outcome.notional_usd <= 25.0
+    assert outcome.gross_pnl_usd == pytest.approx(outcome.notional_usd * (6.0 / 110.0))
 
     legacy_family_report = run_paper_sim_loop(
         db_path,
@@ -147,7 +148,8 @@ def test_negative_extreme_funding_after_price_bounce_creates_long_mean_reversion
     assert outcome.status == "closed"
     assert outcome.entry_price == 90.0
     assert outcome.exit_price == 96.0
-    assert outcome.gross_pnl_usd == pytest.approx(25.0 * (6.0 / 90.0))
+    assert outcome.notional_usd <= 25.0
+    assert outcome.gross_pnl_usd == pytest.approx(outcome.notional_usd * (6.0 / 90.0))
 
 
 def test_mean_reversion_requires_positive_fee_and_slippage_adjusted_expectancy(tmp_path):

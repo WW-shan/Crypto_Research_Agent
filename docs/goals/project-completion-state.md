@@ -6,92 +6,82 @@ round.
 
 ## Current Round
 
-- Round: 9
-- Status: Phase 9 Strategy Validator Library Expansion complete and verified
+- Round: 10
+- Status: Phase 10 Execution Realism And Cost Model complete and verified
 - Started: 2026-05-24
 - Completed: 2026-05-24
-- Active slice: Phase 9: Strategy Validator Library Expansion
+- Active slice: Phase 10: Execution Realism And Cost Model
 - Active plan source:
-  `docs/superpowers/plans/2026-05-24-phase-9-strategy-validator-library-expansion.md`
+  `docs/superpowers/plans/2026-05-24-phase-10-execution-realism-cost-model.md`
 - Phase report:
-  `docs/goals/phase-reports/2026-05-24-phase-9-strategy-validator-library-expansion-completion-report.md`
+  `docs/goals/phase-reports/2026-05-24-phase-10-execution-realism-cost-model-completion-report.md`
 
 ## Completed This Round
 
-- Ran Phase 9 Smart Search deep research for funding and open-interest
-  validators, basis/carry research, DeFi and DEX watchlist sources,
-  walk-forward validation practices, Binance public funding/open-interest/basis
-  endpoints, DefiLlama API surfaces, DEX Screener APIs, and crypto carry
-  constraints.
+- Ran Phase 10 Smart Search deep research for Binance exchange precision and
+  filter semantics, Binance funding timing, CCXT maker/taker and market
+  metadata, realistic backtesting fill modeling, and execution-grade slippage
+  and liquidity constraints.
 - Verified local feasibility:
-  - the registry already supported typed executable and watchlist families;
-  - Phase 8 had typed OHLCV, funding-rate, open-interest, DeFi yield, and DEX
-    pair records available for validators;
-  - existing funding validators and paper simulation could be reused for a new
-    open-interest-confirmed funding family;
-  - watchlist-only families already had a safe `paper_simulation_not_supported`
-    path;
-  - `evidence-run` could conditionally ingest open-interest history only for
-    active families that require it.
-- Added `funding_open_interest_crowding` with typed open-interest confirmation,
-  cost-adjusted expectancy, net return, max drawdown, walk-forward metrics,
-  paper simulation, and fail-closed reasons for missing data, stale sources,
-  unsupported symbols, insufficient trades, non-positive expectancy, and
-  excessive drawdown.
-- Tightened the shared funding-plus-price validator so executable funding
-  families can fail closed on unsupported symbols, stale source data, and
-  excessive drawdown.
-- Added `volatility_compression_expansion_watchlist` as a research-only
-  watchlist that flags candle compression/expansion candidates and is not
-  routed to paper simulation.
-- Expanded the default strategy registry to at least three executable
-  paper-simulated families and at least three watchlist-only families.
-- Updated `evidence-run` to call CCXT open-interest-history ingestion only when
-  an active registered strategy requires the `open_interest` record type.
-- Updated expansion-preparation reports to promote the registered OI-crowding
-  validator and volatility watchlist while keeping cross-exchange, basis/carry,
-  and broader DeFi fundamentals blocked by `blocked_by_missing_data` or
-  `blocked_by_unqualified_source` until qualified data and cost assumptions
-  exist.
+  - `paper_sim_loop._closed_outcomes` was the narrow paper materialization seam
+    for execution-realism estimates;
+  - `PaperSimulationOutcome` payloads are JSON-ledger compatible, so richer
+    outcome fields did not require a table migration;
+  - existing funding trades already carried signal, entry, exit, raw return,
+    and prices, and could export candle volume plus next funding timestamps;
+  - a Decimal rounding prototype proved simple notional capping is insufficient
+    for the `max_notional_usd <= 25` owner profile;
+  - the hard paper-only boundary and no-live-routing flags were already present.
+- Added `execution/cost_model.py` with strict fee schedules, symbol constraints,
+  adverse price and quantity rounding, pessimistic taker-fee floors, fixed
+  slippage bps, stale-signal checks, volume participation limits, missed fills,
+  partial fills, and `pre_cost_only_profitable` rejection.
+- Extended paper outcomes and paper evidence aggregation with venue, cost model
+  mode, fee model, maker/taker and applied fee rates, entry/exit fees,
+  slippage bps, stale-signal status, fill status, fill ratio, gross PnL, fees,
+  slippage, and summary counts.
+- Added funding timestamp alignment checks so invalid or lookahead-prone
+  `next_funding_at` intervals block with `funding_alignment_invalid`.
+- Updated the strategy registry paper-trade payload with entry volume, exit
+  volume, and next funding timestamp so the cost model can evaluate liquidity
+  and alignment context.
+- Updated `paper-sim-loop` and CLI flags for venue, cost mode, max notional,
+  signal-age limits, symbol constraint overrides, max volume participation, and
+  partial-fill policy.
+- Added regression tests for cost-killed positive-gross trades, missed fills,
+  stale signals, min-notional infeasibility, validation/no-signal execution
+  metadata, evidence aggregation, CLI parsing, and documentation contracts.
 - Updated README, runbook, project asset assessment, roadmap, documentation
   contracts, and this state file.
 
 ## Verification Evidence
 
 - Smart Search evidence:
-  the phase-specific `SMART_SEARCH_EVIDENCE_DIR` local evidence workspace
-  contains source-backed evidence for Binance funding-rate history, Binance
-  open-interest statistics, Binance basis data, perpetual-futures research,
-  walk-forward validation references, TimeSeriesSplit validation references,
-  DefiLlama API docs, DEX Screener API docs, and BIS crypto-carry risk notes.
-- Small local prototypes confirmed that typed OHLCV, funding-rate, and
-  open-interest records align into an OI-confirmed funding trade, and that
-  typed candle records can produce a volatility compression/expansion
-  watchlist candidate.
-- Focused implementation verification:
-  `uv run --extra dev pytest tests/test_funding_price_validator.py tests/test_funding_mean_reversion_strategy.py tests/test_funding_oi_crowding_strategy.py tests/test_volatility_regime_watchlist_strategy.py tests/test_strategy_registry.py tests/test_evidence_runner.py tests/test_research_loop_strategy_validation.py tests/test_expansion_preparation.py -q`
-  passed with 101 tests.
-- Focused Phase 9 verification after review fixes:
-  `uv run --extra dev pytest tests/test_funding_price_validator.py tests/test_funding_mean_reversion_strategy.py tests/test_funding_oi_crowding_strategy.py tests/test_volatility_regime_watchlist_strategy.py tests/test_strategy_registry.py tests/test_evidence_runner.py tests/test_research_loop_strategy_validation.py tests/test_paper_sim_loop.py tests/test_expansion_preparation.py tests/test_ai_experiment_planner.py -q`
-  passed with 157 tests.
-- Review pass 1 found Important registry, stale-source, OI symbol, and
-  expansion-preparation issues; all were fixed and re-reviewed.
-- Review pass 2 found Important paper-gate, volatility, OI min-trades,
-  OI-source-failure, and paper-run identity issues; all were fixed and
-  re-reviewed.
-- Final re-review found no Critical or Important findings remaining.
+  the phase-specific ignored evidence workspace contains source-backed evidence
+  for Binance exchange filters, Binance futures exchange information, Binance
+  funding timing, CCXT market metadata, and realistic backtesting and slippage
+  references.
+- Small local prototypes confirmed that a BTC-like futures quantity step can be
+  infeasible under the 25 USDT owner profile while a finer spot-like step can
+  remain feasible.
+- Focused implementation verification after review fixes:
+  `uv run --extra dev pytest tests/test_funding_mean_reversion_strategy.py tests/test_execution_cost_model.py tests/test_paper_sim_loop.py tests/test_documentation_contract.py -q`
+  passed with 48 tests.
+- Review pass 1 found a Critical pre-cost-only profitability issue and
+  Important execution-metadata and missed-fill evidence issues; all were fixed.
+- Review pass 2 found no Critical or Important findings remaining.
 - Full verification:
-  `uv run --extra dev pytest -q` passed with 868 tests.
+  `uv run --extra dev pytest -q` passed with 881 tests and 4 skipped.
 - `uv run --extra dev ruff check .` passed.
 - `git diff --check` passed.
 - `uv run python -m crypto_alpha_agent.security.secret_scan --path README.md --path docs --path src --path tests`
   returned `[]`.
-- Final commit message target: `feat: expand strategy validator library`.
+- Final commit message target: `feat: add execution realism cost model`.
 
 ## Current Project Target
 
-The evidence factory now has a broader deterministic strategy-validator library
-ready for Phase 10 execution-realism work:
+The evidence factory now has execution-realistic paper simulation active and is
+ready for Phase 11 AI researcher work:
 
 - public-data ingestion and local durable SQLite storage;
 - typed OHLCV, funding, DEX, DeFi, and open-interest records;
@@ -106,6 +96,11 @@ ready for Phase 10 execution-realism work:
 - three research-only watchlists:
   `defi_yield_regime_watchlist`, `dex_liquidity_volume_watchlist`, and
   `volatility_compression_expansion_watchlist`;
+- Phase 10 paper execution realism with venue fee assumptions, min-notional and
+  precision feasibility, stale-signal gating, funding alignment checks,
+  missed/partial-fill modeling, `pre_cost_only_profitable` rejection, and
+  evidence package summaries for notional, fees, slippage, stale signals, and
+  fills;
 - daily/weekly evidence reports, paper simulation, memory, and rollout review
   artifacts with `live_execution_enabled=false`.
 
@@ -128,15 +123,12 @@ ready for Phase 10 execution-realism work:
 
 The first complete research-loop milestone remains complete under the current
 charter. Post-milestone Phase 0, Immediate Phase 1, Immediate Phase 2,
-Immediate Phase 3, Immediate Phase 4, Immediate Phase 5, Phase 8, and Phase 9
-are complete after this round is verified, committed, and pushed.
+Immediate Phase 3, Immediate Phase 4, Immediate Phase 5, Phase 8, Phase 9, and
+Phase 10 are complete after this round is verified, committed, and pushed.
 
 Future work is now ordered as an evidence-factory buildout before the formal
 evidence campaign:
 
-- Phase 10: make paper/backtest results execution-realistic after costs,
-  funding timestamp alignment, spread/slippage, liquidity constraints, and
-  low-capital sizing.
 - Phase 11: upgrade the AI researcher to reason from evidence without bypassing
   validators.
 - Phase 12: add portfolio/governance scoring for profit/no-profit decisions.
@@ -152,7 +144,7 @@ charter revision.
 
 ## Next Round Entry Instructions
 
-If work continues after Phase 9:
+If work continues after Phase 10:
 
 1. Read `docs/project-charter.md` before any new plan.
 2. Read `docs/goals/project-completion-goal.md` and follow its Per-Round
@@ -163,8 +155,8 @@ If work continues after Phase 9:
    state synchronization, a complete Phase report under
    `docs/goals/phase-reports/`, and no next Phase until the current Phase is
    clean, verified, committed, and pushed.
-3. Start Phase 10: Execution Realism And Cost Model. Phase 9 added more
-   deterministic strategy families; do not reimplement Phase 1 through Phase 9.
+3. Start Phase 11: AI Researcher Upgrade. Phase 10 added execution-realistic
+   paper outcomes; do not reimplement Phase 1 through Phase 10.
 4. Treat live execution, wallet keys, exchange order routing, private RPC,
    MEV, premium-RPC, and speed-edge paths as blocked unless the owner
    explicitly revises the charter.
@@ -172,9 +164,9 @@ If work continues after Phase 9:
    strong model and report/summary use the configured fast model. Preserve fake
    LLM tests for deterministic adversarial cases, and make real positive tests
    explicit and secret-safe.
-6. For Phase 10, make every paper/backtest result account for cost, spread,
-   slippage, stale data, timestamp alignment, liquidity limits, and low-capital
-   sizing before comparing strategy families.
+6. For Phase 11, make the AI researcher reason from accumulated evidence,
+   rejected assumptions, and validator outputs without bypassing deterministic
+   validators or inventing unverifiable data.
 7. Keep failed evidence and rejected assumptions in memory.
 8. Update this file and `docs/roadmap.md` after the next milestone.
 
@@ -192,3 +184,4 @@ If work continues after Phase 9:
 | 7 | 2026-05-23 | Immediate Phase 5 data and strategy expansion preparation | focused Phase 5 tests 29 passed; pytest 802 passed; ruff passed; review re-check found no Critical or Important findings | `f6964ab feat: add expansion preparation report` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 8 | 2026-05-24 | Phase 8 data depth and quality expansion | focused Phase 8 tests 61 passed; pytest 832 passed; ruff passed; diff/staged checks passed; path and staged secret scans returned [] | Phase 8 completion commit `feat: add source qualification workflow` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 9 | 2026-05-24 | Phase 9 strategy validator library expansion | focused Phase 9 tests 157 passed; pytest 868 passed; ruff passed; diff check passed; path secret scan returned [] | Phase 9 completion commit `feat: expand strategy validator library` | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 10 | 2026-05-24 | Phase 10 execution realism and cost model | focused Phase 10 tests 48 passed; pytest 881 passed, 4 skipped; ruff passed; diff check passed; path secret scan returned [] | Phase 10 completion commit `feat: add execution realism cost model` | `https://github.com/WW-shan/Crypto_Research_Agent` |

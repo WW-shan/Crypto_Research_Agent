@@ -15,6 +15,15 @@ from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
 from crypto_alpha_agent.evidence.models import PaperSimulationOutcome
 from crypto_alpha_agent.evidence.paper import PaperEvidencePackage, aggregate_paper_evidence
+from crypto_alpha_agent.execution.cost_model import (
+    ExecutionCostAssumptions,
+    ExecutionCostEstimate,
+    ExecutionTradeSpec,
+    SymbolMarketConstraints,
+    default_fee_schedule,
+    default_symbol_constraints,
+    estimate_execution_cost,
+)
 from crypto_alpha_agent.strategy.models import (
     StrategyPaperReport,
     StrategyPaperRequest,
@@ -35,8 +44,12 @@ class PaperSimLoopReport(BaseModel):
     price_symbol: str = Field(min_length=1)
     funding_symbol: str = Field(min_length=1)
     timeframe: str = Field(min_length=1)
+    venue: str = Field(default="binance", min_length=1)
+    cost_model_mode: Literal["base", "pessimistic"] = "pessimistic"
     current_capital_usd: float = Field(ge=0)
     notional_usd: float = Field(ge=0)
+    max_notional_usd: float = Field(default=25.0, gt=0)
+    max_signal_age_seconds: float | None = Field(default=3600.0, ge=0)
     validation: StrategyValidationReport
     outcome_count: int = Field(ge=0)
     outcomes: list[PaperSimulationOutcome]
@@ -69,10 +82,45 @@ def run_paper_sim_loop(
     max_drawdown_limit: float = 0.20,
     now: datetime | None = None,
     max_age_hours: float | None = None,
+    venue: str = "binance",
+    cost_model_mode: Literal["base", "pessimistic"] = "pessimistic",
+    max_notional_usd: float = 25.0,
+    max_signal_age_seconds: float | None = 3600.0,
+    min_notional_usd: float | None = None,
+    min_quantity: float | None = None,
+    quantity_step: float | None = None,
+    tick_size: float | None = None,
+    max_volume_participation_rate: float = 0.05,
+    allow_partial_fills: bool = False,
 ) -> PaperSimLoopReport:
     capital = _require_non_negative_finite("current_capital_usd", current_capital_usd)
     requested_notional = _require_non_negative_finite("notional_usd", notional_usd)
-    capped_notional = min(requested_notional, capital, 25.0)
+    owner_max_notional = _require_positive_finite("max_notional_usd", max_notional_usd)
+    if owner_max_notional > 25.0:
+        raise ValueError("max_notional_usd cannot exceed the current owner profile limit of 25")
+    _validate_optional_positive("max_signal_age_seconds", max_signal_age_seconds)
+    _validate_optional_non_negative("min_notional_usd", min_notional_usd)
+    _validate_optional_non_negative("min_quantity", min_quantity)
+    _validate_optional_non_negative("quantity_step", quantity_step)
+    _validate_optional_non_negative("tick_size", tick_size)
+    _require_positive_finite("max_volume_participation_rate", max_volume_participation_rate)
+    capped_notional = min(requested_notional, capital, owner_max_notional)
+    execution_symbol = funding_symbol if ":" in funding_symbol else price_symbol
+    cost_assumptions = _cost_assumptions(
+        venue=venue,
+        execution_symbol=execution_symbol,
+        cost_model_mode=cost_model_mode,
+        max_notional_usd=owner_max_notional,
+        fee_rate=fee_rate,
+        slippage_rate=slippage_rate,
+        max_signal_age_seconds=max_signal_age_seconds,
+        min_notional_usd=min_notional_usd,
+        min_quantity=min_quantity,
+        quantity_step=quantity_step,
+        tick_size=tick_size,
+        max_volume_participation_rate=max_volume_participation_rate,
+        allow_partial_fills=allow_partial_fills,
+    )
     resolved_run_id = run_id or _stable_run_id(
         strategy_family=strategy_family,
         price_symbol=price_symbol,
@@ -85,11 +133,21 @@ def run_paper_sim_loop(
         current_capital_usd=capital,
         requested_notional_usd=requested_notional,
         capped_notional_usd=capped_notional,
+        max_notional_usd=owner_max_notional,
         min_trades=min_trades,
         require_walk_forward=require_walk_forward,
         max_drawdown_limit=max_drawdown_limit,
         max_age_hours=max_age_hours,
         now=now.isoformat() if now is not None else None,
+        venue=venue,
+        cost_model_mode=cost_model_mode,
+        max_signal_age_seconds=max_signal_age_seconds,
+        min_notional_usd=min_notional_usd,
+        min_quantity=min_quantity,
+        quantity_step=quantity_step,
+        tick_size=tick_size,
+        max_volume_participation_rate=max_volume_participation_rate,
+        allow_partial_fills=allow_partial_fills,
     )
     execution_config_id = _stable_execution_config_id(
         strategy_family=strategy_family,
@@ -99,6 +157,7 @@ def run_paper_sim_loop(
         current_capital_usd=capital,
         requested_notional_usd=requested_notional,
         effective_notional_usd=capped_notional,
+        max_notional_usd=owner_max_notional,
         threshold_abs=threshold_abs,
         hold_bars=hold_bars,
         fee_rate=fee_rate,
@@ -112,6 +171,15 @@ def run_paper_sim_loop(
         max_drawdown_limit=max_drawdown_limit,
         max_age_hours=max_age_hours,
         now=now.isoformat() if now is not None else None,
+        venue=venue,
+        cost_model_mode=cost_model_mode,
+        max_signal_age_seconds=max_signal_age_seconds,
+        min_notional_usd=min_notional_usd,
+        min_quantity=min_quantity,
+        quantity_step=quantity_step,
+        tick_size=tick_size,
+        max_volume_participation_rate=max_volume_participation_rate,
+        allow_partial_fills=allow_partial_fills,
     )
 
     strategy_parameters = {
@@ -161,6 +229,7 @@ def run_paper_sim_loop(
                 symbol=price_symbol,
                 observed_at=observed_at,
                 failure_reasons=validation.blocked_reasons,
+                cost_assumptions=cost_assumptions,
             )
         ]
     else:
@@ -180,6 +249,7 @@ def run_paper_sim_loop(
                     symbol=price_symbol,
                     observed_at=observed_at,
                     failure_reasons=validation.blocked_reasons,
+                    cost_assumptions=cost_assumptions,
                 )
             ]
             trades = []
@@ -194,6 +264,7 @@ def run_paper_sim_loop(
                         symbol=price_symbol,
                         observed_at=observed_at,
                         failure_reasons=("no_signal", *validation.blocked_reasons),
+                        cost_assumptions=cost_assumptions,
                     )
                 ]
             elif not validation.approved:
@@ -205,6 +276,7 @@ def run_paper_sim_loop(
                         symbol=price_symbol,
                         observed_at=observed_at,
                         failure_reasons=validation.blocked_reasons,
+                        cost_assumptions=cost_assumptions,
                     )
                 ]
             else:
@@ -221,6 +293,7 @@ def run_paper_sim_loop(
                     hold_bars=hold_bars,
                     fee_rate=fee_rate,
                     slippage_rate=slippage_rate,
+                    cost_assumptions=cost_assumptions,
                 )
 
     PaperOutcomeLedger(db_path).replace_run_outcomes(resolved_run_id, outcomes)
@@ -236,8 +309,12 @@ def run_paper_sim_loop(
         price_symbol=price_symbol,
         funding_symbol=funding_symbol,
         timeframe=timeframe,
+        venue=venue,
+        cost_model_mode=cost_model_mode,
         current_capital_usd=capital,
         notional_usd=capped_notional,
+        max_notional_usd=owner_max_notional,
+        max_signal_age_seconds=max_signal_age_seconds,
         validation=validation,
         outcome_count=len(outcomes),
         outcomes=outcomes,
@@ -247,6 +324,7 @@ def run_paper_sim_loop(
             requested_notional=requested_notional,
             capped_notional=capped_notional,
             outcomes=outcomes,
+            cost_model_mode=cost_model_mode,
         ),
     )
 
@@ -261,6 +339,9 @@ class _PaperTrade:
     exit_price: float
     raw_return: float
     direction: str
+    entry_volume: float | None = None
+    exit_volume: float | None = None
+    next_funding_at: datetime | None = None
 
 
 def _closed_outcomes(
@@ -277,11 +358,19 @@ def _closed_outcomes(
     hold_bars: int,
     fee_rate: float,
     slippage_rate: float,
+    cost_assumptions: ExecutionCostAssumptions,
 ) -> list[PaperSimulationOutcome]:
     outcomes: list[PaperSimulationOutcome] = []
     for trade in trades:
-        entry_price = trade.entry_price
-        exit_price = trade.exit_price
+        estimate = estimate_execution_cost(
+            _execution_trade_spec(
+                trade,
+                symbol=funding_symbol if ":" in funding_symbol else symbol,
+                venue=cost_assumptions.venue,
+                notional_usd=notional_usd,
+            ),
+            cost_assumptions,
+        )
         candidate_id = _stable_candidate_id(
             strategy_family,
             trade,
@@ -294,10 +383,19 @@ def _closed_outcomes(
             fee_rate=fee_rate,
             slippage_rate=slippage_rate,
         )
-        gross_pnl = notional_usd * trade.raw_return
-        fees = notional_usd * float(fee_rate) * 2.0
-        slippage = notional_usd * float(slippage_rate) * 2.0
-        net_pnl = gross_pnl - fees - slippage
+        if estimate.status == "blocked":
+            outcomes.append(
+                _blocked_execution_outcome(
+                    run_id=run_id,
+                    candidate_id=candidate_id,
+                    strategy_family=strategy_family,
+                    symbol=symbol,
+                    observed_at=trade.exit_timestamp,
+                    signal_timestamp=trade.funding_timestamp,
+                    estimate=estimate,
+                )
+            )
+            continue
         outcomes.append(
             PaperSimulationOutcome(
                 outcome_id=f"{run_id}:{candidate_id}",
@@ -308,18 +406,102 @@ def _closed_outcomes(
                 observed_at=trade.exit_timestamp,
                 status="closed",
                 signal_timestamp=trade.funding_timestamp,
-                entry_price=entry_price,
-                exit_price=exit_price,
-                quantity=notional_usd / entry_price if entry_price > 0 else 0.0,
-                notional_usd=notional_usd,
-                gross_pnl_usd=float(gross_pnl),
-                fees_usd=float(fees),
-                slippage_usd=float(slippage),
-                net_pnl_usd=float(net_pnl),
-                max_drawdown_usd=max(0.0, -float(net_pnl)),
+                entry_price=estimate.entry_price,
+                exit_price=estimate.exit_price,
+                quantity=estimate.quantity,
+                notional_usd=estimate.effective_notional_usd,
+                gross_pnl_usd=estimate.gross_pnl_usd,
+                fees_usd=estimate.fees_usd,
+                slippage_usd=estimate.slippage_usd,
+                net_pnl_usd=estimate.net_pnl_usd,
+                max_drawdown_usd=estimate.max_drawdown_usd,
+                venue=estimate.venue,
+                cost_model_mode=estimate.cost_model_mode,
+                fee_model_id=estimate.fee_model_id,
+                maker_fee_rate=estimate.maker_fee_rate,
+                taker_fee_rate=estimate.taker_fee_rate,
+                applied_entry_fee_rate=estimate.applied_entry_fee_rate,
+                applied_exit_fee_rate=estimate.applied_exit_fee_rate,
+                entry_fee_usd=estimate.entry_fee_usd,
+                exit_fee_usd=estimate.exit_fee_usd,
+                slippage_bps=estimate.slippage_bps,
+                stale_signal_status=estimate.stale_signal_status,
+                signal_age_seconds=estimate.signal_age_seconds,
+                fill_status=estimate.fill_status,
+                fill_ratio=estimate.fill_ratio,
             )
         )
     return outcomes
+
+
+def _execution_trade_spec(
+    trade: _PaperTrade,
+    *,
+    symbol: str,
+    venue: str,
+    notional_usd: float,
+) -> ExecutionTradeSpec:
+    return ExecutionTradeSpec(
+        symbol=symbol,
+        venue=venue,
+        direction=trade.direction,
+        signal_timestamp=trade.funding_timestamp,
+        entry_timestamp=trade.entry_timestamp,
+        exit_timestamp=trade.exit_timestamp,
+        entry_reference_price=trade.entry_price,
+        exit_reference_price=trade.exit_price,
+        raw_return=trade.raw_return,
+        requested_notional_usd=notional_usd,
+        entry_volume=trade.entry_volume,
+        exit_volume=trade.exit_volume,
+        next_funding_at=trade.next_funding_at,
+    )
+
+
+def _blocked_execution_outcome(
+    *,
+    run_id: str,
+    candidate_id: str,
+    strategy_family: str,
+    symbol: str,
+    observed_at: datetime,
+    signal_timestamp: datetime,
+    estimate: ExecutionCostEstimate,
+) -> PaperSimulationOutcome:
+    return PaperSimulationOutcome(
+        outcome_id=f"{run_id}:{candidate_id}",
+        run_id=run_id,
+        candidate_id=candidate_id,
+        strategy_family=strategy_family,
+        symbol=symbol,
+        observed_at=observed_at,
+        status="blocked",
+        signal_timestamp=signal_timestamp,
+        entry_price=estimate.entry_price,
+        exit_price=estimate.exit_price,
+        quantity=estimate.quantity,
+        notional_usd=estimate.effective_notional_usd,
+        gross_pnl_usd=estimate.gross_pnl_usd,
+        fees_usd=estimate.fees_usd,
+        slippage_usd=estimate.slippage_usd,
+        net_pnl_usd=estimate.net_pnl_usd,
+        max_drawdown_usd=estimate.max_drawdown_usd,
+        failure_reasons=estimate.failure_reasons,
+        venue=estimate.venue,
+        cost_model_mode=estimate.cost_model_mode,
+        fee_model_id=estimate.fee_model_id,
+        maker_fee_rate=estimate.maker_fee_rate,
+        taker_fee_rate=estimate.taker_fee_rate,
+        applied_entry_fee_rate=estimate.applied_entry_fee_rate,
+        applied_exit_fee_rate=estimate.applied_exit_fee_rate,
+        entry_fee_usd=estimate.entry_fee_usd,
+        exit_fee_usd=estimate.exit_fee_usd,
+        slippage_bps=estimate.slippage_bps,
+        stale_signal_status=estimate.stale_signal_status,
+        signal_age_seconds=estimate.signal_age_seconds,
+        fill_status=estimate.fill_status,
+        fill_ratio=estimate.fill_ratio,
+    )
 
 
 def _blocked_validation_outcome(
@@ -330,6 +512,7 @@ def _blocked_validation_outcome(
     symbol: str,
     observed_at: datetime,
     failure_reasons: Iterable[str],
+    cost_assumptions: ExecutionCostAssumptions,
 ) -> PaperSimulationOutcome:
     reasons = _dedupe_strings(failure_reasons) or ["validation_not_approved"]
     return PaperSimulationOutcome(
@@ -351,6 +534,7 @@ def _blocked_validation_outcome(
         net_pnl_usd=0.0,
         max_drawdown_usd=0.0,
         failure_reasons=reasons,
+        **_blocked_outcome_execution_metadata(cost_assumptions),
     )
 
 
@@ -362,6 +546,7 @@ def _blocked_no_signal_outcome(
     symbol: str,
     observed_at: datetime,
     failure_reasons: Iterable[str],
+    cost_assumptions: ExecutionCostAssumptions,
 ) -> PaperSimulationOutcome:
     return PaperSimulationOutcome(
         outcome_id=f"{run_id}:blocked:no_signal:{execution_config_id}",
@@ -382,7 +567,31 @@ def _blocked_no_signal_outcome(
         net_pnl_usd=0.0,
         max_drawdown_usd=0.0,
         failure_reasons=_dedupe_strings(failure_reasons),
+        **_blocked_outcome_execution_metadata(cost_assumptions),
     )
+
+
+def _blocked_outcome_execution_metadata(
+    cost_assumptions: ExecutionCostAssumptions,
+) -> dict[str, object]:
+    fee_schedule = cost_assumptions.fee_schedule or default_fee_schedule(cost_assumptions.venue)
+    applied_fee_rate = float(fee_schedule.taker_fee_rate)
+    if cost_assumptions.cost_model_mode == "pessimistic":
+        applied_fee_rate = max(applied_fee_rate, float(cost_assumptions.fee_rate_floor))
+    return {
+        "venue": cost_assumptions.venue,
+        "cost_model_mode": cost_assumptions.cost_model_mode,
+        "fee_model_id": fee_schedule.fee_model_id,
+        "maker_fee_rate": fee_schedule.maker_fee_rate,
+        "taker_fee_rate": fee_schedule.taker_fee_rate,
+        "applied_entry_fee_rate": applied_fee_rate,
+        "applied_exit_fee_rate": applied_fee_rate,
+        "slippage_bps": cost_assumptions.fixed_slippage_bps,
+        "stale_signal_status": "not_evaluated",
+        "signal_age_seconds": None,
+        "fill_status": "blocked",
+        "fill_ratio": 0.0,
+    }
 
 
 def _paper_evidence_mapping(outcome: PaperSimulationOutcome) -> dict[str, object]:
@@ -393,6 +602,13 @@ def _paper_evidence_mapping(outcome: PaperSimulationOutcome) -> dict[str, object
         "status": outcome.status,
         "realized_net_pnl": outcome.net_pnl_usd,
         "max_drawdown_usd": outcome.max_drawdown_usd,
+        "notional_usd": outcome.notional_usd,
+        "gross_pnl_usd": outcome.gross_pnl_usd,
+        "fees_usd": outcome.fees_usd,
+        "slippage_usd": outcome.slippage_usd,
+        "cost_model_mode": outcome.cost_model_mode,
+        "stale_signal_status": outcome.stale_signal_status,
+        "fill_status": outcome.fill_status,
         "failure_reasons": list(outcome.failure_reasons),
     }
 
@@ -460,6 +676,65 @@ def _require_non_negative_finite(name: str, value: float) -> float:
     return numeric_value
 
 
+def _require_positive_finite(name: str, value: float) -> float:
+    numeric_value = _require_non_negative_finite(name, value)
+    if numeric_value <= 0:
+        raise ValueError(f"{name} must be finite and greater than 0")
+    return numeric_value
+
+
+def _validate_optional_non_negative(name: str, value: float | None) -> None:
+    if value is None:
+        return
+    _require_non_negative_finite(name, value)
+
+
+def _validate_optional_positive(name: str, value: float | None) -> None:
+    if value is None:
+        return
+    _require_positive_finite(name, value)
+
+
+def _cost_assumptions(
+    *,
+    venue: str,
+    execution_symbol: str,
+    cost_model_mode: Literal["base", "pessimistic"],
+    max_notional_usd: float,
+    fee_rate: float,
+    slippage_rate: float,
+    max_signal_age_seconds: float | None,
+    min_notional_usd: float | None,
+    min_quantity: float | None,
+    quantity_step: float | None,
+    tick_size: float | None,
+    max_volume_participation_rate: float,
+    allow_partial_fills: bool,
+) -> ExecutionCostAssumptions:
+    base_constraints = default_symbol_constraints(venue, execution_symbol)
+    constraint_payload = base_constraints.model_dump()
+    if min_notional_usd is not None:
+        constraint_payload["min_notional_usd"] = min_notional_usd
+    if min_quantity is not None:
+        constraint_payload["min_quantity"] = min_quantity
+    if quantity_step is not None:
+        constraint_payload["quantity_step"] = quantity_step
+    if tick_size is not None:
+        constraint_payload["tick_size"] = tick_size
+
+    return ExecutionCostAssumptions(
+        venue=venue,
+        cost_model_mode=cost_model_mode,
+        max_notional_usd=max_notional_usd,
+        fee_rate_floor=float(fee_rate),
+        fixed_slippage_bps=float(slippage_rate) * 10_000.0,
+        max_signal_age_seconds=max_signal_age_seconds,
+        max_volume_participation_rate=max_volume_participation_rate,
+        allow_partial_fills=allow_partial_fills,
+        symbol_constraints=SymbolMarketConstraints(**constraint_payload),
+    )
+
+
 def _dedupe_strings(values: Iterable[str]) -> list[str]:
     deduped: list[str] = []
     seen: set[str] = set()
@@ -477,11 +752,13 @@ def _report_notes(
     requested_notional: float,
     capped_notional: float,
     outcomes: list[PaperSimulationOutcome],
+    cost_model_mode: str,
 ) -> list[str]:
     notes = [
         "paper_simulation_only",
         "no_real_capital_touched",
         "no_live_order_routing",
+        f"cost_model_mode:{cost_model_mode}",
     ]
     if capped_notional < requested_notional:
         notes.append("notional_capped")
@@ -583,6 +860,9 @@ def _paper_trade_from_mapping(value: object) -> _PaperTrade:
         exit_price=_required_positive_finite_float(value, "exit_price"),
         raw_return=_required_finite_float(value, "raw_return"),
         direction=_required_string(value, "direction"),
+        entry_volume=_optional_non_negative_finite_float(value.get("entry_volume"), "entry_volume"),
+        exit_volume=_optional_non_negative_finite_float(value.get("exit_volume"), "exit_volume"),
+        next_funding_at=_parse_optional_timestamp(value.get("next_funding_at")),
     )
 
 
@@ -630,6 +910,12 @@ def _parse_timestamp(value: object) -> datetime:
     return timestamp
 
 
+def _parse_optional_timestamp(value: object) -> datetime | None:
+    if value is None:
+        return None
+    return _parse_timestamp(value)
+
+
 def _required_string(value: Mapping[str, object], key: str) -> str:
     raw = value.get(key)
     if not isinstance(raw, str) or not raw.strip():
@@ -651,4 +937,15 @@ def _required_positive_finite_float(value: Mapping[str, object], key: str) -> fl
     numeric_value = _required_finite_float(value, key)
     if numeric_value <= 0:
         raise ValueError(f"paper trade {key} must be finite and greater than 0")
+    return numeric_value
+
+
+def _optional_non_negative_finite_float(raw: object, key: str) -> float | None:
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, int | float):
+        raise ValueError(f"paper trade {key} must be finite and non-negative")
+    numeric_value = float(raw)
+    if not math.isfinite(numeric_value) or numeric_value < 0:
+        raise ValueError(f"paper trade {key} must be finite and non-negative")
     return numeric_value

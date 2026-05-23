@@ -279,9 +279,27 @@ uv run --extra dev crypto-alpha-agent paper-sim-loop \
   --timeframe 1h \
   --current-capital-usd 300 \
   --notional-usd 25 \
+  --venue binance \
+  --cost-model-mode pessimistic \
+  --max-signal-age-seconds 3600 \
+  --max-volume-participation-rate 0.05 \
   --memory var/memory/evidence.jsonl \
   --report-out var/reports/paper/funding-extremity.json
 ```
+
+`paper-sim-loop` now uses the Phase 10 execution-realism gate by default. Each
+closed or blocked paper outcome records `cost_model_mode`, venue, maker/taker
+fee assumptions, applied entry/exit fees, slippage bps, stale-signal status,
+fill status, notional, gross PnL, net PnL, and failure reasons. The default
+mode is `pessimistic`: it uses taker-style fee assumptions, fixed conservative
+slippage, symbol constraints such as min notional and quantity/tick steps, a
+stale-signal check, and low-liquidity missed/partial fill checks. A candidate
+that cannot trade inside `max_notional_usd <= 25` is blocked with reasons such
+as `min_notional_exceeds_max_notional`; stale signals use `stale_signal`,
+pre-cost-only edges erased by fees or slippage use
+`pre_cost_only_profitable`, unfilled low-liquidity simulations use
+`missed_fill_assumed`, and enabled partial fills are recorded with
+`partial_fill` evidence.
 
 ## Evidence Reports
 

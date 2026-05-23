@@ -876,6 +876,13 @@ def _paper_trade_metrics(trade: FundingPriceTrade) -> dict[str, object]:
         "exit_price": trade.exit_price,
         "raw_return": trade.raw_return,
         "direction": trade.direction,
+        "entry_volume": float(trade.entry_bar.volume),
+        "exit_volume": float(trade.exit_bar.volume),
+        "next_funding_at": (
+            trade.funding.next_funding_at.isoformat()
+            if trade.funding.next_funding_at is not None
+            else None
+        ),
     }
 
 

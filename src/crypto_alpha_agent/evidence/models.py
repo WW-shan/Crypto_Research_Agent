@@ -13,6 +13,7 @@ ExecutionMode = Literal["research_and_paper_only"]
 FiniteFloat = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 NonNegativeFiniteFloat = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
 PassRate = Annotated[float, Field(strict=True, ge=0, le=1, allow_inf_nan=False)]
+FillRatio = Annotated[float, Field(strict=True, ge=0, le=1, allow_inf_nan=False)]
 StringTuple = tuple[str, ...]
 _UNSAFE_DATA_SOURCE_TOKENS = ("privaterpc", "premiumrpc", "mempool", "mev")
 
@@ -222,10 +223,33 @@ class PaperSimulationOutcome(_StrictEvidenceModel):
     net_pnl_usd: FiniteFloat
     max_drawdown_usd: NonNegativeFiniteFloat
     failure_reasons: StringTuple = Field(default_factory=tuple)
+    venue: str = Field(default="unknown", min_length=1)
+    cost_model_mode: Literal["legacy", "base", "pessimistic"] = "legacy"
+    fee_model_id: str = Field(default="legacy_unspecified", min_length=1)
+    maker_fee_rate: NonNegativeFiniteFloat = 0.0
+    taker_fee_rate: NonNegativeFiniteFloat = 0.0
+    applied_entry_fee_rate: NonNegativeFiniteFloat = 0.0
+    applied_exit_fee_rate: NonNegativeFiniteFloat = 0.0
+    entry_fee_usd: NonNegativeFiniteFloat = 0.0
+    exit_fee_usd: NonNegativeFiniteFloat = 0.0
+    slippage_bps: NonNegativeFiniteFloat = 0.0
+    stale_signal_status: Literal["fresh", "stale", "not_evaluated"] = "not_evaluated"
+    signal_age_seconds: NonNegativeFiniteFloat | None = None
+    fill_status: Literal["full", "partial", "missed", "blocked", "not_evaluated"] = "not_evaluated"
+    fill_ratio: FillRatio = 0.0
     touched_real_capital: bool = False
     live_order_routing: bool = False
 
-    @field_validator("outcome_id", "run_id", "candidate_id", "strategy_family", "symbol", "status")
+    @field_validator(
+        "outcome_id",
+        "run_id",
+        "candidate_id",
+        "strategy_family",
+        "symbol",
+        "status",
+        "venue",
+        "fee_model_id",
+    )
     @classmethod
     def _normalize_identifier(cls, value: str) -> str:
         return _strip_nonblank(value)

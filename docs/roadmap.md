@@ -944,6 +944,32 @@ Completion standard:
 - A candidate that cannot trade within `max_notional_usd <= 25` is rejected
   for the current owner profile.
 
+Phase 10 completion record:
+
+- Added an offline execution-realism cost model with explicit
+  `cost_model_mode` values. `pessimistic` is the default paper gate and records
+  venue, maker/taker fee assumptions, applied fee rates, slippage bps,
+  stale-signal status, and fill status for each paper outcome.
+- Added symbol-market constraints for public-venue assumptions, including
+  minimum notional, minimum quantity, quantity step, and tick size. Paper
+  outcomes now block low-capital infeasibility with reasons such as
+  `min_notional_exceeds_max_notional` instead of silently treating every capped
+  notional as tradable.
+- Added stale-signal, missed-fill, and `partial_fill` assumptions to paper
+  simulation. `stale_signal` blocks delayed signal-to-entry paths, and
+  `missed_fill_assumed` blocks low-volume paths when pessimistic volume
+  participation cannot fill the effective notional.
+- Added `pre_cost_only_profitable` rejection so trades with positive gross PnL
+  but non-positive net PnL after fees and slippage cannot be recorded as closed
+  paper outcomes.
+- Added funding timestamp alignment checks so malformed or lookahead-prone
+  `next_funding_at` values block validation with `funding_alignment_invalid`.
+- Paper evidence packages now summarize total notional, gross PnL, fees,
+  slippage, stale-signal counts, missed fills, partial fills, and cost model
+  modes.
+- Phase 10 did not add live trading, wallet-key access, exchange order routing,
+  MEV, premium RPC, speed-edge execution, or real-capital authority.
+
 ### Phase 11: AI Researcher Upgrade
 
 Goal: Make the AI useful for proposing experiments from accumulated evidence,
