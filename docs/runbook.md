@@ -319,7 +319,25 @@ The normal operator baseline is:
      --out var/reports/weekly/2026-W21.md
    ```
 
-2. Build the Phase 5 expansion preparation report:
+2. Build the profit governance report when a weekly or monthly owner review is
+   due:
+
+   ```bash
+   uv run --extra dev crypto-alpha-agent governance-report \
+     --db var/research.sqlite \
+     --memory var/memory/evidence.jsonl \
+     --out var/reports/monthly/2026-05-governance.md \
+     --current-capital-usd 300
+   ```
+
+   The report is read-only and paper-only. It includes a weekly family
+   scoreboard, profit review, stopped-family ledger, paper-only portfolio
+   selector, and monthly owner review. Use it to decide whether each family
+   should keep collecting, stop, redesign validator, add data, or move near an
+   owner decision review. A governance report never allocates real capital and
+   never enables live order routing.
+
+3. Build the Phase 5 expansion preparation report:
 
    ```bash
    uv run --extra dev crypto-alpha-agent expansion-prep-report \
@@ -333,7 +351,7 @@ The normal operator baseline is:
    candidates, surfaces stable blocked reasons, and keeps live execution
    blocked.
 
-3. Run bounded planning for the next experiments:
+4. Run bounded planning for the next experiments:
 
    ```bash
    uv run --extra dev crypto-alpha-agent plan-experiments \
@@ -345,7 +363,7 @@ The normal operator baseline is:
      --offline-only
    ```
 
-4. Generate the weekly AI research memo:
+5. Generate the weekly AI research memo:
 
    ```bash
    uv run --extra dev crypto-alpha-agent ai-research-memo \
@@ -360,7 +378,7 @@ The normal operator baseline is:
    create paper outcomes, bypass registered validators, route orders, or use
    live execution.
 
-5. If a strategy has at least 30 paper observations and clean walk-forward
+6. If a strategy has at least 30 paper observations and clean walk-forward
    evidence, build a review artifact without enabling live execution:
 
    ```bash
@@ -373,7 +391,7 @@ The normal operator baseline is:
      --evidence-package-out var/rollout/funding-extremity/evidence-package.json
    ```
 
-4. Preserve the evidence package and readiness artifact for tiny-live review.
+7. Preserve the evidence package and readiness artifact for tiny-live review.
    A passing review artifact is not permission to trade.
 
 ## Data Ingestion Workflow
@@ -573,6 +591,30 @@ What to inspect:
 - Whether near-paper eligibility or near-tiny-live review is true.
 - Whether artifact retention paths contain the daily Markdown/JSON captures,
   weekly reports, memory, SQLite, and rollout artifacts needed for audit.
+
+## Profit Governance Workflow
+
+```bash
+uv run --extra dev crypto-alpha-agent governance-report \
+  --db var/research.sqlite \
+  --memory var/memory/evidence.jsonl \
+  --out var/reports/monthly/2026-05-governance.md \
+  --current-capital-usd 300
+```
+
+What to inspect:
+
+- Weekly family scoreboard metrics: sample size, net PnL, cost-adjusted
+  expectancy, max drawdown, hit rate, failure rate, source-health quality,
+  stale-signal rate, and walk-forward stability.
+- Profit review decisions: whether each family is improving, worth more data,
+  should stop, or is near an owner decision review.
+- Stopped-family ledger entries with reason, date, evidence refs, and revival
+  conditions.
+- Paper-only portfolio selector rankings for future paper observations. These
+  rankings allocate no real capital.
+- Monthly owner review comparison against doing nothing, fees, opportunity
+  cost, and the owner's capital constraints.
 
 ## AI Research Memo Workflow
 

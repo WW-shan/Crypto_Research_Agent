@@ -65,6 +65,9 @@ Implemented:
     pointers, failed-run markers, and source-health network-route recording.
   - `plan-experiments` for bounded operator-facing experiment planning.
   - `evidence-report` daily and weekly Markdown builders.
+  - `governance-report` profit governance Markdown builder with family
+    scoreboards, stopped-family ledger, paper-only portfolio selector, and
+    monthly owner review.
   - `rollout-review` CLI that preserves the strategy-specific evidence package.
   - External operator-controlled scheduling handoff documented in the runbook.
 
@@ -258,8 +261,8 @@ Completion standard:
 The first complete safe research-loop milestone is complete. The repository now
 has a tested local loop for public-data ingestion, scanner/anomaly/hypothesis
 generation, deterministic validation, paper simulation, evidence memory,
-daily/weekly reports, bounded experiment planning, degradation stop rules, and
-rollout-review artifacts with live execution disabled.
+daily/weekly/governance reports, bounded experiment planning, degradation stop
+rules, and rollout-review artifacts with live execution disabled.
 
 The next practical work is operational evidence collection over time and
 incremental strategy-library expansion where it improves slow-to-medium
@@ -310,9 +313,9 @@ is treated as operational.
 The execution order after the immediate LLM work is intentionally not numeric:
 Phase 6 is merged into the Phase 1 entry gate, Immediate Phase 5 prepares the
 expansion path, then Phase 8, Phase 9, Phase 10, Phase 11, and Phase 12 build
-the evidence factory, then Phase 7 runs the historical bootstrap and future
-out-of-sample evidence campaign, and Phase 13 becomes the ongoing report and
-artifact review loop.
+the evidence factory. Phase 12 is now complete, so Phase 7 runs the historical
+bootstrap and future out-of-sample evidence campaign, and Phase 13 becomes the
+ongoing report and artifact review loop.
 
 #### Immediate Phase 0: Worktree And Configuration Closeout
 
@@ -1035,7 +1038,7 @@ Phase 11 completion record:
   MEV, private RPC, premium RPC, speed-edge execution, real-capital authority,
   or any ability for AI to create paper outcomes directly.
 
-### Phase 12: Profit Evidence Review And Portfolio Governance
+### Phase 12: Profit Evidence Review And Portfolio Governance - Complete
 
 Goal: Turn accumulated evidence into explicit profit/no-profit decisions.
 
@@ -1063,6 +1066,23 @@ Deliverables:
   observations without allocating real capital.
 - A monthly owner review report that compares the best paper strategy against
   doing nothing, fees, opportunity cost, and the owner's capital constraints.
+
+Delivered:
+
+- Added deterministic `governance-report` CLI output with
+  `uses_real_capital=false` and `live_order_routing=false`.
+- Added a weekly family scoreboard with sample size, net PnL,
+  cost-adjusted expectancy, max drawdown, hit rate, failure rate,
+  source-health quality, stale-signal rate, walk-forward stability, action,
+  and evidence reason codes.
+- Added a profit review artifact that states whether each family is improving,
+  worth more data, should stop, or is near an owner decision review.
+- Added a memory-derived stopped-family ledger with stopped date, reason
+  codes, evidence refs, and revival conditions.
+- Added a paper-only portfolio selector that ranks future paper observations
+  without allocating real capital.
+- Added a monthly owner review comparison against doing nothing, fees,
+  slippage, opportunity cost, and the owner's capital constraint.
 
 Completion standard:
 

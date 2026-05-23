@@ -318,6 +318,24 @@ uv run --extra dev crypto-alpha-agent evidence-report --weekly \
   --out var/reports/weekly/2026-W21.md
 ```
 
+Generate the profit governance artifact when the owner needs an explicit
+profit/no-profit review:
+
+```bash
+uv run --extra dev crypto-alpha-agent governance-report \
+  --db var/research.sqlite \
+  --memory var/memory/evidence.jsonl \
+  --out var/reports/monthly/2026-05-governance.md \
+  --current-capital-usd 300
+```
+
+The report is deterministic and paper-only. It contains the weekly family
+scoreboard, profit review, stopped-family ledger, paper-only portfolio
+selector, and monthly owner review. It compares the best paper strategy against
+doing nothing, fees, slippage, opportunity cost, and the owner's few hundred USD
+capital constraint while keeping `uses_real_capital=false` and
+`live_order_routing=false`.
+
 ## Experiment Planning
 
 Plan the next bounded research experiments without live capital:

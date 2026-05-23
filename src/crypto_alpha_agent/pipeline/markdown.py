@@ -3,6 +3,7 @@ from __future__ import annotations
 from crypto_alpha_agent.pipeline.ai_research_memo import AIResearchMemo
 from crypto_alpha_agent.pipeline.expansion_preparation import ExpansionPreparationReport
 from crypto_alpha_agent.pipeline.evidence_reports import DailyEvidenceReport, WeeklyEvidenceReport
+from crypto_alpha_agent.pipeline.governance_reports import ProfitGovernanceReport
 from crypto_alpha_agent.pipeline.research_loop import ResearchLoopReport
 
 
@@ -333,6 +334,148 @@ def render_weekly_evidence_report_markdown(report: WeeklyEvidenceReport) -> str:
     else:
         lines.append("| none | 0/30 |")
     lines.extend(_llm_summary_lines(report))
+    return "\n".join(lines) + "\n"
+
+
+def render_profit_governance_report_markdown(report: ProfitGovernanceReport) -> str:
+    lines = [
+        "# Profit Governance Report",
+        "",
+        "## Safety",
+        f"Real capital: {_bool_text(report.uses_real_capital)}",
+        f"Live order routing: {_bool_text(report.live_order_routing)}",
+        f"Current capital USD: {report.current_capital_usd:g}",
+        "",
+        "## Weekly Family Scoreboard",
+        "| Strategy | Action | Sample | Net PnL USD | Expectancy USD | Max drawdown USD | Hit rate | Failure rate | Source health | Stale rate | Walk-forward | Reasons |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+    ]
+    if report.family_scoreboard:
+        for row in report.family_scoreboard:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _escape_table_cell(row.strategy_family),
+                        _escape_table_cell(row.governance_action),
+                        f"{row.sample_size:g}",
+                        f"{row.net_pnl_usd:g}",
+                        f"{row.cost_adjusted_expectancy_usd:g}",
+                        f"{row.max_drawdown_usd:g}",
+                        f"{row.hit_rate:g}",
+                        f"{row.failure_rate:g}",
+                        f"{row.source_health_quality:g}",
+                        f"{row.stale_signal_rate:g}",
+                        f"{row.walk_forward_stability:g}",
+                        _escape_table_cell(", ".join(row.reason_codes) or "none"),
+                    ]
+                )
+                + " |"
+            )
+    else:
+        lines.append("| none | add_data | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | no_family_evidence |")
+
+    lines.extend(
+        [
+            "",
+            "## Profit Review",
+            "| Strategy | Improving | Worth more data | Stop | Owner decision point | Action | Evidence refs |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    if report.profit_reviews:
+        for review in report.profit_reviews:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _escape_table_cell(review.strategy_family),
+                        _bool_text(review.is_improving),
+                        _bool_text(review.worth_more_data),
+                        _bool_text(review.should_stop),
+                        _bool_text(review.near_owner_decision_point),
+                        _escape_table_cell(review.governance_action),
+                        _escape_table_cell(", ".join(review.evidence_refs) or "none"),
+                    ]
+                )
+                + " |"
+            )
+    else:
+        lines.append("| none | false | false | false | false | add_data | none |")
+
+    lines.extend(
+        [
+            "",
+            "## Stopped-Family Ledger",
+            "| Strategy | Stopped at | Reasons | Evidence refs | Revival conditions |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+    )
+    if report.stopped_family_ledger:
+        for row in report.stopped_family_ledger:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _escape_table_cell(row.strategy_family),
+                        _escape_table_cell(row.stopped_at),
+                        _escape_table_cell(", ".join(row.reason_codes) or "none"),
+                        _escape_table_cell(", ".join(row.evidence_refs) or "none"),
+                        _escape_table_cell(", ".join(row.revival_conditions) or "none"),
+                    ]
+                )
+                + " |"
+            )
+    else:
+        lines.append("| none | n/a | none | none | none |")
+
+    lines.extend(
+        [
+            "",
+            "## Paper-Only Portfolio Selector",
+            "| Rank | Strategy | Paper weight | Max paper notional USD | Score | Reasons | Exclusions |",
+            "| ---: | --- | ---: | ---: | ---: | --- | --- |",
+        ]
+    )
+    if report.paper_only_portfolio:
+        for item in report.paper_only_portfolio:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        f"{item.rank:g}",
+                        _escape_table_cell(item.strategy_family),
+                        f"{item.paper_weight:g}",
+                        f"{item.max_paper_notional_usd:g}",
+                        f"{item.score:g}",
+                        _escape_table_cell(", ".join(item.selection_reason_codes) or "none"),
+                        _escape_table_cell(", ".join(item.exclusion_reason_codes) or "none"),
+                    ]
+                )
+                + " |"
+            )
+    else:
+        lines.append("| 0 | none | 0 | 0 | 0 | no_paper_candidate | none |")
+
+    owner = report.monthly_owner_review
+    lines.extend(
+        [
+            "",
+            "## Monthly Owner Review",
+            f"Best paper strategy: {_escape_text(owner.best_paper_strategy or 'none')}",
+            f"Best strategy net PnL USD: {owner.best_strategy_net_pnl_usd:g}",
+            f"Doing nothing PnL USD: {owner.do_nothing_pnl_usd:g}",
+            f"Fees USD: {owner.total_fees_usd:g}",
+            f"Slippage USD: {owner.total_slippage_usd:g}",
+            f"Opportunity cost USD: {owner.opportunity_cost_usd:g}",
+            f"Owner capital constraint USD: {owner.owner_capital_constraint_usd:g}",
+            f"Decision: {_escape_text(owner.decision)}",
+            f"Reason codes: {_escape_text(', '.join(owner.reason_codes) or 'none')}",
+            "",
+            "Comparison notes:",
+        ]
+    )
+    lines.extend(_bullet_lines(owner.comparison_notes))
     return "\n".join(lines) + "\n"
 
 

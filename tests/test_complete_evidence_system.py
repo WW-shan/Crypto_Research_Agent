@@ -232,6 +232,7 @@ def test_complete_safe_autonomous_evidence_system(tmp_path, monkeypatch):
     memory_path = tmp_path / "memory.jsonl"
     daily_path = tmp_path / "daily.md"
     weekly_path = tmp_path / "weekly.md"
+    governance_path = tmp_path / "governance.md"
     rollout_path = tmp_path / "rollout.json"
     evidence_package_path = tmp_path / "rollout-evidence-package.json"
 
@@ -375,6 +376,20 @@ def test_complete_safe_autonomous_evidence_system(tmp_path, monkeypatch):
         ]
     )
 
+    governance_result = _invoke_json(
+        [
+            "governance-report",
+            "--db",
+            str(db_path),
+            "--memory",
+            str(memory_path),
+            "--out",
+            str(governance_path),
+            "--current-capital-usd",
+            "300",
+        ]
+    )
+
     rollout_result = _invoke_json(
         [
             "rollout-review",
@@ -394,6 +409,7 @@ def test_complete_safe_autonomous_evidence_system(tmp_path, monkeypatch):
         research_result,
         planner_result,
         report_result,
+        governance_result,
         rollout_result,
         optional_failure_result,
     ]:
@@ -527,6 +543,28 @@ def test_complete_safe_autonomous_evidence_system(tmp_path, monkeypatch):
     ]:
         assert section in weekly_text
     _assert_text_artifact_is_safe(weekly_text)
+
+    assert governance_result["command"] == "governance-report"
+    assert governance_result["governance_report_out"] == str(governance_path)
+    governance_report = governance_result["report"]
+    assert governance_report["family_scoreboard"]
+    assert governance_report["profit_reviews"]
+    assert "monthly_owner_review" in governance_report
+    assert governance_report["uses_real_capital"] is False
+    assert governance_report["live_order_routing"] is False
+    assert governance_path.exists()
+    governance_text = governance_path.read_text(encoding="utf-8")
+    assert governance_text.startswith("# Profit Governance Report")
+    for section in [
+        "## Safety",
+        "## Weekly Family Scoreboard",
+        "## Profit Review",
+        "## Stopped-Family Ledger",
+        "## Paper-Only Portfolio Selector",
+        "## Monthly Owner Review",
+    ]:
+        assert section in governance_text
+    _assert_text_artifact_is_safe(governance_text)
 
     assert rollout_result["decision"] == "blocked"
     assert "insufficient_sample_size" in rollout_result["blocked_reasons"]

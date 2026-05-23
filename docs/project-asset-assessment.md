@@ -48,6 +48,9 @@ and strengthened first.
   evidence before any rollout review.
 - `evidence-run`: daily evidence pipeline foundation.
 - `evidence-report`: daily and weekly reporting foundation.
+- `governance-report` and `pipeline/governance_reports.py`: deterministic
+  profit governance, stopped-family ledger, paper-only portfolio selector, and
+  monthly owner review foundation.
 - `validation/funding.py`, `validation/funding_price.py`,
   `validation/walk_forward.py`: first strategy family and validator templates.
 - `strategy/funding_oi_crowding.py`: executable funding validator that uses

@@ -54,6 +54,7 @@ def test_operator_workflow_contract_is_documented_across_docs() -> None:
             "ingest",
             "paper-sim-loop",
             "evidence-report",
+            "governance-report",
             "ai-research-memo",
             "expansion-prep-report",
             "replay",
@@ -84,6 +85,11 @@ def test_operator_workflow_contract_is_documented_across_docs() -> None:
             "strategy-template proposal",
             "selected validator",
             "required data fields",
+            "weekly family scoreboard",
+            "profit review",
+            "stopped-family ledger",
+            "paper-only portfolio selector",
+            "monthly owner review",
         ],
     )
 
@@ -265,6 +271,17 @@ def test_documented_representative_cli_examples_parse(tmp_path) -> None:
             str(tmp_path / "memory.jsonl"),
             "--out",
             str(tmp_path / "weekly.md"),
+        ],
+        [
+            "governance-report",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--memory",
+            str(tmp_path / "memory.jsonl"),
+            "--out",
+            str(tmp_path / "governance.md"),
+            "--current-capital-usd",
+            "300",
         ],
         [
             "expansion-prep-report",
