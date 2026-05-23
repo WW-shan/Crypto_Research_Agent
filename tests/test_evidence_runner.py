@@ -5,8 +5,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from crypto_alpha_agent.cli import main
-from crypto_alpha_agent.data.models import FundingRateRecord, MarketCandle
+from crypto_alpha_agent.data.models import FundingRateRecord, MarketCandle, OpenInterestRecord
+from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
+from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
 from crypto_alpha_agent.memory.store import MemoryStore
 from crypto_alpha_agent.pipeline.evidence_runner import run_daily_evidence_pipeline
 
@@ -17,6 +19,7 @@ class DeterministicCcxtCollector:
         self.funding_hours = funding_hours
         self.ohlcv_calls = []
         self.funding_calls = []
+        self.open_interest_calls = []
 
     def fetch_ohlcv(self, symbol, timeframe, since=None, limit=None, params=None):
         self.ohlcv_calls.append((symbol, timeframe, since, limit, params))
@@ -59,6 +62,22 @@ class DeterministicCcxtCollector:
             for hour in self.funding_hours
         ]
 
+    def fetch_open_interest_history(self, symbol, timeframe, since=None, limit=None, params=None):
+        self.open_interest_calls.append((symbol, timeframe, since, limit, params))
+        start = datetime(2026, 5, 17, tzinfo=UTC)
+        return [
+            OpenInterestRecord(
+                source="ccxt",
+                venue="binance",
+                symbol=symbol,
+                timestamp=start + timedelta(hours=hour),
+                timeframe=timeframe,
+                open_interest=1000.0 + (100.0 * index),
+                open_interest_value=100000.0 + (10000.0 * index),
+            )
+            for index, hour in enumerate(self.funding_hours)
+        ]
+
 
 class RaisingOptionalClient:
     def search_pairs(self, query):
@@ -66,6 +85,12 @@ class RaisingOptionalClient:
 
     def yield_pools(self, *, min_tvl_usd):
         raise RuntimeError("optional source unavailable")
+
+
+class OpenInterestFailingCollector(DeterministicCcxtCollector):
+    def fetch_open_interest_history(self, symbol, timeframe, since=None, limit=None, params=None):
+        self.open_interest_calls.append((symbol, timeframe, since, limit, params))
+        raise NotImplementedError("open interest unavailable")
 
 
 def test_evidence_run_lock_blocks_second_holder_and_removes_file(tmp_path):
@@ -142,6 +167,156 @@ def test_evidence_runner_executes_complete_research_milestone(tmp_path):
     assert report_out.exists()
     assert report.uses_real_capital is False
     assert report.live_order_routing is False
+
+
+def test_evidence_runner_ingests_open_interest_for_oi_strategy_family(tmp_path):
+    collector = DeterministicCcxtCollector()
+
+    report = run_daily_evidence_pipeline(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        report_out=tmp_path / "daily.md",
+        allow_network=True,
+        symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        limit=200,
+        run_id="oi-strategy-fixture",
+        strategy_families=["funding_open_interest_crowding"],
+        ccxt_collector=collector,
+    )
+
+    assert collector.open_interest_calls == [("BTC/USDT:USDT", "1h", None, 200, None)]
+    assert [step.name for step in report.steps][:3] == [
+        "ingest_ccxt_ohlcv",
+        "ingest_ccxt_funding",
+        "ingest_ccxt_open_interest",
+    ]
+    assert any(
+        item.source == "ccxt"
+        and item.feed == "open_interest_history"
+        and item.status == "success"
+        and item.records_written > 0
+        for item in report.source_health.items
+    )
+    assert report.records_written > collector.bar_count + len(collector.funding_hours)
+    assert report.validation_evidence_written > 0
+
+
+def test_evidence_runner_isolates_open_interest_ingestion_failure_to_oi_families(tmp_path):
+    collector = OpenInterestFailingCollector()
+
+    report = run_daily_evidence_pipeline(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        report_out=tmp_path / "daily.md",
+        allow_network=True,
+        symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        limit=200,
+        run_id="oi-failure-fixture",
+        strategy_families=[
+            "funding_extremity_price_confirmation",
+            "funding_open_interest_crowding",
+        ],
+        ccxt_collector=collector,
+    )
+
+    assert collector.open_interest_calls == [("BTC/USDT:USDT", "1h", None, 200, None)]
+    assert ("open_interest_source_failed" in report.decision_reason_codes)
+    assert any(
+        step.name == "ingest_ccxt_open_interest"
+        and step.status == "failed"
+        and step.reason_code == "open_interest_source_failed"
+        for step in report.steps
+    )
+    assert any(
+        item.source == "ccxt"
+        and item.feed == "open_interest_history"
+        and item.status == "failure"
+        and item.reason_code == "open_interest_source_failed"
+        for item in report.source_health.items
+    )
+    assert report.paper_outcomes_written > 0
+    assert report.validation_evidence_written > 0
+
+
+def test_evidence_runner_blocks_oi_family_after_open_interest_ingestion_failure_even_with_cached_oi(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    cached_open_interest = DeterministicCcxtCollector().fetch_open_interest_history(
+        "BTC/USDT:USDT",
+        "1h",
+        limit=200,
+    )
+    ResearchDataStore(db_path).upsert_records(
+        [item.to_source_record() for item in cached_open_interest]
+    )
+
+    report = run_daily_evidence_pipeline(
+        db_path=db_path,
+        memory_path=tmp_path / "memory.jsonl",
+        report_out=tmp_path / "daily.md",
+        allow_network=True,
+        symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        limit=200,
+        run_id="oi-cached-failure-fixture",
+        strategy_families=["funding_open_interest_crowding"],
+        ccxt_collector=OpenInterestFailingCollector(),
+    )
+
+    evidence = ValidationEvidenceLedger(db_path).load_evidence(
+        run_id="oi-cached-failure-fixture"
+    )
+
+    assert "open_interest_source_failed" in report.decision_reason_codes
+    assert report.paper_outcomes_written == 0
+    assert len(evidence) == 1
+    assert evidence[0].strategy_family == "funding_open_interest_crowding"
+    assert evidence[0].approved is False
+    assert evidence[0].blocked_reasons == ("open_interest_source_failed",)
+
+
+def test_evidence_runner_clears_stale_oi_paper_outcomes_after_open_interest_failure(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "memory.jsonl"
+    run_id = "oi-rerun-failure-fixture"
+
+    first = run_daily_evidence_pipeline(
+        db_path=db_path,
+        memory_path=memory_path,
+        report_out=tmp_path / "first.md",
+        allow_network=True,
+        symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        limit=200,
+        run_id=run_id,
+        strategy_families=["funding_open_interest_crowding"],
+        ccxt_collector=DeterministicCcxtCollector(),
+    )
+    assert first.paper_outcomes_written > 0
+    assert PaperOutcomeLedger(db_path).load_outcomes(run_id=run_id)
+
+    second = run_daily_evidence_pipeline(
+        db_path=db_path,
+        memory_path=memory_path,
+        report_out=tmp_path / "second.md",
+        allow_network=True,
+        symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        limit=200,
+        run_id=run_id,
+        strategy_families=["funding_open_interest_crowding"],
+        ccxt_collector=OpenInterestFailingCollector(),
+    )
+
+    assert "open_interest_source_failed" in second.decision_reason_codes
+    assert second.paper_outcomes_written == 0
+    assert PaperOutcomeLedger(db_path).load_outcomes(run_id=run_id) == []
 
 
 def test_evidence_runner_blocks_network_sources_without_allow_network(tmp_path):

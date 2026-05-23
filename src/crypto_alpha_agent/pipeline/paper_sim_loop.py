@@ -66,6 +66,9 @@ def run_paper_sim_loop(
     walk_forward_test_size: int = 8,
     walk_forward_min_splits: int = 3,
     walk_forward_min_pass_rate: float = 1.0,
+    max_drawdown_limit: float = 0.20,
+    now: datetime | None = None,
+    max_age_hours: float | None = None,
 ) -> PaperSimLoopReport:
     capital = _require_non_negative_finite("current_capital_usd", current_capital_usd)
     requested_notional = _require_non_negative_finite("notional_usd", notional_usd)
@@ -84,6 +87,9 @@ def run_paper_sim_loop(
         capped_notional_usd=capped_notional,
         min_trades=min_trades,
         require_walk_forward=require_walk_forward,
+        max_drawdown_limit=max_drawdown_limit,
+        max_age_hours=max_age_hours,
+        now=now.isoformat() if now is not None else None,
     )
     execution_config_id = _stable_execution_config_id(
         strategy_family=strategy_family,
@@ -103,6 +109,9 @@ def run_paper_sim_loop(
         walk_forward_test_size=walk_forward_test_size,
         walk_forward_min_splits=walk_forward_min_splits,
         walk_forward_min_pass_rate=walk_forward_min_pass_rate,
+        max_drawdown_limit=max_drawdown_limit,
+        max_age_hours=max_age_hours,
+        now=now.isoformat() if now is not None else None,
     )
 
     strategy_parameters = {
@@ -119,7 +128,12 @@ def run_paper_sim_loop(
         "walk_forward_test_size": walk_forward_test_size,
         "walk_forward_min_splits": walk_forward_min_splits,
         "walk_forward_min_pass_rate": walk_forward_min_pass_rate,
+        "max_drawdown_limit": max_drawdown_limit,
     }
+    if now is not None:
+        strategy_parameters["now"] = now
+    if max_age_hours is not None:
+        strategy_parameters["max_age_hours"] = max_age_hours
     records = _load_strategy_records(db_path)
     paper_report = default_strategy_registry(current_capital_usd=capital).run_paper(
         StrategyPaperRequest(

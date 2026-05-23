@@ -31,8 +31,15 @@ is tracked in [`docs/roadmap.md`](docs/roadmap.md).
 In short: this project optimizes for low-capital crypto alpha research, not
 speed arbitrage. The default workflow is real data ingestion, validation,
 reflection, reporting, and paper evidence before any live trading discussion.
-The first strategy family has an implemented funding-plus-price validator and a
-hard walk-forward gate. The scheduling boundary is operator-controlled:
+The registry now has three executable paper-simulated families
+(`funding_extremity_price_confirmation`,
+`funding_mean_reversion_after_extreme`, and
+`funding_open_interest_crowding`) plus three research-only watchlists
+(`defi_yield_regime_watchlist`, `dex_liquidity_volume_watchlist`, and
+`volatility_compression_expansion_watchlist`). Missing data or unqualified
+sources stay blocked with reason codes such as `blocked_by_missing_data` or
+`blocked_by_unqualified_source` rather than being promoted to live-capital
+paths. The scheduling boundary is operator-controlled:
 `evidence-run` is a safe one-shot command that an external cron or systemd timer
 may call, while the agent itself does not become an always-on daemon.
 
@@ -246,6 +253,18 @@ The paper simulation loop needs both OHLCV price bars and funding history. These
 commands collect public research data, produce local reports, and persist paper
 evidence memory records; they do not touch wallets, live order routing, or real
 capital.
+
+For the open-interest-confirmed funding validator, collect CCXT
+open-interest-history before running paper simulation:
+
+```bash
+uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source ccxt --allow-network --ccxt-feed open-interest-history --symbol BTC/USDT:USDT --timeframe 1h --limit 100
+uv run --extra dev crypto-alpha-agent paper-sim-loop --db var/research.sqlite --strategy-family funding_open_interest_crowding --price-symbol BTC/USDT --funding-symbol BTC/USDT:USDT --timeframe 1h --memory var/memory.jsonl
+```
+
+`volatility_compression_expansion_watchlist` is research-only. It can appear in
+validation and reports, but the registry returns
+`paper_simulation_not_supported` if it is routed to paper simulation.
 
 ## Paper Simulation
 

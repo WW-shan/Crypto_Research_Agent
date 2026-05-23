@@ -94,6 +94,9 @@ def run_stored_research_loop(
     fee_rate: float = 0.001,
     slippage_rate: float = 0.0005,
     min_trades: int = 3,
+    max_drawdown_limit: float = 0.20,
+    validation_now: datetime | None = None,
+    validation_max_age_hours: float | None = None,
     include_paper_evidence: bool = False,
     data_quality_now: datetime | None = None,
     memory_path: str | Path | None = None,
@@ -145,6 +148,9 @@ def run_stored_research_loop(
             fee_rate=fee_rate,
             slippage_rate=slippage_rate,
             min_trades=min_trades,
+            max_drawdown_limit=max_drawdown_limit,
+            validation_now=validation_now,
+            validation_max_age_hours=validation_max_age_hours,
         )
         if include_validation
         else []
@@ -216,6 +222,9 @@ def _validation_summaries(
     fee_rate: float,
     slippage_rate: float,
     min_trades: int,
+    max_drawdown_limit: float,
+    validation_now: datetime | None,
+    validation_max_age_hours: float | None,
 ) -> list[ValidationSummary]:
     normalized_strategy_family = _nonblank_or_none(strategy_family)
     if normalized_strategy_family is not None:
@@ -267,7 +276,12 @@ def _validation_summaries(
                 "fee_rate": fee_rate,
                 "slippage_rate": slippage_rate,
                 "min_trades": min_trades,
+                "max_drawdown_limit": max_drawdown_limit,
             }
+            if validation_now is not None:
+                parameters["now"] = validation_now
+            if validation_max_age_hours is not None:
+                parameters["max_age_hours"] = validation_max_age_hours
 
         try:
             report = registry.validate(

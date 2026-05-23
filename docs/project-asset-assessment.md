@@ -45,6 +45,12 @@ and strengthened first.
 - `evidence-report`: daily and weekly reporting foundation.
 - `validation/funding.py`, `validation/funding_price.py`,
   `validation/walk_forward.py`: first strategy family and validator templates.
+- `strategy/funding_oi_crowding.py`: executable funding validator that uses
+  typed open-interest history as a crowding confirmation before paper
+  simulation.
+- `strategy/volatility_regime_watchlist.py`: research-only volatility
+  compression and expansion watchlist; it must remain paper-disabled unless a
+  future phase adds a separate executable validator.
 - `evidence/ledger.py`, `evidence/validation_ledger.py`, `evidence/paper.py`:
   evidence accumulation, validation records, and paper evidence packages.
 - `memory/store.py` and `pipeline/memory.py`: durable memory for failed
@@ -66,8 +72,8 @@ or better evidence contracts before they become central.
   constrained.
 - `pipeline/experiment_planner.py`: upgrade after it reads stronger evidence,
   source health, stopped-family memory, and real LLM proposals.
-- `strategy/funding_mean_reversion.py`: test with richer funding,
-  open-interest, cost, and out-of-sample evidence.
+- `strategy/funding_mean_reversion.py`: continue testing with richer funding,
+  open-interest context, cost, and out-of-sample evidence.
 - `data/dexscreener.py`: prioritize storing local snapshots over time before
   treating it as historical evidence.
 - `data/defillama.py`: expand from existing yield snapshots and Phase 8

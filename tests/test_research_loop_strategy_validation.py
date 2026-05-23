@@ -10,6 +10,7 @@ from crypto_alpha_agent.data.models import (
     DefiYieldSnapshot,
     FundingRateRecord,
     MarketCandle,
+    OpenInterestRecord,
     SourceRecord,
 )
 from crypto_alpha_agent.data.store import ResearchDataStore
@@ -53,6 +54,17 @@ def _funding_record(funding: FundingRateRecord) -> SourceRecord:
     )
 
 
+def _open_interest(hour: int, value: float) -> OpenInterestRecord:
+    return OpenInterestRecord(
+        source="ccxt",
+        venue="binance",
+        symbol="BTC/USDT:USDT",
+        timestamp=datetime(2026, 5, 17, hour, tzinfo=UTC),
+        timeframe="1h",
+        open_interest=value,
+    )
+
+
 def _defi_yield_record(snapshot: DefiYieldSnapshot) -> SourceRecord:
     safe_symbol = snapshot.symbol.replace("/", "")
     return SourceRecord(
@@ -81,6 +93,19 @@ def _write_funding_price_fixture(db_path, *, include_funding: bool = True) -> No
                 for item in [_funding(1, 0.0008), _funding(4, -0.0009), _funding(6, 0.0007)]
             ]
         )
+
+
+def _write_funding_oi_fixture(db_path) -> None:
+    store = ResearchDataStore(db_path)
+    candles = [_candle(i, close) for i, close in enumerate([100, 110, 106, 104, 103])]
+    store.upsert_records([item.to_source_record() for item in candles])
+    store.upsert_records([_funding_record(_funding(1, 0.0009))])
+    store.upsert_records(
+        [
+            item.to_source_record()
+            for item in [_open_interest(0, 1000.0), _open_interest(1, 1120.0)]
+        ]
+    )
 
 
 def test_research_loop_cli_uses_registered_funding_price_strategy(capsys, tmp_path):
@@ -153,6 +178,34 @@ def test_research_loop_strategy_validation_blocks_missing_funding(capsys, tmp_pa
     assert "insufficient_funding_samples" in summary["blocked_reasons"]
 
 
+def test_research_loop_uses_registered_funding_open_interest_strategy(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    _write_funding_oi_fixture(db_path)
+
+    report = run_stored_research_loop(
+        db_path,
+        current_capital_usd=300.0,
+        run_id="funding-oi-research-loop",
+        include_validation=True,
+        strategy_family="funding_open_interest_crowding",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        validation_timeframe="1h",
+        hold_bars=2,
+        min_trades=1,
+    )
+
+    summary = report.validation_summaries[0]
+    assert summary.strategy_family == "funding_open_interest_crowding"
+    assert summary.validator_name == "funding_oi_crowding"
+    assert summary.asset == "BTC/USDT"
+    assert summary.funding_symbol == "BTC/USDT:USDT"
+    assert summary.timeframe == "1h"
+    assert summary.trade_count == 1
+    assert summary.walk_forward_split_count == 0
+    assert "insufficient_walk_forward_splits" in summary.blocked_reasons
+
+
 def test_research_loop_strategy_markdown_names_family_and_blockers(capsys, tmp_path):
     db_path = tmp_path / "research.sqlite"
     report_path = tmp_path / "report.md"
@@ -203,6 +256,27 @@ def test_direct_research_loop_strategy_validation_missing_params_blocks(tmp_path
     assert "None" not in {
         value for value in dumped.values() if isinstance(value, str)
     }
+
+
+def test_direct_research_loop_strategy_validation_forwards_stale_source_gate(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    _write_funding_price_fixture(db_path)
+
+    report = run_stored_research_loop(
+        db_path,
+        include_validation=True,
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        validation_timeframe="1h",
+        min_trades=1,
+        validation_now=datetime(2026, 5, 24, tzinfo=UTC),
+        validation_max_age_hours=24.0,
+    )
+
+    summary = report.validation_summaries[0]
+    assert summary.status == "blocked"
+    assert "stale_source" in summary.blocked_reasons
 
 
 def test_direct_research_loop_defi_yield_strategy_validation_needs_no_funding_params(

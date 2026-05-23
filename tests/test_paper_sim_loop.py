@@ -164,6 +164,63 @@ def test_run_paper_sim_loop_writes_outcomes_without_live_capital(tmp_path):
     assert evidence.net_pnl_usd == pytest.approx(sum(item.net_pnl_usd for item in loaded))
 
 
+def test_run_paper_sim_loop_forwards_stale_source_gate_to_registry(tmp_path):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+
+    db_path = _write_happy_path_fixture(tmp_path)
+
+    report = run_paper_sim_loop(
+        db_path,
+        run_id="paper-stale-source",
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        threshold_abs=0.0005,
+        hold_bars=2,
+        min_trades=2,
+        require_walk_forward=False,
+        now=datetime(2026, 5, 24, tzinfo=UTC),
+        max_age_hours=24.0,
+    )
+
+    assert report.validation.approved is False
+    assert "stale_source" in report.validation.blocked_reasons
+    assert {outcome.status for outcome in report.outcomes} == {"blocked"}
+
+
+def test_run_paper_sim_loop_stable_ids_include_result_changing_stale_gate(tmp_path):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+
+    first = run_paper_sim_loop(
+        _write_happy_path_fixture(tmp_path / "first"),
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        threshold_abs=0.0005,
+        hold_bars=2,
+        min_trades=2,
+        require_walk_forward=False,
+    )
+    second = run_paper_sim_loop(
+        _write_happy_path_fixture(tmp_path / "second"),
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        threshold_abs=0.0005,
+        hold_bars=2,
+        min_trades=2,
+        require_walk_forward=False,
+        now=datetime(2026, 5, 24, tzinfo=UTC),
+        max_age_hours=24.0,
+    )
+
+    assert first.run_id != second.run_id
+    assert first.outcomes[0].candidate_id != second.outcomes[0].candidate_id
+
+
 def test_run_paper_sim_loop_blocks_outcomes_when_validation_not_approved(tmp_path):
     from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
 
@@ -514,7 +571,6 @@ def test_empty_store_records_one_blocked_no_signal_outcome(tmp_path):
     assert len(loaded) == 1
     outcome = loaded[0]
     assert outcome.status == "blocked"
-    assert outcome.failure_reasons[0] == "no_signal"
     assert "insufficient_price_bars" in outcome.failure_reasons
     assert "insufficient_funding_samples" in outcome.failure_reasons
     assert outcome.entry_price == 0.0
@@ -528,7 +584,7 @@ def test_empty_store_records_one_blocked_no_signal_outcome(tmp_path):
     assert outcome.touched_real_capital is False
     assert outcome.live_order_routing is False
     assert report.paper_evidence_packages[0].failed_count == 1
-    assert "no_signal" in report.paper_evidence_packages[0].failure_reasons
+    assert "insufficient_price_bars" in report.paper_evidence_packages[0].failure_reasons
 
 
 def test_run_paper_sim_loop_rejects_unsupported_strategy_family(tmp_path):

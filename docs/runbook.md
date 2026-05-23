@@ -10,6 +10,28 @@ No wallet keys are required or read by the current workflow.
 `evidence-run` is a one-shot command. External operator-controlled scheduling
 may call it without making the agent an always-on daemon.
 
+## Strategy Library
+
+The current registry has three executable paper-simulated families:
+
+- `funding_extremity_price_confirmation`
+- `funding_mean_reversion_after_extreme`
+- `funding_open_interest_crowding`
+
+It also has three research-only watchlists:
+
+- `defi_yield_regime_watchlist`
+- `dex_liquidity_volume_watchlist`
+- `volatility_compression_expansion_watchlist`
+
+`funding_open_interest_crowding` requires OHLCV candles, funding-rate history,
+and open-interest history. `volatility_compression_expansion_watchlist` is
+watchlist-only; if it is sent to paper simulation, the registry fails closed
+with `paper_simulation_not_supported`. Missing data and unqualified sources
+remain documented as `blocked_by_missing_data` or
+`blocked_by_unqualified_source` evidence instead of being promoted to live
+capital.
+
 ## Setup
 
 1. Use Python 3.12.
@@ -459,6 +481,32 @@ uv run --extra dev crypto-alpha-agent paper-sim-loop \
 
 Blocked or failed paper outcomes are evidence. Do not delete them because they
 feed degradation detection and future experiment planning.
+
+For `funding_open_interest_crowding`, also ingest open-interest history before
+validation or paper simulation:
+
+```bash
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source ccxt \
+  --allow-network \
+  --ccxt-feed open-interest-history \
+  --exchange binance \
+  --symbol BTC/USDT:USDT \
+  --timeframe 1h \
+  --limit 200
+
+uv run --extra dev crypto-alpha-agent paper-sim-loop \
+  --db var/research.sqlite \
+  --strategy-family funding_open_interest_crowding \
+  --price-symbol BTC/USDT \
+  --funding-symbol BTC/USDT:USDT \
+  --timeframe 1h \
+  --current-capital-usd 300 \
+  --notional-usd 25 \
+  --memory var/memory/evidence.jsonl \
+  --report-out var/reports/paper/funding-oi-crowding.json
+```
 
 ## Daily Report Workflow
 

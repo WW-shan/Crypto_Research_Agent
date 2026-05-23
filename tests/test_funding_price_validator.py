@@ -22,6 +22,12 @@ def _candle(hour: int, close: float) -> MarketCandle:
     )
 
 
+def _candle_at(day: int, hour: int, close: float) -> MarketCandle:
+    return _candle(hour, close).model_copy(
+        update={"timestamp": datetime(2026, 5, day, hour, tzinfo=UTC)}
+    )
+
+
 def _funding(hour: int, rate: float) -> FundingRateRecord:
     return FundingRateRecord(
         source="ccxt",
@@ -29,6 +35,12 @@ def _funding(hour: int, rate: float) -> FundingRateRecord:
         symbol="BTC/USDT:USDT",
         timestamp=datetime(2026, 5, 17, hour, tzinfo=UTC),
         funding_rate=rate,
+    )
+
+
+def _funding_at(day: int, hour: int, rate: float) -> FundingRateRecord:
+    return _funding(hour, rate).model_copy(
+        update={"timestamp": datetime(2026, 5, day, hour, tzinfo=UTC)}
     )
 
 
@@ -256,3 +268,120 @@ def test_funding_price_validator_blocks_missing_price_or_funding_data(tmp_path):
     assert result.trade_count == 0
     assert "insufficient_price_bars" in result.blocked_reasons
     assert "insufficient_funding_samples" in result.blocked_reasons
+
+
+def test_funding_price_validator_fails_closed_on_unsupported_symbols(tmp_path):
+    db_path = _write_happy_path_fixture(tmp_path)
+
+    result = validate_funding_price_confirmation(
+        db_path,
+        price_symbol="DOGE/USDT",
+        funding_symbol="DOGE/USDT:USDT",
+        timeframe="1h",
+        supported_price_symbols=("BTC/USDT",),
+        supported_funding_symbols=("BTC/USDT:USDT",),
+        require_walk_forward=False,
+    )
+
+    assert result.approved is False
+    assert "unsupported_symbol" in result.blocked_reasons
+
+
+def test_funding_price_validator_fails_closed_on_stale_source_data(tmp_path):
+    db_path = _write_happy_path_fixture(tmp_path)
+
+    result = validate_funding_price_confirmation(
+        db_path,
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        threshold_abs=0.0005,
+        hold_bars=2,
+        fee_rate=0.001,
+        slippage_rate=0.0005,
+        min_trades=2,
+        require_walk_forward=False,
+        now=datetime(2026, 5, 24, tzinfo=UTC),
+        max_age_hours=24.0,
+    )
+
+    assert result.approved is False
+    assert "stale_source" in result.blocked_reasons
+
+
+def test_funding_price_validator_fails_closed_when_funding_feed_is_stale_but_prices_are_fresh(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    store = ResearchDataStore(db_path)
+    store.upsert_records(
+        [
+            _candle_at(24, index, close).to_source_record()
+            for index, close in enumerate([100, 103, 101, 99, 102])
+        ]
+    )
+    store.upsert_records([_funding_record(_funding_at(17, 1, 0.0008))])
+
+    result = validate_funding_price_confirmation(
+        db_path,
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        threshold_abs=0.0005,
+        hold_bars=2,
+        min_trades=0,
+        require_walk_forward=False,
+        now=datetime(2026, 5, 24, 4, tzinfo=UTC),
+        max_age_hours=24.0,
+    )
+
+    assert result.approved is False
+    assert "stale_source" in result.blocked_reasons
+
+
+def test_funding_price_validator_fails_closed_when_price_feed_is_stale_but_funding_is_fresh(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    store = ResearchDataStore(db_path)
+    store.upsert_records(
+        [
+            _candle_at(17, index, close).to_source_record()
+            for index, close in enumerate([100, 103, 101, 99, 102])
+        ]
+    )
+    store.upsert_records([_funding_record(_funding_at(24, 1, 0.0008))])
+
+    result = validate_funding_price_confirmation(
+        db_path,
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        threshold_abs=0.0005,
+        hold_bars=2,
+        min_trades=0,
+        require_walk_forward=False,
+        now=datetime(2026, 5, 24, 4, tzinfo=UTC),
+        max_age_hours=24.0,
+    )
+
+    assert result.approved is False
+    assert "stale_source" in result.blocked_reasons
+
+
+def test_funding_price_validator_fails_closed_on_excessive_drawdown(tmp_path):
+    db_path = _write_happy_path_fixture(tmp_path)
+
+    result = validate_funding_price_confirmation(
+        db_path,
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        threshold_abs=0.0005,
+        hold_bars=2,
+        fee_rate=0.001,
+        slippage_rate=0.0005,
+        min_trades=2,
+        require_walk_forward=False,
+        max_drawdown_limit=0.001,
+    )
+
+    assert result.approved is False
+    assert result.max_drawdown > 0.001
+    assert "excessive_drawdown" in result.blocked_reasons

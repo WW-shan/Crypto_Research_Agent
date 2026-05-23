@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from crypto_alpha_agent.data.ccxt_collector import CcxtResearchCollector
 from crypto_alpha_agent.data.ingestion import (
     ingest_ccxt_funding_rate_history,
+    ingest_ccxt_open_interest_history,
     ingest_ccxt_ohlcv,
     ingest_defillama_yield_pools,
     ingest_dexscreener_pairs,
@@ -19,7 +20,8 @@ from crypto_alpha_agent.data.onchain_ingestion import (
     ingest_dune_query_result,
     ingest_thegraph_query_result,
 )
-from crypto_alpha_agent.evidence.models import PaperSimulationOutcome
+from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
+from crypto_alpha_agent.evidence.models import PaperSimulationOutcome, ValidationEvidence
 from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
 from crypto_alpha_agent.pipeline.evidence_reports import (
     load_stopped_strategy_families,
@@ -37,7 +39,11 @@ from crypto_alpha_agent.pipeline.memory import (
     replace_validation_evidence_memory,
 )
 from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
-from crypto_alpha_agent.pipeline.research_loop import ResearchLoopReport, run_stored_research_loop
+from crypto_alpha_agent.pipeline.research_loop import (
+    ResearchLoopReport,
+    ValidationSummary,
+    run_stored_research_loop,
+)
 from crypto_alpha_agent.strategy import default_strategy_registry
 
 DEFAULT_STRATEGY_FAMILIES = ("funding_extremity_price_confirmation",)
@@ -204,6 +210,8 @@ def run_daily_evidence_pipeline(
         decision_reason_codes.append("stopped_family_override_used")
     records_written = 0
 
+    registry = default_strategy_registry(current_capital_usd=current_capital_usd)
+    open_interest_failed_families: set[str] = set()
     collector = ccxt_collector or build_ccxt_collector(ccxt_exchange)
     try:
         ohlcv_summary = ingest_ccxt_ohlcv(
@@ -294,6 +302,63 @@ def run_daily_evidence_pipeline(
             stopped_family_override_used=stopped_family_override_used,
         )
 
+    needs_open_interest = any(
+        _requires_record_type(registry, family, "open_interest")
+        for family in active_family_list
+    )
+    if needs_open_interest:
+        try:
+            open_interest_summary = ingest_ccxt_open_interest_history(
+                db,
+                symbol=funding_symbol,
+                timeframe=timeframe,
+                limit=limit,
+                allow_network=True,
+                exchange_id=ccxt_exchange,
+                collector=collector,
+            )
+        except Exception as exc:
+            decision_reason_codes.append("open_interest_source_failed")
+            open_interest_failed_families = {
+                family
+                for family in active_family_list
+                if _requires_record_type(registry, family, "open_interest")
+            }
+            steps.append(
+                EvidenceRunnerStep(
+                    name="ingest_ccxt_open_interest",
+                    status="failed",
+                    reason_code="open_interest_source_failed",
+                )
+            )
+            source_health.append(
+                SourceHealthSummary(
+                    source="ccxt",
+                    feed="open_interest_history",
+                    status="failure",
+                    network_route=network_route,
+                    reason_code="open_interest_source_failed",
+                    failure=_redact_failure(str(exc), secrets=failure_secrets),
+                )
+            )
+        else:
+            records_written += open_interest_summary.records_written
+            steps.append(
+                EvidenceRunnerStep(
+                    name="ingest_ccxt_open_interest",
+                    status="completed",
+                    records_written=open_interest_summary.records_written,
+                )
+            )
+            source_health.append(
+                _source_health_from_summary(
+                    open_interest_summary.source,
+                    open_interest_summary.feed,
+                    open_interest_summary.records_written,
+                    network_route=network_route,
+                )
+            )
+
     optional_records = _run_optional_sources(
         db_path=db,
         allow_network=True,
@@ -334,10 +399,54 @@ def run_daily_evidence_pipeline(
     validation_memory_written = 0
     paper_packages = []
     paper_outcomes: list[PaperSimulationOutcome] = []
-    registry = default_strategy_registry(current_capital_usd=current_capital_usd)
 
     for family in active_family_list:
         family_run_id = _family_run_id(resolved_run_id, family, family_list)
+        if family in open_interest_failed_families:
+            spec = registry.get(family)
+            blocked_summary = ValidationSummary(
+                strategy_family=family,
+                asset=symbol,
+                funding_symbol=funding_symbol,
+                timeframe=timeframe,
+                status="blocked",
+                trade_count=0,
+                validator_name=spec.validator_name,
+                blocked_reasons=["open_interest_source_failed"],
+            )
+            validation_summaries.append(blocked_summary)
+            evidence_item = ValidationEvidence(
+                run_id=family_run_id,
+                strategy_family=family,
+                symbol=symbol,
+                timeframe=timeframe,
+                validator_name=spec.validator_name,
+                trade_count=0,
+                net_return=0.0,
+                gross_expectancy=0.0,
+                fee_adjusted_expectancy=0.0,
+                slippage_adjusted_expectancy=0.0,
+                max_drawdown=0.0,
+                walk_forward_split_count=0,
+                walk_forward_pass_rate=0.0,
+                approved=False,
+                blocked_reasons=["open_interest_source_failed"],
+            )
+            ValidationEvidenceLedger(db).replace_run_evidence(
+                family_run_id,
+                [evidence_item],
+            )
+            PaperOutcomeLedger(db).replace_run_outcomes(family_run_id, [])
+            blocked_evidence = [evidence_item]
+            validation_evidence_written += len(blocked_evidence)
+            validation_memory_written += len(
+                replace_validation_evidence_memory(
+                    blocked_evidence,
+                    memory,
+                    run_id=family_run_id,
+                )
+            )
+            continue
         validation_kwargs = _validation_parameter_kwargs(
             registry=registry,
             strategy_family=family,
@@ -960,6 +1069,12 @@ def _supports_paper_simulation(registry: Any, strategy_family: str) -> bool:
     if strategy_family not in registry.list_families():
         return False
     return bool(registry.get(strategy_family).supports_paper_simulation)
+
+
+def _requires_record_type(registry: Any, strategy_family: str, record_type: str) -> bool:
+    if strategy_family not in registry.list_families():
+        return False
+    return record_type in set(registry.get(strategy_family).required_record_types)
 
 
 def _family_run_id(run_id: str, strategy_family: str, strategy_families: list[str]) -> str:

@@ -135,6 +135,78 @@ def test_planner_uses_validation_memory_to_avoid_repeating_blocked_parameters(tm
     assert all(proposal.parameter_changes != {"threshold_abs": 0.0005, "hold_bars": 1} for proposal in result.proposals)
 
 
+def test_planner_does_not_emit_evidence_less_open_interest_family_baseline(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "memory.jsonl"
+    blocked_parameters = {"threshold_abs": 0.0005, "hold_bars": 1}
+    ValidationEvidenceLedger(db_path).upsert_evidence(
+        [
+            _validation_evidence(
+                strategy_family="funding_extremity_price_confirmation",
+                blocked_reasons=["insufficient_walk_forward_splits"],
+                walk_forward_split_count=0,
+            )
+        ]
+    )
+    seed_validation_memory(
+        memory_path,
+        run_id="daily-blocked-baseline",
+        strategy_family="funding_extremity_price_confirmation",
+        blocked_reasons=["non_positive_net_return"],
+        parameters=blocked_parameters,
+    )
+
+    result = plan_next_experiments(
+        db_path=db_path,
+        memory_path=memory_path,
+        max_proposals=3,
+        current_capital_usd=300.0,
+    )
+
+    assert result.accepted is True
+    assert result.proposals
+    assert all(
+        proposal.strategy_family != "funding_open_interest_crowding"
+        for proposal in result.proposals
+    )
+    assert all(proposal.parameter_changes != blocked_parameters for proposal in result.proposals)
+
+
+def test_planner_rejects_open_interest_family_without_family_specific_evidence(tmp_path):
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        strategy_family="funding_open_interest_crowding",
+        max_proposals=2,
+        current_capital_usd=300.0,
+    )
+
+    assert result.accepted is False
+    assert result.proposals == []
+    assert "no_safe_registered_proposals" in result.rejected_reason_codes
+
+
+def test_planner_rejects_llm_open_interest_family_without_family_specific_evidence(tmp_path):
+    def llm(_task):
+        return json.dumps(
+            {
+                "strategy_family": "funding_open_interest_crowding",
+                "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
+            }
+        )
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        llm=llm,
+        current_capital_usd=300.0,
+    )
+
+    assert result.accepted is False
+    assert result.proposals == []
+    assert "no_safe_registered_proposals" in result.rejected_reason_codes
+
+
 def test_planner_rejects_unsafe_llm_experiment(tmp_path):
     def unsafe_llm(_task):
         return '{"strategy_family":"mev_sandwich","live_order_routing":true,"parameter_changes":{}}'

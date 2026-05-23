@@ -866,6 +866,44 @@ Completion standard:
 - Weekly reports rank families by evidence strength and stop degraded families
   by default.
 
+Phase 9 completion record: implemented by the 2026-05-24 Phase 9 round.
+
+Completed behavior:
+
+- Added `funding_open_interest_crowding` as the third executable
+  paper-simulated strategy family. It maps to typed OHLCV, funding-rate, and
+  open-interest records; filters funding extremes by open-interest expansion;
+  reports expectancy, net return, max drawdown, cost-adjusted metrics,
+  walk-forward metrics, and stable blocked reasons; and fails closed on missing
+  open interest, stale source data, unsupported symbols, insufficient trades,
+  negative expectancy, non-positive returns, and excessive drawdown.
+- Tightened the shared funding-plus-price validator path so executable funding
+  families can fail closed on unsupported symbols, stale source data, and
+  excessive drawdown.
+- Added `volatility_compression_expansion_watchlist` as the third
+  watchlist-only family. It uses typed market candles to flag
+  compression/expansion research candidates and explicitly does not support
+  paper simulation.
+- Updated the strategy registry to expose at least three executable families:
+  `funding_extremity_price_confirmation`,
+  `funding_mean_reversion_after_extreme`, and
+  `funding_open_interest_crowding`.
+- Updated the strategy registry to expose at least three research-only
+  watchlists: `defi_yield_regime_watchlist`,
+  `dex_liquidity_volume_watchlist`, and
+  `volatility_compression_expansion_watchlist`.
+- Updated `evidence-run` to ingest CCXT open-interest history only when an
+  active registered strategy family requires the `open_interest` record type.
+- Updated expansion-preparation reports so
+  `funding_open_interest_crowding` and
+  `volatility_compression_expansion_watchlist` are registered candidates, while
+  cross-exchange dispersion, basis/carry, and broader DeFi fundamentals remain
+  blocked by `blocked_by_missing_data` or `blocked_by_unqualified_source`
+  until qualified multi-source data, cost assumptions, and canary evidence
+  exist.
+- Phase 9 did not add live trading, wallet-key access, exchange order routing,
+  MEV, premium RPC, speed-edge execution, or real-capital authority.
+
 ### Phase 10: Execution Realism And Cost Model
 
 Goal: Make validation and paper simulation conservative enough that a paper

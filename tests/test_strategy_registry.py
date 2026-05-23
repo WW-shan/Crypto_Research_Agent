@@ -261,6 +261,45 @@ def test_default_registry_keeps_known_strategy_family_below_min_capital():
     assert "funding_extremity_price_confirmation" in registry.list_families()
 
 
+def test_default_registry_declares_expanded_executable_and_watchlist_library():
+    registry = default_strategy_registry(current_capital_usd=300.0)
+    specs = [registry.get(family) for family in registry.list_families()]
+
+    paper_families = {
+        spec.strategy_family
+        for spec in specs
+        if spec.supports_paper_simulation and spec.execution_role == "research_and_paper"
+    }
+    watchlist_families = {
+        spec.strategy_family
+        for spec in specs
+        if not spec.supports_paper_simulation and spec.execution_role == "research_only"
+    }
+
+    assert {
+        "funding_extremity_price_confirmation",
+        "funding_mean_reversion_after_extreme",
+        "funding_open_interest_crowding",
+    }.issubset(paper_families)
+    assert len(paper_families) >= 3
+    assert {
+        "defi_yield_regime_watchlist",
+        "dex_liquidity_volume_watchlist",
+        "volatility_compression_expansion_watchlist",
+    }.issubset(watchlist_families)
+    assert len(watchlist_families) >= 3
+
+
+def test_default_registry_declares_open_interest_requirements_for_crowding_family():
+    registry = default_strategy_registry(current_capital_usd=300.0)
+    spec = registry.get("funding_open_interest_crowding")
+
+    assert spec.required_record_types == ("market_candle", "funding_rate", "open_interest")
+    assert spec.supports_paper_simulation is True
+    assert spec.execution_role == "research_and_paper"
+    assert spec.validator_name == "funding_oi_crowding"
+
+
 def test_default_registry_malformed_funding_parameters_fail_closed():
     registry = default_strategy_registry(current_capital_usd=300.0)
 
@@ -280,6 +319,88 @@ def test_default_registry_malformed_funding_parameters_fail_closed():
 
     assert report.approved is False
     assert report.blocked_reasons == ("strategy_validation_error",)
+
+
+def test_default_registry_forwards_funding_data_integrity_gates():
+    registry = default_strategy_registry(current_capital_usd=300.0)
+
+    stale = registry.validate(
+        StrategyValidationRequest(
+            strategy_family="funding_extremity_price_confirmation",
+            records=_valid_funding_records(),
+            current_capital_usd=300.0,
+            parameters={
+                "price_symbol": "BTC/USDT",
+                "funding_symbol": "BTC/USDT:USDT",
+                "timeframe": "1h",
+                "threshold_abs": 0.0005,
+                "hold_bars": 1,
+                "min_trades": 1,
+                "require_walk_forward": False,
+                "now": "2026-05-24T00:00:00+00:00",
+                "max_age_hours": 24.0,
+            },
+        )
+    )
+    drawdown_records = tuple(
+        record.model_dump(mode="json")
+        for record in [
+            _source_record(_candle(0, 100.0)),
+            _source_record(_candle(1, 110.0)),
+            _source_record(_candle(2, 121.0)),
+            _source_record(_funding(1, 0.0009)),
+        ]
+    )
+    drawdown = registry.validate(
+        StrategyValidationRequest(
+            strategy_family="funding_extremity_price_confirmation",
+            records=drawdown_records,
+            current_capital_usd=300.0,
+            parameters={
+                "price_symbol": "BTC/USDT",
+                "funding_symbol": "BTC/USDT:USDT",
+                "timeframe": "1h",
+                "threshold_abs": 0.0005,
+                "hold_bars": 1,
+                "min_trades": 1,
+                "require_walk_forward": False,
+                "max_drawdown_limit": 0.001,
+            },
+        )
+    )
+
+    assert stale.approved is False
+    assert "stale_source" in stale.blocked_reasons
+    assert drawdown.approved is False
+    assert "excessive_drawdown" in drawdown.blocked_reasons
+
+
+def test_default_registry_paper_gate_blocks_when_validation_is_blocked():
+    registry = default_strategy_registry(current_capital_usd=300.0)
+
+    report = registry.run_paper(
+        StrategyPaperRequest(
+            strategy_family="funding_extremity_price_confirmation",
+            records=_valid_funding_records(),
+            current_capital_usd=300.0,
+            notional_usd=10.0,
+            parameters={
+                "price_symbol": "BTC/USDT",
+                "funding_symbol": "BTC/USDT:USDT",
+                "timeframe": "1h",
+                "threshold_abs": 0.0005,
+                "hold_bars": 1,
+                "min_trades": 1,
+                "require_walk_forward": False,
+                "now": "2026-05-24T00:00:00+00:00",
+                "max_age_hours": 24.0,
+            },
+        )
+    )
+
+    assert report.status == "blocked"
+    assert "stale_source" in report.blocked_reasons
+    assert report.metrics["paper_trades"] == []
 
 
 @pytest.mark.parametrize(

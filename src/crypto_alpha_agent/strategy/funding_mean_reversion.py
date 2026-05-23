@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from pathlib import Path
 
 from crypto_alpha_agent.strategy.models import StrategyValidationReport
@@ -31,6 +32,11 @@ def validate_funding_mean_reversion(
     walk_forward_test_size: int = 8,
     walk_forward_min_splits: int = 3,
     walk_forward_min_pass_rate: float = 1.0,
+    max_drawdown_limit: float = 0.20,
+    now: datetime | None = None,
+    max_age_hours: float | None = None,
+    supported_price_symbols: Sequence[str] | None = ("BTC/USDT",),
+    supported_funding_symbols: Sequence[str] | None = ("BTC/USDT:USDT",),
 ) -> StrategyValidationReport:
     result = validate_funding_price_confirmation(
         db_path,
@@ -47,6 +53,11 @@ def validate_funding_mean_reversion(
         walk_forward_test_size=walk_forward_test_size,
         walk_forward_min_splits=walk_forward_min_splits,
         walk_forward_min_pass_rate=walk_forward_min_pass_rate,
+        max_drawdown_limit=max_drawdown_limit,
+        now=now,
+        max_age_hours=max_age_hours,
+        supported_price_symbols=supported_price_symbols,
+        supported_funding_symbols=supported_funding_symbols,
     )
     return funding_mean_reversion_report_from_result(
         result,
@@ -71,6 +82,11 @@ def validate_funding_mean_reversion_from_records(
     walk_forward_test_size: int = 8,
     walk_forward_min_splits: int = 3,
     walk_forward_min_pass_rate: float = 1.0,
+    max_drawdown_limit: float = 0.20,
+    now: datetime | None = None,
+    max_age_hours: float | None = None,
+    supported_price_symbols: Sequence[str] | None = ("BTC/USDT",),
+    supported_funding_symbols: Sequence[str] | None = ("BTC/USDT:USDT",),
 ) -> StrategyValidationReport:
     result = validate_funding_price_confirmation_from_records(
         records,
@@ -87,6 +103,11 @@ def validate_funding_mean_reversion_from_records(
         walk_forward_test_size=walk_forward_test_size,
         walk_forward_min_splits=walk_forward_min_splits,
         walk_forward_min_pass_rate=walk_forward_min_pass_rate,
+        max_drawdown_limit=max_drawdown_limit,
+        now=now,
+        max_age_hours=max_age_hours,
+        supported_price_symbols=supported_price_symbols,
+        supported_funding_symbols=supported_funding_symbols,
     )
     return funding_mean_reversion_report_from_result(
         result,

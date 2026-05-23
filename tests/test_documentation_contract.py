@@ -69,6 +69,10 @@ def test_operator_workflow_contract_is_documented_across_docs() -> None:
             "few hundred USD",
             "30 paper observations",
             "evidence package preservation",
+            "funding_open_interest_crowding",
+            "volatility_compression_expansion_watchlist",
+            "blocked_by_missing_data",
+            "blocked_by_unqualified_source",
         ],
     )
 
@@ -310,6 +314,8 @@ def test_readme_documents_safe_operator_examples() -> None:
             "source-probe",
             "open-interest-history",
             "paper-sim-loop",
+            "funding_open_interest_crowding",
+            "volatility_compression_expansion_watchlist",
             "evidence-report --daily",
             "evidence-report --weekly",
             "plan-experiments",
@@ -343,6 +349,8 @@ def test_runbook_documents_complete_operator_handoff() -> None:
             "dune",
             "the graph",
             "paper simulation workflow",
+            "funding_open_interest_crowding",
+            "volatility_compression_expansion_watchlist",
             "daily report workflow",
             "weekly report workflow",
             "replay/recovery workflow",

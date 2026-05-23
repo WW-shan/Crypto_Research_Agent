@@ -190,16 +190,22 @@ _STRATEGY_CATALOG = [
         "priority": 1,
         "strategy_family": "funding_mean_reversion_after_extreme",
         "display_name": "Funding Mean Reversion After Extreme",
-        "required_data_fields": ["market_candle", "funding_rate", "open_interest"],
+        "required_data_fields": ["market_candle", "funding_rate"],
     },
     {
         "priority": 2,
-        "strategy_family": "funding_oi_crowding_candidate",
-        "display_name": "Funding Plus OI Crowding Candidate",
+        "strategy_family": "funding_open_interest_crowding",
+        "display_name": "Funding Crowding With Open Interest Confirmation",
         "required_data_fields": ["market_candle", "funding_rate", "open_interest"],
     },
     {
         "priority": 3,
+        "strategy_family": "volatility_compression_expansion_watchlist",
+        "display_name": "Volatility Compression And Expansion Watchlist",
+        "required_data_fields": ["market_candle", "close", "volume"],
+    },
+    {
+        "priority": 4,
         "strategy_family": "cross_exchange_funding_dispersion_candidate",
         "display_name": "Cross-Exchange Funding Dispersion Candidate",
         "required_data_fields": [
@@ -208,13 +214,13 @@ _STRATEGY_CATALOG = [
         ],
     },
     {
-        "priority": 4,
+        "priority": 5,
         "strategy_family": "defi_yield_regime_watchlist",
         "display_name": "DefiLlama Yield Regime Watchlist",
         "required_data_fields": ["defi_yield", "tvl_usd", "apy"],
     },
     {
-        "priority": 5,
+        "priority": 6,
         "strategy_family": "defi_stablecoin_tvl_regime_candidate",
         "display_name": "DeFi Stablecoin And TVL Regime Candidate",
         "required_data_fields": [
@@ -225,7 +231,7 @@ _STRATEGY_CATALOG = [
         ],
     },
     {
-        "priority": 6,
+        "priority": 7,
         "strategy_family": "dex_liquidity_volume_watchlist",
         "display_name": "DEX Liquidity And Volume Regime Watchlist",
         "required_data_fields": ["dex_pair", "liquidity_usd", "volume_24h_usd"],
@@ -362,8 +368,6 @@ def _strategy_candidate(
         blocked_reasons.extend(spec.blocked_reasons)
         if current_capital_usd < spec.min_capital_usd:
             blocked_reasons.append("insufficient_current_capital")
-    if family == "funding_mean_reversion_after_extreme":
-        blocked_reasons.append("open_interest_confirmation_missing")
     if blocked_reasons:
         readiness = "blocked"
 
@@ -384,11 +388,6 @@ def _strategy_candidate(
         recommended_action = "add_data"
         action_reason_codes = _dedupe(
             [*action_reason_codes, "register_validator_or_watchlist"]
-        )
-    elif "open_interest_confirmation_missing" in blocked_reasons:
-        recommended_action = "add_data"
-        action_reason_codes = _dedupe(
-            [*action_reason_codes, "required_data_missing"]
         )
     elif blocked_reasons:
         recommended_action = "redesign"

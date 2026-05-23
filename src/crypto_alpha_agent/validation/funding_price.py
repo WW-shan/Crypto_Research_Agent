@@ -5,7 +5,7 @@ import math
 from bisect import bisect_left
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -206,6 +206,11 @@ def validate_funding_price_confirmation(
     walk_forward_test_size: int = 8,
     walk_forward_min_splits: int = 3,
     walk_forward_min_pass_rate: float = 1.0,
+    max_drawdown_limit: float = 0.20,
+    now: datetime | None = None,
+    max_age_hours: float | None = None,
+    supported_price_symbols: Sequence[str] | None = ("BTC/USDT",),
+    supported_funding_symbols: Sequence[str] | None = ("BTC/USDT:USDT",),
 ) -> FundingPriceValidationResult:
     if not math.isfinite(threshold_abs) or threshold_abs <= 0:
         raise ValueError("threshold_abs must be finite and greater than 0")
@@ -215,6 +220,16 @@ def validate_funding_price_confirmation(
         raise ValueError("fee_rate must be finite and non-negative")
     if not math.isfinite(slippage_rate) or slippage_rate < 0:
         raise ValueError("slippage_rate must be finite and non-negative")
+    _validate_max_drawdown_limit(max_drawdown_limit)
+    _validate_max_age_hours(max_age_hours)
+    normalized_supported_price_symbols = _normalize_supported_symbols(
+        supported_price_symbols,
+        "supported_price_symbols",
+    )
+    normalized_supported_funding_symbols = _normalize_supported_symbols(
+        supported_funding_symbols,
+        "supported_funding_symbols",
+    )
 
     bars = load_candle_history(db_path, symbol=price_symbol, timeframe=timeframe)
     funding_rates = _load_funding_history(db_path, funding_symbol=funding_symbol)
@@ -234,6 +249,11 @@ def validate_funding_price_confirmation(
         walk_forward_test_size=walk_forward_test_size,
         walk_forward_min_splits=walk_forward_min_splits,
         walk_forward_min_pass_rate=walk_forward_min_pass_rate,
+        max_drawdown_limit=max_drawdown_limit,
+        now=now,
+        max_age_hours=max_age_hours,
+        supported_price_symbols=normalized_supported_price_symbols,
+        supported_funding_symbols=normalized_supported_funding_symbols,
     )
 
 
@@ -253,6 +273,11 @@ def validate_funding_price_confirmation_from_records(
     walk_forward_test_size: int = 8,
     walk_forward_min_splits: int = 3,
     walk_forward_min_pass_rate: float = 1.0,
+    max_drawdown_limit: float = 0.20,
+    now: datetime | None = None,
+    max_age_hours: float | None = None,
+    supported_price_symbols: Sequence[str] | None = ("BTC/USDT",),
+    supported_funding_symbols: Sequence[str] | None = ("BTC/USDT:USDT",),
 ) -> FundingPriceValidationResult:
     if not math.isfinite(threshold_abs) or threshold_abs <= 0:
         raise ValueError("threshold_abs must be finite and greater than 0")
@@ -262,6 +287,16 @@ def validate_funding_price_confirmation_from_records(
         raise ValueError("fee_rate must be finite and non-negative")
     if not math.isfinite(slippage_rate) or slippage_rate < 0:
         raise ValueError("slippage_rate must be finite and non-negative")
+    _validate_max_drawdown_limit(max_drawdown_limit)
+    _validate_max_age_hours(max_age_hours)
+    normalized_supported_price_symbols = _normalize_supported_symbols(
+        supported_price_symbols,
+        "supported_price_symbols",
+    )
+    normalized_supported_funding_symbols = _normalize_supported_symbols(
+        supported_funding_symbols,
+        "supported_funding_symbols",
+    )
 
     bars, funding_rates = _funding_price_history_from_records(
         records,
@@ -285,6 +320,11 @@ def validate_funding_price_confirmation_from_records(
         walk_forward_test_size=walk_forward_test_size,
         walk_forward_min_splits=walk_forward_min_splits,
         walk_forward_min_pass_rate=walk_forward_min_pass_rate,
+        max_drawdown_limit=max_drawdown_limit,
+        now=now,
+        max_age_hours=max_age_hours,
+        supported_price_symbols=normalized_supported_price_symbols,
+        supported_funding_symbols=normalized_supported_funding_symbols,
     )
 
 
@@ -305,9 +345,26 @@ def _validate_funding_price_confirmation_from_history(
     walk_forward_test_size: int,
     walk_forward_min_splits: int,
     walk_forward_min_pass_rate: float,
+    max_drawdown_limit: float,
+    now: datetime | None,
+    max_age_hours: float | None,
+    supported_price_symbols: set[str] | None,
+    supported_funding_symbols: set[str] | None,
 ) -> FundingPriceValidationResult:
     duplicate_price_timestamp = _has_duplicate_timestamps(bars)
     duplicate_funding_timestamp = _has_duplicate_timestamps(funding_rates)
+    unsupported_symbol = _is_unsupported_symbol(
+        price_symbol=price_symbol,
+        funding_symbol=funding_symbol,
+        supported_price_symbols=supported_price_symbols,
+        supported_funding_symbols=supported_funding_symbols,
+    )
+    stale_source = _is_stale_source(
+        bars,
+        funding_rates,
+        now=now,
+        max_age_hours=max_age_hours,
+    )
     extremes = [
         funding
         for funding in funding_rates
@@ -381,9 +438,13 @@ def _validate_funding_price_confirmation_from_history(
         min_trades=min_trades,
         expectancy=slippage_adjusted_expectancy,
         net_return=net_return,
+        max_drawdown=max_drawdown,
+        max_drawdown_limit=max_drawdown_limit,
         duplicate_price_timestamp=duplicate_price_timestamp,
         duplicate_funding_timestamp=duplicate_funding_timestamp,
         non_positive_price=non_positive_price,
+        unsupported_symbol=unsupported_symbol,
+        stale_source=stale_source,
     )
     blocked_reasons.extend(walk_forward_blocked_reasons)
 
@@ -470,6 +531,39 @@ def _require_non_negative_int(name: str, value: int) -> None:
         raise ValueError(f"{name} must be a non-negative integer")
 
 
+def _validate_max_drawdown_limit(max_drawdown_limit: float) -> None:
+    if not math.isfinite(max_drawdown_limit) or max_drawdown_limit < 0:
+        raise ValueError("max_drawdown_limit must be finite and non-negative")
+
+
+def _validate_max_age_hours(max_age_hours: float | None) -> None:
+    if max_age_hours is None:
+        return
+    if not math.isfinite(max_age_hours) or max_age_hours <= 0:
+        raise ValueError("max_age_hours must be finite and greater than 0")
+
+
+def _normalize_supported_symbols(
+    supported_symbols: Sequence[str] | None,
+    name: str,
+) -> set[str] | None:
+    if supported_symbols is None:
+        return None
+    if isinstance(supported_symbols, str):
+        raise ValueError(f"{name} must be a sequence of symbols")
+    normalized: set[str] = set()
+    for symbol in supported_symbols:
+        if not isinstance(symbol, str):
+            raise ValueError(f"{name} must contain symbols")
+        stripped = symbol.strip()
+        if not stripped:
+            raise ValueError(f"{name} must not contain blank symbols")
+        normalized.add(stripped)
+    if not normalized:
+        raise ValueError(f"{name} must not be empty")
+    return normalized
+
+
 def _load_funding_history(
     db_path: str | Path,
     *,
@@ -525,6 +619,47 @@ def _has_non_positive_trade_price(
             return True
 
     return False
+
+
+def _is_unsupported_symbol(
+    *,
+    price_symbol: str,
+    funding_symbol: str,
+    supported_price_symbols: set[str] | None,
+    supported_funding_symbols: set[str] | None,
+) -> bool:
+    if supported_price_symbols is not None and price_symbol not in supported_price_symbols:
+        return True
+    return supported_funding_symbols is not None and funding_symbol not in supported_funding_symbols
+
+
+def _is_stale_source(
+    bars: list[CandleBar],
+    funding_rates: list[FundingRateRecord],
+    *,
+    now: datetime | None,
+    max_age_hours: float | None,
+) -> bool:
+    if max_age_hours is None:
+        return False
+    reference_now = _coerce_utc(now) if now is not None else datetime.now(tz=UTC)
+    freshness_floor = reference_now - timedelta(hours=max_age_hours)
+    for timestamps in (
+        [bar.timestamp for bar in bars],
+        [funding.timestamp for funding in funding_rates],
+    ):
+        if not timestamps:
+            continue
+        latest_observed_at = max(_coerce_utc(value) for value in timestamps)
+        if latest_observed_at < freshness_floor:
+            return True
+    return False
+
+
+def _coerce_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def _walk_forward_adjusted_expectancies(
@@ -584,11 +719,19 @@ def _blocked_reasons(
     min_trades: int,
     expectancy: float,
     net_return: float,
+    max_drawdown: float,
+    max_drawdown_limit: float,
     duplicate_price_timestamp: bool,
     duplicate_funding_timestamp: bool,
     non_positive_price: bool,
+    unsupported_symbol: bool,
+    stale_source: bool,
 ) -> list[str]:
     reasons: list[str] = []
+    if unsupported_symbol:
+        reasons.append("unsupported_symbol")
+    if stale_source:
+        reasons.append("stale_source")
     if duplicate_price_timestamp:
         reasons.append("duplicate_price_timestamp")
     if duplicate_funding_timestamp:
@@ -607,4 +750,6 @@ def _blocked_reasons(
         reasons.append("non_positive_expectancy")
     if net_return <= 0.0:
         reasons.append("non_positive_net_return")
+    if max_drawdown > max_drawdown_limit:
+        reasons.append("excessive_drawdown")
     return reasons

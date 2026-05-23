@@ -27,6 +27,7 @@ _DEGRADED_MARKERS = {
     "negative_expectancy",
 }
 _FUNDING_BASELINE_PARAMETERS = {"threshold_abs": 0.0005, "hold_bars": 1}
+_FAMILY_SPECIFIC_EVIDENCE_REQUIRED = {"funding_open_interest_crowding"}
 
 
 class _PlannerModel(BaseModel):
@@ -334,9 +335,17 @@ def _fallback_proposals(
 ) -> list[ExperimentProposal]:
     families = _candidate_families(planner_input, degraded_families=degraded_families)
     proposals: list[ExperimentProposal] = []
+    has_any_evidence = bool(validation_evidence or paper_evidence)
     for family in families:
         family_validation = [item for item in validation_evidence if item.strategy_family == family]
         family_paper = [item for item in paper_evidence if item.strategy_family == family]
+        if _should_skip_without_family_evidence(
+            family,
+            has_any_evidence=has_any_evidence,
+            family_validation=family_validation,
+            family_paper=family_paper,
+        ):
+            continue
         for parameters, reason in _fallback_parameter_sets(family_validation, family_paper):
             if _parameters_were_blocked(family, parameters, blocked_parameter_sets):
                 continue
@@ -402,6 +411,19 @@ def _fallback_parameter_sets(
     ]
 
 
+def _should_skip_without_family_evidence(
+    family: str,
+    *,
+    has_any_evidence: bool,
+    family_validation: list[ValidationEvidence],
+    family_paper: list[PaperEvidencePackage],
+) -> bool:
+    has_family_evidence = bool(family_validation or family_paper)
+    if family in _FAMILY_SPECIFIC_EVIDENCE_REQUIRED:
+        return not has_family_evidence
+    return has_any_evidence and not has_family_evidence
+
+
 def _proposal_from_payload(
     item: Mapping[str, Any],
     *,
@@ -423,6 +445,13 @@ def _proposal_from_payload(
         return None
     family_validation = [evidence for evidence in validation_evidence if evidence.strategy_family == family]
     family_paper = [evidence for evidence in paper_evidence if evidence.strategy_family == family]
+    if _should_skip_without_family_evidence(
+        family,
+        has_any_evidence=bool(validation_evidence or paper_evidence),
+        family_validation=family_validation,
+        family_paper=family_paper,
+    ):
+        return None
     return _build_proposal(
         planner_input,
         batch_id=batch_id,

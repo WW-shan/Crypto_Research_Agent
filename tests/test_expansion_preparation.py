@@ -82,13 +82,15 @@ def test_expansion_preparation_report_uses_registry_weekly_actions_and_source_he
     assert sources["dexscreener_liquidity_snapshots"].readiness == "health_recorded"
     assert sources["defillama_yield_pools"].source_health_present is True
     assert strategies["funding_mean_reversion_after_extreme"].adapter_kind == "deterministic_validator"
-    assert strategies["funding_mean_reversion_after_extreme"].readiness == "blocked"
-    assert strategies["funding_mean_reversion_after_extreme"].recommended_action == "add_data"
-    assert "required_data_missing" in strategies["funding_mean_reversion_after_extreme"].action_reason_codes
+    assert strategies["funding_mean_reversion_after_extreme"].readiness == "registered"
+    assert strategies["funding_mean_reversion_after_extreme"].blocked_reasons == []
     assert strategies["defi_yield_regime_watchlist"].adapter_kind == "watchlist_only_adapter"
     assert strategies["dex_liquidity_volume_watchlist"].adapter_kind == "watchlist_only_adapter"
-    assert strategies["funding_oi_crowding_candidate"].readiness == "blocked"
-    assert "validator_or_watchlist_not_registered" in strategies["funding_oi_crowding_candidate"].blocked_reasons
+    assert strategies["funding_open_interest_crowding"].adapter_kind == "deterministic_validator"
+    assert strategies["funding_open_interest_crowding"].readiness == "registered"
+    assert strategies["funding_open_interest_crowding"].blocked_reasons == []
+    assert strategies["volatility_compression_expansion_watchlist"].adapter_kind == "watchlist_only_adapter"
+    assert strategies["volatility_compression_expansion_watchlist"].readiness == "registered"
     assert report.reason_codes
 
 
@@ -255,7 +257,9 @@ def test_expansion_preparation_markdown_lists_sources_strategies_and_blockers(tm
     assert "binance_usdm_open_interest" in markdown
     assert "source_health_missing" in markdown
     assert "## Strategy Candidates" in markdown
-    assert "funding_oi_crowding_candidate" in markdown
+    assert "funding_open_interest_crowding" in markdown
+    assert "volatility_compression_expansion_watchlist" in markdown
+    assert "cross_exchange_funding_dispersion_candidate" in markdown
     assert "validator_or_watchlist_not_registered" in markdown
     assert "Real capital: false" in markdown
     assert "Live order routing: false" in markdown
