@@ -7,7 +7,7 @@ round.
 ## Current Round
 
 - Round: 6
-- Status: Immediate Phase 4 complete; commit and push pending
+- Status: Immediate Phase 4 complete; committed and pushed
 - Started: 2026-05-23
 - Completed: 2026-05-23
 - Active slice: Immediate Phase 4: Evidence Run Infrastructure
@@ -80,8 +80,10 @@ round.
   `uv run --extra dev pytest -q` passed with 797 tests after a transient real
   LLM summary rejection passed on immediate single-test rerun; `uv run --extra
   dev ruff check .` passed; `git diff --check` passed.
-- Staged checks and staged secret-safety remain required before the Phase 4
-  commit and push.
+- Staged checks:
+  `git diff --cached --check` passed, and
+  `uv run python -m crypto_alpha_agent.security.secret_scan --staged --fail-on-empty-with-untracked`
+  passed with `[]`.
 
 ## Current Project Target
 
@@ -114,9 +116,7 @@ charter:
 
 The first complete research-loop milestone remains complete under the current
 charter. Post-milestone Phase 0, Immediate Phase 1, Immediate Phase 2,
-Immediate Phase 3, and Immediate Phase 4 are complete. Phase 4 still requires
-staged checks, staged secret-safety, commit, and push before the next Phase may
-start.
+Immediate Phase 3, and Immediate Phase 4 are complete, committed, and pushed.
 
 Future work is now ordered as an evidence-factory buildout before the formal
 evidence campaign:
@@ -192,4 +192,4 @@ If work continues after Phase 4:
 | 3 | 2026-05-23 | Immediate Phase 1 real LLM adapter | tests 762 passed; ruff passed; diff check passed; staged secret review passed | Phase 1 completion commit `feat: add real llm adapter` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 4 | 2026-05-23 | Immediate Phase 2 connect LLM to research loop | tests 770 passed; ruff passed; diff check passed; staged secret review passed | `ae3e601 feat: connect llm to research loop` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 5 | 2026-05-23 | Immediate Phase 3 real LLM test policy | focused Phase 3 tests 16 passed; pytest 785 passed; ruff passed; diff check passed; staged secret review passed | `9fb1945 test: formalize real llm policy` | `https://github.com/WW-shan/Crypto_Research_Agent` |
-| 6 | 2026-05-23 | Immediate Phase 4 evidence run infrastructure | focused Phase 4 runner tests 19 passed; scheduler/docs 17 passed; complete/degradation 16 passed; pytest 797 passed; ruff passed; diff check passed | pending Phase 4 commit `feat: add evidence run infrastructure` | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 6 | 2026-05-23 | Immediate Phase 4 evidence run infrastructure | focused Phase 4 runner tests 19 passed; scheduler/docs 17 passed; complete/degradation 16 passed; pytest 797 passed; ruff passed; diff/staged checks passed; staged secret scan passed | `a31bda7 feat: add evidence run infrastructure` plus docs closeout follow-up | `https://github.com/WW-shan/Crypto_Research_Agent` |

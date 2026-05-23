@@ -98,9 +98,9 @@ Final verification before commit:
   LLM summary rejection passed on immediate single-test rerun.
 - `uv run --extra dev ruff check .` passed.
 - `git diff --check` passed.
-- `git diff --cached --check` pending after final staging.
+- `git diff --cached --check` passed.
 - `uv run python -m crypto_alpha_agent.security.secret_scan --staged --fail-on-empty-with-untracked`
-  pending after final staging.
+  passed with `[]`.
 
 ## Safety
 
@@ -116,6 +116,6 @@ Phase 4 preserved the charter boundaries:
 
 ## Next Phase
 
-After Phase 4 is reviewed, verified, committed, and pushed, the next roadmap
-slice is Immediate Phase 5: Data And Strategy Expansion. Phase 5 should not
-start until this phase is clean in git and pushed to GitHub.
+Phase 4 was committed as `a31bda7 feat: add evidence run infrastructure` and
+pushed to GitHub. The next roadmap slice is Immediate Phase 5: Data And
+Strategy Expansion.
