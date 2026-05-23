@@ -6,88 +6,96 @@ round.
 
 ## Current Round
 
-- Round: 4
-- Status: Immediate Phase 2 complete; final verification and staged
-  secret-safety passed
+- Round: 5
+- Status: Immediate Phase 3 complete; commit and push pending
 - Started: 2026-05-23
 - Completed: 2026-05-23
-- Active slice: Immediate Phase 2: Connect LLM To The Research Loop
+- Active slice: Immediate Phase 3: Real LLM Test Policy
 - Active plan source:
-  `docs/superpowers/plans/2026-05-23-phase-2-connect-llm-research-loop.md`
+  `docs/superpowers/plans/2026-05-23-phase-3-real-llm-test-policy.md`
 - Phase report:
-  `docs/goals/phase-reports/2026-05-23-phase-2-connect-llm-research-loop-completion-report.md`
+  `docs/goals/phase-reports/2026-05-23-phase-3-real-llm-test-policy-completion-report.md`
 
 ## Completed This Round
 
-- Ran Phase 2 Smart Search deep research and fetched source-backed OpenAI
-  Responses and LangGraph persistence/interrupt documentation for safe LLM
-  integration, strict outputs, metadata-only persistence, and human-review
-  graph patterns.
+- Ran Phase 3 Smart Search deep research and fetched pytest marker/skip docs,
+  GitHub Actions secret docs, OpenAI production guidance, and Context7 pytest
+  marker references.
 - Verified local feasibility from the current worktree:
-  - `build_configured_llm(...)` already provides the configured Responses
-    adapter and role routing.
-  - `plan_next_experiments(..., llm=None)` already parses strict
-    `ExperimentProposal` output and persists raw-response metadata only.
-  - `build_llm_research_graph(...)` already strips raw LLM text before
-    memory/state persistence.
-  - evidence reports were deterministic and only needed an additive summary
-    field.
-- Added task-specific schema hints to `OpenAIResponsesAdapter` for research
-  hypotheses, experiment-planner proposals, and evidence-report summaries.
-- Added `agents/report_summarizer.py` with strict summary task/result models,
-  unsafe-text rejection, JSON parsing, and raw-response metadata only.
-- Added optional LLM summary fields to daily and weekly evidence reports and
-  rendered them as a separate `LLM Narrative Summary` section.
-- Wired CLI LLM mode resolution into:
-  - `plan-experiments` using the planning route;
-  - `research-loop` using the research route and existing LangGraph LLM graph;
-  - `evidence-report` using the summary route.
-- Added CLI mode behavior:
-  - omitted flag uses configured real LLM in operator sessions when credentials
-    exist;
-  - `--offline-only` forces deterministic local behavior;
-  - `--no-offline-only` requires a configured real LLM and fails closed;
-  - pytest defaults to deterministic unless
-    `CRYPTO_ALPHA_AGENT_RUN_REAL_LLM_TESTS=1` is set.
-- Added fake/injected tests for CLI wiring and metadata-only persistence.
-- Preserved real LLM smoke coverage from Phase 1; the smoke test passed after
-  one retry following a transient provider `504`.
-- Updated `docs/runbook.md`, `docs/roadmap.md`, and wrote the Phase 2 plan and
-  completion report.
+  - only one real LLM integration test existed before Phase 3;
+  - `plan-experiments`, `research-loop`, and `evidence-report` already had real
+    LLM CLI wiring from Phase 2;
+  - fake adversarial tests existed but were not formalized as a test-policy
+    contract;
+  - Phase 2's completion report was referenced but missing from the repository.
+- Added `crypto_alpha_agent.security.secret_scan` for redacted scanning of
+  text, paths, and staged diffs.
+- Added shared real LLM test helpers in `tests/llm_integration_policy.py`.
+- Added real positive LLM integration tests for:
+  - configured adapter smoke;
+  - `plan-experiments`;
+  - `research-loop`;
+  - `evidence-report`.
+- Added `llm_integration` pytest marker and strict marker validation.
+- Added a deterministic policy contract that fake/injected adversarial coverage
+  remains present for invalid JSON, schema violations, live-order/private-key,
+  MEV/premium-RPC, high-capital, and raw-response metadata-only cases.
+- Debugged real LLM failures and strengthened schema hints to avoid prohibited
+  execution terms in free-text values.
+- Relaxed evidence-report summary list bounds to tolerate useful real summaries
+  while preserving bounded schema validation.
+- Repaired the missing Phase 2 completion report.
+- Updated the runbook and roadmap for the Phase 3 test policy.
 
 ## Verification Evidence
 
-- TDD RED checks:
-- Adapter schema-hint RED:
-  `uv run --extra dev pytest tests/test_llm_configured_client.py::test_responses_adapter_includes_hypothesis_schema_hint_for_research_task tests/test_llm_configured_client.py::test_responses_adapter_includes_experiment_schema_hint_for_planner_task -q`
-  failed before schema hints existed, then passed with 2 tests.
-- Evidence-summary RED:
-  `uv run --extra dev pytest tests/test_evidence_reports.py::test_daily_evidence_report_can_render_llm_summary_without_changing_metrics tests/test_evidence_reports.py::test_report_summarizer_rejects_invalid_or_unsafe_output_without_raw_text -q`
-  first failed because `report_summarizer` did not exist, then passed with 2
-  tests.
-- CLI wiring RED:
-  `uv run --extra dev pytest tests/test_ai_experiment_planner.py::test_plan_experiments_auto_uses_configured_planning_llm tests/test_ai_experiment_planner.py::test_plan_experiments_offline_only_skips_configured_llm tests/test_cli_research_loop.py::test_research_loop_can_run_configured_llm_and_persist_metadata_only tests/test_evidence_reports.py::test_evidence_report_can_use_fast_summary_llm -q`
-  first failed because CLI did not resolve configured LLMs, then passed with 4
-  tests.
-- Focused regression:
-  `uv run --extra dev pytest tests/test_ai_experiment_planner.py tests/test_cli_research_loop.py tests/test_evidence_reports.py tests/test_complete_evidence_system.py tests/test_research_loop_strategy_validation.py tests/test_research_loop_paper_evidence.py tests/test_research_loop_validation_summary.py -q`
-  passed with 61 tests.
-- LLM focused regression:
-  `uv run --extra dev pytest tests/test_llm_configured_client.py tests/test_llm_researcher_adapter.py tests/test_llm_graph_routing.py tests/test_llm_contracts.py -q`
-  passed with 47 tests after retrying the transient real LLM smoke.
-- Real configured LLM smoke:
+- Smart Search:
+  `/tmp/smart-search-evidence/2026-05-23-phase3-real-llm-test-policy/`
+  contains `00-doctor.json`, `01-deep-plan.json`, `02-broad-search.json`,
+  `03-pytest-markers.md`, `04-pytest-skipping.md`,
+  `05-github-actions-secrets.md`, `06-openai-production-best-practices.md`,
+  and `08-context7-pytest-docs.json`.
+- Initial integration collection:
+  `uv run --extra dev pytest --collect-only -q -m integration` collected 1
+  integration test before Phase 3 implementation.
+- Initial real LLM smoke:
   `uv run --extra dev pytest tests/test_llm_configured_client.py::test_real_configured_llm_smoke_returns_valid_research_proposal_without_secret_leaks -q`
-  passed with 1 test after a transient provider `504` was rerun.
+  passed with 1 test before Phase 3 implementation.
+- Secret scanner RED/GREEN:
+  `uv run --extra dev pytest tests/test_secret_scan_policy.py -q` failed first
+  because `crypto_alpha_agent.security` did not exist, then later passed with 6
+  tests after adding regression coverage for path and label redaction.
+- Real LLM policy RED:
+  `uv run --extra dev pytest tests/test_real_llm_integration_policy.py tests/test_real_llm_test_policy_contract.py -q`
+  failed first because `llm_integration_policy` did not exist.
+- Real LLM debugging:
+  the first real policy run exposed `charter_violation` in planner output and
+  `invalid_summary` in evidence-report output; schema hints and summary bounds
+  were adjusted. Later review exposed transient provider `504` failures,
+  public finding label leakage, weak adversarial policy checks, and a false
+  safety-echo normalizer that could mask an unsafe follow-on instruction; all
+  were fixed and re-reviewed.
+- Focused Phase 3 verification:
+  `uv run --extra dev pytest tests/test_secret_scan_policy.py tests/test_real_llm_test_policy_contract.py tests/test_evidence_reports.py::test_report_summarizer_accepts_common_caveats_alias_without_extra_raw_text tests/test_evidence_reports.py::test_report_summarizer_normalizes_false_safety_flag_echoes_without_raw_text tests/test_evidence_reports.py::test_report_summarizer_rejects_valid_unsafe_instruction_without_raw_text tests/test_llm_configured_client.py::test_real_configured_llm_smoke_returns_valid_research_proposal_without_secret_leaks tests/test_real_llm_integration_policy.py -q`
+  passed with 16 tests.
+- Real LLM marker collection:
+  `uv run --extra dev pytest --collect-only -q -m llm_integration` collected 4
+  real LLM integration tests and deselected 781 tests.
+- Review pass 1 (spec/requirements) and review pass 2
+  (code-quality/secret-safety) found no Critical issues. Important issues were
+  fixed, and targeted re-review reported no Critical, Important, or Minor
+  findings.
 - Full tests:
-  `uv run --extra dev pytest -q` passed with 770 tests.
+  `uv run --extra dev pytest -q` passed with 785 tests.
 - Ruff:
   `uv run --extra dev ruff check .` passed with `All checks passed!`.
 - Diff check:
   `git diff --check` passed.
-- Review pass 1 and pass 2 are pending below until final subagent reviews are
-  complete.
-- Staged checks and staged secret-safety review are pending until files are
-  staged for the Phase 2 commit.
+- Staged checks:
+  `git diff --cached --check` passed.
+- Staged secret-safety:
+  `uv run python -m crypto_alpha_agent.security.secret_scan --staged --fail-on-empty-with-untracked`
+  passed with `[]`.
 
 ## Current Project Target
 
@@ -119,17 +127,13 @@ charter:
 ## Known Remaining Gaps
 
 The first complete research-loop milestone remains complete under the current
-charter. Post-milestone Phase 0, Immediate Phase 1, and Immediate Phase 2 are
-complete. The next implementation gap after this commit is Immediate Phase 3:
-Real LLM Test Policy.
+charter. Post-milestone Phase 0, Immediate Phase 1, Immediate Phase 2, and
+Immediate Phase 3 are complete. Phase 3 still requires commit and push before
+the next Phase may start.
 
 Future work is now ordered as an evidence-factory buildout before the formal
 evidence campaign:
 
-- Immediate Phase 0 / Phase 6 merge: close the worktree and operator
-  configuration state before Phase 1.
-- Immediate Phase 3: formalize the real LLM test policy and secret-leak scan
-  coverage for stdout, stderr, memory, reports, artifacts, and manifests.
 - Immediate Phase 4-5: keep evidence-run infrastructure operable while
   preparing data and strategy expansion.
 - Phase 8: qualify and deepen public data sources, including proxy-aware
@@ -151,7 +155,7 @@ charter revision.
 
 ## Next Round Entry Instructions
 
-If work continues after Phase 2:
+If work continues after Phase 3:
 
 1. Read `docs/project-charter.md` before any new plan.
 2. Read `docs/goals/project-completion-goal.md` and follow its Per-Round
@@ -166,10 +170,9 @@ If work continues after Phase 2:
    `docs/roadmap.md`.
 4. Treat Phase 6 as merged into Immediate Phase 0 / Immediate Phase 1 entry
    readiness, not as a later standalone feature phase.
-5. Start with Immediate Phase 3: Real LLM Test Policy. Phase 2 connected
-   `build_configured_llm(...)` to `plan-experiments`, `research-loop`, and
-   `evidence-report`; added metadata-only report summaries; and kept
-   `evidence-run` deterministic. Do not reimplement Phase 1 or Phase 2.
+5. Start with Immediate Phase 4: Evidence Run Infrastructure. Phase 3
+   formalized real LLM integration tests, fake adversarial policy coverage, and
+   secret-scan tooling. Do not reimplement Phase 1, Phase 2, or Phase 3.
 6. Treat live execution, wallet keys, exchange order routing, private RPC,
    MEV, and speed-edge paths as blocked unless the owner explicitly revises the
    charter.
@@ -199,4 +202,5 @@ If work continues after Phase 2:
 | 1 | 2026-05-17 UTC / 2026-05-18 local | Complete autonomous evidence system milestone | pytest 750 passed; ruff passed; diff check passed; focused source tests 52 passed; forbidden-path review found no production live path | `fb1635d281f33e93a6723832bdf04a115e160c86` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 2 | 2026-05-23 | Immediate Phase 0 / merged Phase 6 worktree and configuration closeout | focused Phase 0 checks 8 passed; pytest 750 passed; ruff passed; diff check passed; staged secret review passed | Phase 0 completion commit `docs: complete phase 0 closeout` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 3 | 2026-05-23 | Immediate Phase 1 real LLM adapter | tests 762 passed; ruff passed; diff check passed; staged secret review passed | Phase 1 completion commit `feat: add real llm adapter` | `https://github.com/WW-shan/Crypto_Research_Agent` |
-| 4 | 2026-05-23 | Immediate Phase 2 connect LLM to research loop | tests 770 passed; ruff passed; diff check passed; staged secret review pending | pending Phase 2 commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 4 | 2026-05-23 | Immediate Phase 2 connect LLM to research loop | tests 770 passed; ruff passed; diff check passed; staged secret review passed | `ae3e601 feat: connect llm to research loop` | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 5 | 2026-05-23 | Immediate Phase 3 real LLM test policy | focused Phase 3 tests 16 passed; pytest 785 passed; ruff passed; diff check passed; staged secret review passed | pending Phase 3 commit `test: formalize real llm policy` | `https://github.com/WW-shan/Crypto_Research_Agent` |

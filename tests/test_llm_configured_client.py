@@ -17,6 +17,11 @@ from crypto_alpha_agent.pipeline.experiment_planner import (
 from crypto_alpha_agent.config import LLMSettings, build_configured_llm_settings
 from crypto_alpha_agent.llm import LLMProviderError, OpenAIResponsesAdapter, build_configured_llm
 from crypto_alpha_agent.llm.redaction import redact_text
+from llm_integration_policy import (
+    assert_no_secret_leaks,
+    call_real_llm_or_fail,
+    configured_llm_settings_or_skip,
+)
 
 
 def _write_env(path: Path, *, base_url: str = "https://provider.example/root") -> None:
@@ -399,24 +404,12 @@ def test_build_configured_llm_returns_adapter_when_settings_exist(
     assert adapter.settings.model == "gpt-fast"
 
 
-def _real_llm_credentials_present() -> bool:
-    settings = build_configured_llm_settings(role="research", required=False)
-    return settings is not None
-
-
-def _assert_secret_not_present(secret: str, surface: str, *, label: str) -> None:
-    leaked = bool(secret) and secret in surface
-    assert not leaked, f"{label} leaked into real LLM smoke surface"
-
-
 @pytest.mark.integration
+@pytest.mark.llm_integration
 def test_real_configured_llm_smoke_returns_valid_research_proposal_without_secret_leaks(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    if os.environ.get("CI") and os.environ.get("CRYPTO_ALPHA_AGENT_RUN_REAL_LLM_TESTS") != "1":
-        pytest.skip("real LLM smoke is disabled in CI unless explicitly opted in")
-    if not _real_llm_credentials_present():
-        pytest.skip("real LLM credentials are not configured")
+    settings = configured_llm_settings_or_skip("research")
 
     llm = build_configured_llm(role="research", required=True)
     assert llm is not None
@@ -464,22 +457,20 @@ def test_real_configured_llm_smoke_returns_valid_research_proposal_without_secre
         requires_human_approval=False,
     )
 
-    raw_response = llm(task)
+    raw_response = call_real_llm_or_fail(lambda: llm(task), capsys=capsys, settings=settings)
     try:
         proposal = HypothesisProposal.model_validate_json(raw_response)
     except Exception as exc:  # noqa: BLE001 - avoid printing raw provider output.
         pytest.fail(f"real LLM smoke returned invalid proposal: {type(exc).__name__}")
     captured = capsys.readouterr()
-    settings = llm.settings
     leak_surface = captured.out + captured.err + raw_response
 
     assert proposal.action_mode == "research_only"
     assert proposal.capital_required_usd <= 25
     assert proposal.speed_dependency == "none"
     assert proposal.rpc_dependency == "none"
-    _assert_secret_not_present(
-        settings.api_key.get_secret_value(),
-        leak_surface,
-        label="api_key",
+    assert_no_secret_leaks(
+        text_surfaces={"real_llm_smoke": leak_surface},
+        path_surfaces=[],
+        settings=settings,
     )
-    _assert_secret_not_present(settings.base_url, leak_surface, label="base_url")

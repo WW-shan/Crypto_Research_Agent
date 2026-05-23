@@ -484,6 +484,25 @@ Completion standard:
 - External LLM provider failures are recorded as integration environment
   failures, not hidden as product success.
 
+Phase 3 completion record: implemented by
+`docs/goals/phase-reports/2026-05-23-phase-3-real-llm-test-policy-completion-report.md`.
+
+Completed behavior:
+
+- Real LLM integration tests now cover the configured adapter smoke path,
+  `plan-experiments`, `research-loop`, and `evidence-report`.
+- Real LLM tests are marked as both `integration` and `llm_integration`, run
+  locally when credentials are configured, and require
+  `CRYPTO_ALPHA_AGENT_RUN_REAL_LLM_TESTS=1` in CI/shared automation.
+- A reusable secret scanner covers stdout, stderr, memory JSONL, Markdown/JSON
+  reports, generated artifacts, run manifests, and staged diffs without
+  printing matched secret values.
+- A deterministic policy contract keeps fake/injected adversarial coverage for
+  invalid JSON, schema violations, live-order/private-key/MEV/premium-RPC/high
+  capital, and malicious text.
+- Phase 3 did not add live trading, wallet-key access, exchange order routing,
+  MEV, premium RPC, speed-edge execution, or real-capital authority.
+
 #### Immediate Phase 4: Evidence Run Infrastructure
 
 Goal: Keep the existing evidence-run path operable after the LLM adapter is

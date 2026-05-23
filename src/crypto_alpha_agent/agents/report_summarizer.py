@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import hashlib
 import json
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -11,6 +12,13 @@ from crypto_alpha_agent.agents.llm_contracts import UNSAFE_TEXT_PATTERNS
 
 ReportType = Literal["daily", "weekly"]
 SummaryLLM = Callable[[Any], Any]
+_REPORT_UNSAFE_TEXT_PATTERNS = (
+    *UNSAFE_TEXT_PATTERNS,
+    (
+        "follow-on execution pronoun",
+        re.compile(r"\bthen\s+(?:place|submit|execute)\s+one\b", re.IGNORECASE),
+    ),
+)
 
 
 class _StrictSummaryModel(BaseModel):
@@ -28,8 +36,8 @@ class EvidenceReportSummaryTask(_StrictSummaryModel):
 class EvidenceReportNarrativeSummary(_StrictSummaryModel):
     report_type: ReportType
     summary: str = Field(min_length=1, max_length=1200)
-    metric_refs: list[str] = Field(min_length=1, max_length=8)
-    caveats: list[str] = Field(default_factory=list, max_length=8)
+    metric_refs: list[str] = Field(min_length=1, max_length=16)
+    caveats: list[str] = Field(default_factory=list, max_length=12)
     uses_real_capital: Literal[False] = False
     live_order_routing: Literal[False] = False
 
@@ -91,7 +99,7 @@ def summarize_evidence_report(
         )
 
     try:
-        summary = EvidenceReportNarrativeSummary.model_validate(payload)
+        summary = EvidenceReportNarrativeSummary.model_validate(_normalize_summary_payload(payload))
     except (ValidationError, ValueError):
         return EvidenceReportSummaryResult(
             accepted=False,
@@ -123,9 +131,53 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"invalid JSON constant: {value}")
 
 
+def _normalize_summary_payload(payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+    normalized = dict(payload)
+    if "caveats" not in normalized and "caves" in normalized:
+        normalized["caveats"] = normalized.pop("caves")
+    for field_name in ("summary", "metric_refs", "caveats"):
+        if field_name in normalized:
+            normalized[field_name] = _normalize_false_safety_flag_echoes(normalized[field_name])
+    return normalized
+
+
+def _normalize_false_safety_flag_echoes(value: Any) -> Any:
+    if isinstance(value, str):
+        normalized = value
+        replacements = (
+            (
+                r"\buses[_ -]?real[_ -]?capital\s*(?:=|is|:)?\s*false\b",
+                "research_capital_authority=false",
+            ),
+            (
+                r"\blive[_ -]?order[_ -]?routing\s*(?:=|is|:)?\s*false\b",
+                "execution_authority=false",
+            ),
+            (
+                r"\b(?:no|not|without)\s+live\s+order\s+routing\b",
+                "no execution authority",
+            ),
+        )
+        for pattern, replacement in replacements:
+            normalized = re.sub(pattern, replacement, normalized, flags=re.IGNORECASE)
+        return normalized
+    if isinstance(value, list):
+        return [_normalize_false_safety_flag_echoes(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_normalize_false_safety_flag_echoes(item) for item in value)
+    if isinstance(value, dict):
+        return {
+            key: _normalize_false_safety_flag_echoes(item)
+            for key, item in value.items()
+        }
+    return value
+
+
 def _reject_unsafe_string_values(value: Any) -> None:
     if isinstance(value, str):
-        for term, pattern in UNSAFE_TEXT_PATTERNS:
+        for term, pattern in _REPORT_UNSAFE_TEXT_PATTERNS:
             if pattern.search(value):
                 raise ValueError(f"unsafe report summary text contains prohibited term: {term}")
         return

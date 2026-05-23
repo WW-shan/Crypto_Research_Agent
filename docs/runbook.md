@@ -84,6 +84,57 @@ local credentials. In pytest runs, real LLM CLI paths are opt-in via
 `CRYPTO_ALPHA_AGENT_RUN_REAL_LLM_TESTS=1` so the standard regression suite stays
 deterministic.
 
+### Real LLM Test Policy
+
+Local owner-directed development should run the real positive LLM integration
+tests when credentials are configured. They cover the adapter smoke path,
+`plan-experiments`, `research-loop`, and `evidence-report`:
+
+```bash
+uv run --extra dev pytest \
+  tests/test_llm_configured_client.py::test_real_configured_llm_smoke_returns_valid_research_proposal_without_secret_leaks \
+  tests/test_real_llm_integration_policy.py \
+  -q
+```
+
+In CI or shared automation, set `CRYPTO_ALPHA_AGENT_RUN_REAL_LLM_TESTS=1`
+explicitly before running real provider tests. Without that opt-in, real LLM
+integration tests skip rather than consuming credentials or network budget.
+For deterministic local regression without real provider calls, run:
+
+```bash
+uv run --extra dev pytest -m "not llm_integration" -q
+```
+
+Fake/injected LLM tests remain the deterministic adversarial suite. Do not
+replace them with real-model prompts for invalid JSON, schema violations,
+live-order requests, wallet/private-key requests, MEV or premium-RPC requests,
+high-capital requests, or malicious text that must be rejected by guards.
+
+Before committing any LLM test-policy change, run the staged secret scan:
+
+```bash
+git diff --cached --name-only
+uv run python -m crypto_alpha_agent.security.secret_scan --staged --fail-on-empty-with-untracked
+```
+
+For generated local surfaces, scan the relevant paths explicitly:
+
+```bash
+uv run python -m crypto_alpha_agent.security.secret_scan \
+  --path var/memory/evidence.jsonl \
+  --path var/reports/daily/latest.md \
+  --path var/reports/weekly/latest.md \
+  --path var/rollout/latest.json \
+  --path var/run-manifests/latest.json
+```
+
+The scan reports only labels and surface names. It must not print configured
+keys, provider URLs, local proxy values, raw provider headers, memory contents,
+or raw LLM responses. If a real provider call fails because the provider is
+down, times out, or rejects the configured model, record it as an integration
+environment failure. Do not treat that as product success.
+
 Some public crypto data endpoints may fail or timeout on the direct network
 route. The operator may use a local proxy for source probes and data ingestion.
 Keep proxy configuration local and record the source-health route as direct,

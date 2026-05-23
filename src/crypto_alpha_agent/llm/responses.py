@@ -83,7 +83,9 @@ class OpenAIResponsesAdapter:
             "that matches the caller's requested schema. Do not request prohibited "
             "execution capabilities, secret material, privileged infrastructure, "
             "or capital beyond the supplied profile. Do not wrap JSON in markdown "
-            "fences.\n\n"
+            "fences. Do not add fields outside the requested schema. In free-text "
+            "fields, do not repeat prohibited execution terms; describe boundaries "
+            "as research-only and public-data-only instead.\n\n"
             f"{schema_hint}\n\n"
             "Task JSON:\n"
             + json.dumps(task_payload, sort_keys=True, default=str)
@@ -158,7 +160,9 @@ def _schema_hint_for_task(task: Any) -> str:
             "speed_dependency, rpc_dependency, action_mode. Use action_mode "
             '"research_only"; use speed_dependency and rpc_dependency values "none", '
             '"low", "medium", or "high"; keep capital_required_usd within the '
-            "supplied current_capital_usd."
+            "supplied current_capital_usd. Do not include extra fields or prohibited "
+            "execution terms in thesis, hypothesis, assumptions, evidence, "
+            "disconfirmation, or data_needed."
         )
     if task_type == "ExperimentPlannerTask":
         return (
@@ -167,13 +171,22 @@ def _schema_hint_for_task(task: Any) -> str:
             "include strategy_family, parameter_changes, why_it_might_improve_edge, "
             "disconfirmation_tests, stop_conditions, uses_real_capital=false, and "
             "live_order_routing=false. Use only registered strategy families and "
-            "do not repeat blocked parameter sets from the task context."
+            "do not repeat blocked parameter sets from the task context. Do not use "
+            "prohibited execution terms in why_it_might_improve_edge, "
+            "disconfirmation_tests, or stop_conditions; phrase safety boundaries as "
+            "research-only, paper-only, public-data-only, after-cost, and "
+            "walk-forward checks."
         )
     if task_type == "EvidenceReportSummaryTask":
         return (
             "Schema instructions: return exactly one EvidenceReportNarrativeSummary "
             "JSON object with report_type, summary, metric_refs, caveats, "
             "uses_real_capital=false, and live_order_routing=false. Summarize only "
-            "the deterministic metrics supplied in the task."
+            "the deterministic metrics supplied in the task. metric_refs must be a "
+            "short list of 1 to 16 strings, and caveats must be a short list of 0 to "
+            "12 strings. Do not include uses_real_capital or live_order_routing as "
+            "metric_refs; those are structural boolean fields only. Do not include "
+            "extra fields or prohibited execution terms in summary, metric_refs, or "
+            "caveats."
         )
     return "Schema instructions: return only a valid JSON object for the caller."

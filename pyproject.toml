@@ -32,6 +32,8 @@ crypto-alpha-agent = "crypto_alpha_agent.cli:main"
 where = ["src"]
 
 [tool.pytest.ini_options]
+addopts = "--strict-markers"
 markers = [
     "integration: tests that call configured external services",
+    "llm_integration: tests that call the configured real LLM provider",
 ]

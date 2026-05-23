@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from crypto_alpha_agent.cli import main
 from crypto_alpha_agent.data.models import SourceRecord
 from crypto_alpha_agent.data.store import ResearchDataStore
@@ -325,6 +327,116 @@ def test_report_summarizer_rejects_invalid_or_unsafe_output_without_raw_text(tmp
     assert summary_result.llm_response_metadata["raw_response_length"] == len(unsafe_response)
     assert "private-key seed phrase" not in payload
     assert "live order" not in payload
+
+
+def test_report_summarizer_accepts_common_caveats_alias_without_extra_raw_text(tmp_path):
+    report = build_daily_evidence_report(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        strategy_families=[STRATEGY_FAMILY],
+    )
+
+    def fake_llm(_task):
+        return json.dumps(
+            {
+                "report_type": "daily",
+                "summary": "Daily evidence remains research-only and still needs more samples.",
+                "metric_refs": ["paper_outcome_count=0"],
+                "caves": ["Common provider typo should be normalized to caveats."],
+                "uses_real_capital": False,
+                "live_order_routing": False,
+            }
+        )
+
+    summary_result = summarize_evidence_report(report, report_type="daily", llm=fake_llm)
+    payload = json.dumps(summary_result.model_dump(mode="json"), sort_keys=True)
+
+    assert summary_result.accepted is True
+    assert summary_result.summary is not None
+    assert summary_result.summary.caveats == [
+        "Common provider typo should be normalized to caveats."
+    ]
+    assert "Common provider typo" in payload
+
+
+def test_report_summarizer_normalizes_false_safety_flag_echoes_without_raw_text(tmp_path):
+    report = build_daily_evidence_report(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        strategy_families=[STRATEGY_FAMILY],
+    )
+
+    def fake_llm(_task):
+        return json.dumps(
+            {
+                "report_type": "daily",
+                "summary": (
+                    "The report has uses_real_capital=false and "
+                    "live_order_routing=false with no live order routing."
+                ),
+                "metric_refs": [
+                    "uses_real_capital=false",
+                    "live_order_routing=false",
+                ],
+                "caveats": ["Keep the execution authority flag false."],
+                "uses_real_capital": False,
+                "live_order_routing": False,
+            }
+        )
+
+    summary_result = summarize_evidence_report(report, report_type="daily", llm=fake_llm)
+
+    assert summary_result.accepted is True
+    assert summary_result.summary is not None
+    free_text = json.dumps(
+        {
+            "summary": summary_result.summary.summary,
+            "metric_refs": summary_result.summary.metric_refs,
+            "caveats": summary_result.summary.caveats,
+        },
+        sort_keys=True,
+    )
+    assert "uses_real_capital" not in free_text
+    assert "live_order_routing" not in free_text
+    assert "live order routing" not in free_text
+    assert "execution_authority=false" in free_text
+
+
+@pytest.mark.parametrize(
+    "unsafe_summary",
+    [
+        "Use a live order after this report.",
+        "Keep no live order routing as a safety flag, then place one after this report.",
+    ],
+)
+def test_report_summarizer_rejects_valid_unsafe_instruction_without_raw_text(
+    tmp_path,
+    unsafe_summary,
+):
+    report = build_daily_evidence_report(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        strategy_families=[STRATEGY_FAMILY],
+    )
+
+    def fake_llm(_task):
+        return json.dumps(
+            {
+                "report_type": "daily",
+                "summary": unsafe_summary,
+                "metric_refs": ["validation_evidence_count=0"],
+                "caveats": [],
+                "uses_real_capital": False,
+                "live_order_routing": False,
+            }
+        )
+
+    summary_result = summarize_evidence_report(report, report_type="daily", llm=fake_llm)
+    payload = json.dumps(summary_result.model_dump(mode="json"), sort_keys=True)
+
+    assert summary_result.accepted is False
+    assert summary_result.rejected_reason_codes == ["invalid_summary"]
+    assert unsafe_summary not in payload
 
 
 def _seed_daily_fixture(db_path, memory_path) -> None:
