@@ -1012,6 +1012,29 @@ Completion standard:
 - Unsafe or unverifiable AI output is persisted as rejected memory, not silently
   ignored.
 
+Phase 11 completion record:
+
+- Added an AI research context builder that summarizes recent validation
+  evidence, paper evidence with execution-realism fields, source health,
+  stopped families, blocked parameter sets, available data fields, evidence
+  refs, and registered validators.
+- Tightened `plan-experiments` LLM proposal acceptance. Registered experiment
+  proposals now require evidence refs, parameter changes, expected edge
+  mechanism, disconfirmation tests, stop conditions, required data fields, and
+  selected validator. Sparse, uncited, unsupported, duplicate, direct
+  paper-outcome, live execution, private RPC, MEV, wallet-key, or over-capital
+  proposals are rejected and persisted as rejected memory.
+- Added design-only strategy-template proposals. AI can suggest a validator
+  design, but the output is tagged as requiring deterministic tests and human
+  review before implementation.
+- Added canonical duplicate experiment detection for rejected blocked
+  parameters and previously accepted proposals.
+- Added `ai-research-memo`, a weekly read-only memo that explains what changed,
+  what failed, what should stop, and which experiment is next.
+- Phase 11 did not add live trading, wallet-key access, exchange order routing,
+  MEV, private RPC, premium RPC, speed-edge execution, real-capital authority,
+  or any ability for AI to create paper outcomes directly.
+
 ### Phase 12: Profit Evidence Review And Portfolio Governance
 
 Goal: Turn accumulated evidence into explicit profit/no-profit decisions.

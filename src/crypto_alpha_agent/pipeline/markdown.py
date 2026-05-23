@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from crypto_alpha_agent.pipeline.ai_research_memo import AIResearchMemo
 from crypto_alpha_agent.pipeline.expansion_preparation import ExpansionPreparationReport
 from crypto_alpha_agent.pipeline.evidence_reports import DailyEvidenceReport, WeeklyEvidenceReport
 from crypto_alpha_agent.pipeline.research_loop import ResearchLoopReport
@@ -332,6 +333,31 @@ def render_weekly_evidence_report_markdown(report: WeeklyEvidenceReport) -> str:
     else:
         lines.append("| none | 0/30 |")
     lines.extend(_llm_summary_lines(report))
+    return "\n".join(lines) + "\n"
+
+
+def render_ai_research_memo_markdown(memo: AIResearchMemo) -> str:
+    lines = [
+        "# Weekly AI Research Memo",
+        "",
+        "## Safety",
+        f"Real capital: {_bool_text(memo.uses_real_capital)}",
+        f"Live order routing: {_bool_text(memo.live_order_routing)}",
+        "",
+        "## What Changed",
+    ]
+    lines.extend(_bullet_lines(memo.what_changed))
+    lines.extend(["", "## What Failed"])
+    lines.extend(_bullet_lines(memo.what_failed))
+    lines.extend(["", "## What Should Stop"])
+    lines.extend(_bullet_lines(memo.what_should_stop))
+    lines.extend(["", "## Next Experiment"])
+    lines.extend(_bullet_lines(memo.next_experiment))
+    lines.extend(["", "## Evidence Refs"])
+    lines.extend(_bullet_lines(memo.evidence_refs))
+    if memo.rejected_reason_codes:
+        lines.extend(["", "## Rejected Reason Codes"])
+        lines.extend(_bullet_lines(memo.rejected_reason_codes))
     return "\n".join(lines) + "\n"
 
 

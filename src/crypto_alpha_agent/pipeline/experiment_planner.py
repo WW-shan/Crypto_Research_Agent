@@ -15,6 +15,7 @@ from crypto_alpha_agent.evidence.paper import PaperEvidencePackage, aggregate_pa
 from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
 from crypto_alpha_agent.memory.store import MemoryRecord, MemoryStore
 from crypto_alpha_agent.orchestrator import DETERMINISTIC_EVENT_TIME_ISO
+from crypto_alpha_agent.pipeline.ai_research_context import AIResearchContext, build_ai_research_context
 from crypto_alpha_agent.risk.charter_guard import guard_generated_idea
 from crypto_alpha_agent.strategy import default_strategy_registry
 
@@ -28,6 +29,7 @@ _DEGRADED_MARKERS = {
 }
 _FUNDING_BASELINE_PARAMETERS = {"threshold_abs": 0.0005, "hold_bars": 1}
 _FAMILY_SPECIFIC_EVIDENCE_REQUIRED = {"funding_open_interest_crowding"}
+_SUPPORTED_GAP_REFS = {"gap:collect_more_walk_forward_data"}
 
 
 class _PlannerModel(BaseModel):
@@ -40,8 +42,11 @@ class ExperimentProposal(_PlannerModel):
     parameter_changes: dict[str, Any]
     evidence_refs: list[str]
     why_it_might_improve_edge: str = Field(min_length=1)
+    expected_edge_mechanism: str = Field(min_length=1)
     disconfirmation_tests: list[str] = Field(min_length=1)
     stop_conditions: list[str] = Field(min_length=1)
+    required_data_fields: list[str] = Field(min_length=1)
+    selected_validator: str = Field(min_length=1)
     allowed_data_sources: list[str] = Field(min_length=1)
     max_capital_usd: float = Field(ge=0)
     max_notional_usd: float = Field(ge=0)
@@ -61,11 +66,55 @@ class ExperimentProposal(_PlannerModel):
         return self
 
 
+class StrategyTemplateProposal(_PlannerModel):
+    proposal_id: str = Field(min_length=1)
+    strategy_family: str = Field(min_length=1)
+    proposed_validator_name: str = Field(min_length=1)
+    thesis: str = Field(min_length=1)
+    expected_edge_mechanism: str = Field(min_length=1)
+    required_data_fields: list[str] = Field(min_length=1)
+    evidence_refs: list[str] = Field(min_length=1)
+    disconfirmation_tests: list[str] = Field(min_length=1)
+    stop_conditions: list[str] = Field(min_length=1)
+    deterministic_tests_required: Literal[True] = True
+    human_review_required: Literal[True] = True
+    uses_real_capital: Literal[False] = False
+    live_order_routing: Literal[False] = False
+
+    @model_validator(mode="after")
+    def _reject_execution_authority(self) -> "StrategyTemplateProposal":
+        if self.uses_real_capital or self.live_order_routing:
+            raise ValueError("strategy template proposals cannot authorize execution")
+        return self
+
+
 class ExperimentBatch(_PlannerModel):
     batch_id: str = Field(min_length=1)
     proposals: list[ExperimentProposal]
+    strategy_template_proposals: list[StrategyTemplateProposal] = Field(default_factory=list)
     uses_real_capital: Literal[False] = False
     live_order_routing: Literal[False] = False
+
+
+class _LLMExperimentProposalPayload(_PlannerModel):
+    strategy_family: str = Field(min_length=1)
+    parameter_changes: dict[str, Any]
+    evidence_refs: list[str] = Field(min_length=1)
+    why_it_might_improve_edge: str = Field(min_length=1)
+    expected_edge_mechanism: str = Field(min_length=1)
+    disconfirmation_tests: list[str] = Field(min_length=1)
+    stop_conditions: list[str] = Field(min_length=1)
+    required_data_fields: list[str] = Field(min_length=1)
+    selected_validator: str = Field(min_length=1)
+    allowed_data_sources: list[str] | None = None
+    uses_real_capital: Literal[False] = False
+    live_order_routing: Literal[False] = False
+
+    @field_validator("parameter_changes")
+    @classmethod
+    def _validate_json_safe_parameters(cls, value: dict[str, Any]) -> dict[str, Any]:
+        _json_safe(value)
+        return value
 
 
 class ExperimentPlannerInput(_PlannerModel):
@@ -93,6 +142,11 @@ class ExperimentPlannerTask(_PlannerModel):
     degraded_strategy_families: list[str]
     blocked_parameter_sets: dict[str, list[dict[str, Any]]]
     memory_context: ExperimentPlannerMemoryContext
+    source_health_summaries: list[dict[str, Any]] = Field(default_factory=list)
+    available_data_fields: dict[str, list[str]] = Field(default_factory=dict)
+    evidence_refs: list[str] = Field(default_factory=list)
+    registered_validators: list[dict[str, Any]] = Field(default_factory=list)
+    research_context: dict[str, Any] = Field(default_factory=dict)
     allowed_tools: list[str] = Field(default_factory=lambda: ["local_evidence_ledger", "memory_facts", "charter_guard"])
     network_policy: Literal["offline"] = "offline"
     current_capital_usd: float = Field(ge=0)
@@ -102,6 +156,7 @@ class ExperimentPlannerResult(_PlannerModel):
     batch_id: str
     accepted: bool
     proposals: list[ExperimentProposal]
+    strategy_template_proposals: list[StrategyTemplateProposal] = Field(default_factory=list)
     degraded_strategy_families: list[str]
     decision_reason_codes: list[str] = Field(default_factory=list)
     rejected_reason_codes: list[str]
@@ -137,6 +192,12 @@ def plan_next_experiments(
     paper_outcomes = PaperOutcomeLedger(db_path).load_outcomes(strategy_family=strategy_family)
     paper_evidence = aggregate_paper_evidence(_paper_mapping(outcome) for outcome in paper_outcomes)
     memory_records = MemoryStore(memory_path).list_records()
+    research_context = build_ai_research_context(
+        db_path=db_path,
+        memory_path=memory_path,
+        strategy_family=strategy_family,
+        current_capital_usd=current_capital_usd,
+    )
     stopped_families = _load_stopped_strategy_families(memory_path)
     degraded_families = _safe_degraded_families(
         _dedupe(
@@ -147,6 +208,7 @@ def plan_next_experiments(
         )
     )
     blocked_parameter_sets = _blocked_parameter_sets(memory_records)
+    duplicate_signatures = _experiment_signatures(memory_records)
 
     if llm is not None:
         result = _plan_with_llm(
@@ -157,6 +219,8 @@ def plan_next_experiments(
             paper_evidence=paper_evidence,
             degraded_families=degraded_families,
             blocked_parameter_sets=blocked_parameter_sets,
+            duplicate_signatures=duplicate_signatures,
+            research_context=research_context,
         )
     else:
         proposals = _fallback_proposals(
@@ -166,6 +230,7 @@ def plan_next_experiments(
             paper_evidence=paper_evidence,
             degraded_families=degraded_families,
             blocked_parameter_sets=blocked_parameter_sets,
+            duplicate_signatures=duplicate_signatures,
         )
         accepted = bool(proposals)
         result = ExperimentPlannerResult(
@@ -189,7 +254,7 @@ def plan_next_experiments(
             [*result.decision_reason_codes, "stopped_family_override_used"]
         )
 
-    should_persist_deterministic_result = bool(result.proposals) and not _is_no_evidence_deterministic_fallback(
+    should_persist_deterministic_result = bool(result.proposals or result.strategy_template_proposals) and not _is_no_evidence_deterministic_fallback(
         validation_evidence=validation_evidence,
         paper_evidence=paper_evidence,
         degraded_families=degraded_families,
@@ -209,6 +274,8 @@ def _plan_with_llm(
     paper_evidence: list[PaperEvidencePackage],
     degraded_families: list[str],
     blocked_parameter_sets: dict[str, list[dict[str, Any]]],
+    duplicate_signatures: set[str],
+    research_context: AIResearchContext,
 ) -> ExperimentPlannerResult:
     task = _planner_task(
         planner_input,
@@ -217,6 +284,7 @@ def _plan_with_llm(
         paper_evidence=paper_evidence,
         degraded_families=degraded_families,
         blocked_parameter_sets=blocked_parameter_sets,
+        research_context=research_context,
     )
     raw_response = llm(task)
     response_metadata = _raw_response_metadata(raw_response, accepted=False)
@@ -249,7 +317,7 @@ def _plan_with_llm(
         return result
 
     guard = guard_generated_idea(payload, max_capital_usd=planner_input.current_capital_usd)
-    if not guard.approved or _payload_requests_execution(payload):
+    if not guard.approved or _payload_requests_execution(payload) or _payload_requests_paper_outcome(payload):
         result = ExperimentPlannerResult(
             batch_id=batch_id,
             accepted=False,
@@ -262,9 +330,7 @@ def _plan_with_llm(
         result.__dict__["_response_metadata"] = response_metadata
         return result
 
-    proposal_payloads = payload.get("proposals", payload) if isinstance(payload, dict) else payload
-    if isinstance(proposal_payloads, Mapping):
-        proposal_payloads = [proposal_payloads]
+    proposal_payloads, template_payloads = _llm_payload_sections(payload)
     if not isinstance(proposal_payloads, list):
         result = ExperimentPlannerResult(
             batch_id=batch_id,
@@ -279,32 +345,51 @@ def _plan_with_llm(
         return result
 
     proposals: list[ExperimentProposal] = []
+    rejected_reasons: list[str] = []
     for index, item in enumerate(proposal_payloads[: planner_input.max_proposals], start=1):
         if not isinstance(item, Mapping):
+            rejected_reasons.append("invalid_shape")
             continue
-        try:
-            proposal = _proposal_from_payload(
-                item,
-                planner_input=planner_input,
-                batch_id=batch_id,
-                index=index,
-                validation_evidence=validation_evidence,
-                paper_evidence=paper_evidence,
-                degraded_families=degraded_families,
-                blocked_parameter_sets=blocked_parameter_sets,
-            )
-        except (ValidationError, ValueError):
-            proposal = None
+        proposal, rejected_reason = _proposal_from_payload(
+            item,
+            planner_input=planner_input,
+            batch_id=batch_id,
+            index=index,
+            validation_evidence=validation_evidence,
+            paper_evidence=paper_evidence,
+            degraded_families=degraded_families,
+            blocked_parameter_sets=blocked_parameter_sets,
+            duplicate_signatures=duplicate_signatures,
+            research_context=research_context,
+        )
         if proposal is not None:
             proposals.append(proposal)
+        elif rejected_reason is not None:
+            rejected_reasons.append(rejected_reason)
 
-    if not proposals:
+    template_proposals: list[StrategyTemplateProposal] = []
+    if isinstance(template_payloads, list):
+        for item in template_payloads[: planner_input.max_proposals]:
+            if not isinstance(item, Mapping):
+                rejected_reasons.append("invalid_shape")
+                continue
+            template, rejected_reason = _template_from_payload(
+                item,
+                planner_input=planner_input,
+                research_context=research_context,
+            )
+            if template is not None:
+                template_proposals.append(template)
+            elif rejected_reason is not None:
+                rejected_reasons.append(rejected_reason)
+
+    if not proposals and not template_proposals:
         result = ExperimentPlannerResult(
             batch_id=batch_id,
             accepted=False,
             proposals=[],
             degraded_strategy_families=degraded_families,
-            rejected_reason_codes=["no_safe_registered_proposals"],
+            rejected_reason_codes=_dedupe([*rejected_reasons, "no_safe_registered_proposals"]),
             validation_evidence_count=len(validation_evidence),
             paper_evidence_count=len(paper_evidence),
         )
@@ -315,12 +400,16 @@ def _plan_with_llm(
         batch_id=batch_id,
         accepted=True,
         proposals=proposals,
+        strategy_template_proposals=template_proposals,
         degraded_strategy_families=degraded_families,
         rejected_reason_codes=[],
         validation_evidence_count=len(validation_evidence),
         paper_evidence_count=len(paper_evidence),
     )
     result.__dict__["_response_metadata"] = _raw_response_metadata(raw_response, accepted=True)
+    partial_rejected_reason_codes = _dedupe(rejected_reasons)
+    if partial_rejected_reason_codes:
+        result.__dict__["_partial_rejected_reason_codes"] = partial_rejected_reason_codes
     return result
 
 
@@ -332,6 +421,7 @@ def _fallback_proposals(
     paper_evidence: list[PaperEvidencePackage],
     degraded_families: list[str],
     blocked_parameter_sets: dict[str, list[dict[str, Any]]],
+    duplicate_signatures: set[str],
 ) -> list[ExperimentProposal]:
     families = _candidate_families(planner_input, degraded_families=degraded_families)
     proposals: list[ExperimentProposal] = []
@@ -349,6 +439,9 @@ def _fallback_proposals(
         for parameters, reason in _fallback_parameter_sets(family_validation, family_paper):
             if _parameters_were_blocked(family, parameters, blocked_parameter_sets):
                 continue
+            spec = default_strategy_registry(current_capital_usd=planner_input.current_capital_usd).get(family)
+            if _experiment_signature(family, spec.validator_name, parameters) in duplicate_signatures:
+                continue
             proposals.append(
                 _build_proposal(
                     planner_input,
@@ -358,6 +451,7 @@ def _fallback_proposals(
                     parameter_changes=parameters,
                     evidence_refs=_evidence_refs(family_validation, family_paper),
                     why_it_might_improve_edge=reason,
+                    expected_edge_mechanism=reason,
                 )
             )
             if len(proposals) >= planner_input.max_proposals:
@@ -434,15 +528,36 @@ def _proposal_from_payload(
     paper_evidence: list[PaperEvidencePackage],
     degraded_families: list[str],
     blocked_parameter_sets: dict[str, list[dict[str, Any]]],
-) -> ExperimentProposal | None:
-    family = str(item.get("strategy_family", "")).strip()
+    duplicate_signatures: set[str],
+    research_context: AIResearchContext,
+) -> tuple[ExperimentProposal | None, str | None]:
+    try:
+        draft = _LLMExperimentProposalPayload.model_validate(item)
+    except ValidationError:
+        return None, "invalid_proposal_schema"
+
+    family = draft.strategy_family.strip()
     if family not in _candidate_families(planner_input, degraded_families=degraded_families):
-        return None
-    parameters = item.get("parameter_changes")
-    if not isinstance(parameters, dict):
-        parameters = {}
+        return None, "unsupported_strategy_family"
+    registry = default_strategy_registry(current_capital_usd=planner_input.current_capital_usd)
+    spec = registry.get(family)
+    if draft.selected_validator != spec.validator_name:
+        return None, "unsupported_validator"
+    if draft.allowed_data_sources is not None and set(draft.allowed_data_sources) - set(spec.required_record_types):
+        return None, "unsupported_data_sources"
+    parameters = dict(draft.parameter_changes)
     if _parameters_were_blocked(family, parameters, blocked_parameter_sets):
-        return None
+        return None, "duplicate_experiment"
+    if _experiment_signature(family, draft.selected_validator, parameters) in duplicate_signatures:
+        return None, "duplicate_experiment"
+    if not _required_data_fields_supported(
+        draft.required_data_fields,
+        required_record_types=list(spec.required_record_types),
+        research_context=research_context,
+    ):
+        return None, "unsupported_data_fields"
+    if not _evidence_refs_supported(draft.evidence_refs, research_context, parameters):
+        return None, "missing_evidence_ref"
     family_validation = [evidence for evidence in validation_evidence if evidence.strategy_family == family]
     family_paper = [evidence for evidence in paper_evidence if evidence.strategy_family == family]
     if _should_skip_without_family_evidence(
@@ -451,21 +566,22 @@ def _proposal_from_payload(
         family_validation=family_validation,
         family_paper=family_paper,
     ):
-        return None
-    return _build_proposal(
+        return None, "missing_family_evidence"
+    proposal = _build_proposal(
         planner_input,
         batch_id=batch_id,
         index=index,
         strategy_family=family,
-        parameter_changes=dict(parameters),
-        evidence_refs=_evidence_refs(family_validation, family_paper),
-        why_it_might_improve_edge=str(
-            item.get("why_it_might_improve_edge")
-            or "The LLM proposed a bounded parameter-only experiment for registered public funding data."
-        ),
-        disconfirmation_tests=_string_list(item.get("disconfirmation_tests")),
-        stop_conditions=_string_list(item.get("stop_conditions")),
+        parameter_changes=parameters,
+        evidence_refs=list(draft.evidence_refs),
+        why_it_might_improve_edge=draft.why_it_might_improve_edge,
+        expected_edge_mechanism=draft.expected_edge_mechanism,
+        disconfirmation_tests=list(draft.disconfirmation_tests),
+        stop_conditions=list(draft.stop_conditions),
+        required_data_fields=list(draft.required_data_fields),
+        selected_validator=draft.selected_validator,
     )
+    return proposal, None
 
 
 def _build_proposal(
@@ -477,8 +593,11 @@ def _build_proposal(
     parameter_changes: dict[str, Any],
     evidence_refs: list[str],
     why_it_might_improve_edge: str,
+    expected_edge_mechanism: str,
     disconfirmation_tests: list[str] | None = None,
     stop_conditions: list[str] | None = None,
+    required_data_fields: list[str] | None = None,
+    selected_validator: str | None = None,
 ) -> ExperimentProposal:
     registry = default_strategy_registry(current_capital_usd=planner_input.current_capital_usd)
     spec = registry.get(strategy_family)
@@ -488,8 +607,9 @@ def _build_proposal(
         proposal_id=proposal_id,
         strategy_family=strategy_family,
         parameter_changes=parameter_changes,
-        evidence_refs=evidence_refs or ["evidence:none"],
+        evidence_refs=evidence_refs or [_gap_evidence_ref(parameter_changes)],
         why_it_might_improve_edge=why_it_might_improve_edge,
+        expected_edge_mechanism=expected_edge_mechanism,
         disconfirmation_tests=disconfirmation_tests
         or [
             "Reject if fee-adjusted expectancy is non-positive after validation.",
@@ -500,6 +620,8 @@ def _build_proposal(
             "Stop after two consecutive blocked validation runs for the same parameters.",
             "Stop if max drawdown exceeds the low-capital paper budget.",
         ],
+        required_data_fields=required_data_fields or list(spec.required_record_types),
+        selected_validator=selected_validator or spec.validator_name,
         allowed_data_sources=list(spec.required_record_types),
         max_capital_usd=planner_input.current_capital_usd,
         max_notional_usd=max_notional,
@@ -580,6 +702,7 @@ def _planner_task(
     paper_evidence: list[PaperEvidencePackage],
     degraded_families: list[str],
     blocked_parameter_sets: dict[str, list[dict[str, Any]]],
+    research_context: AIResearchContext,
 ) -> ExperimentPlannerTask:
     safe_degraded_families = _safe_degraded_families(degraded_families)
     raw_safe_blocked_parameter_sets = _safe_context_value(blocked_parameter_sets)
@@ -602,6 +725,17 @@ def _planner_task(
         degraded_strategy_families=safe_degraded_families,
         blocked_parameter_sets=safe_blocked_parameter_sets,
         memory_context=memory_context,
+        source_health_summaries=[
+            _safe_context_value(item.model_dump(mode="python"))
+            for item in research_context.source_health_summaries
+        ],
+        available_data_fields=research_context.available_data_fields,
+        evidence_refs=list(research_context.evidence_refs),
+        registered_validators=[
+            _safe_context_value(item.model_dump(mode="python"))
+            for item in research_context.registered_validators
+        ],
+        research_context=_safe_context_value(research_context.model_dump(mode="python")),
         current_capital_usd=planner_input.current_capital_usd,
     )
 
@@ -633,7 +767,156 @@ def _parameters_were_blocked(
     parameters: dict[str, Any],
     blocked_parameter_sets: dict[str, list[dict[str, Any]]],
 ) -> bool:
-    return any(parameters == blocked for blocked in blocked_parameter_sets.get(family, []))
+    candidate = _canonical_parameters(parameters)
+    return any(candidate == _canonical_parameters(blocked) for blocked in blocked_parameter_sets.get(family, []))
+
+
+def _llm_payload_sections(payload: Any) -> tuple[list[Any] | Any, list[Any] | Any]:
+    if isinstance(payload, list):
+        return payload, []
+    if not isinstance(payload, Mapping):
+        return payload, []
+    proposal_payloads = payload.get("proposals")
+    if proposal_payloads is None and _looks_like_experiment_proposal(payload):
+        proposal_payloads = [payload]
+    if isinstance(proposal_payloads, Mapping):
+        proposal_payloads = [proposal_payloads]
+    template_payloads = payload.get("strategy_template_proposals", payload.get("template_proposals", []))
+    if isinstance(template_payloads, Mapping):
+        template_payloads = [template_payloads]
+    return proposal_payloads or [], template_payloads or []
+
+
+def _looks_like_experiment_proposal(payload: Mapping[str, Any]) -> bool:
+    return "strategy_family" in payload and "parameter_changes" in payload
+
+
+def _template_from_payload(
+    item: Mapping[str, Any],
+    *,
+    planner_input: ExperimentPlannerInput,
+    research_context: AIResearchContext,
+) -> tuple[StrategyTemplateProposal | None, str | None]:
+    try:
+        template = StrategyTemplateProposal.model_validate(item)
+    except ValidationError:
+        return None, "invalid_template_schema"
+    guard = guard_generated_idea(template, max_capital_usd=planner_input.current_capital_usd)
+    if not guard.approved or _payload_requests_execution(template.model_dump(mode="python")):
+        return None, "charter_violation"
+    if not _required_data_fields_supported(
+        template.required_data_fields,
+        required_record_types=list(research_context.available_data_fields),
+        research_context=research_context,
+    ):
+        return None, "unsupported_data_fields"
+    if not _evidence_refs_supported(template.evidence_refs, research_context, {}):
+        return None, "missing_evidence_ref"
+    return template, None
+
+
+def _required_data_fields_supported(
+    fields: Iterable[str],
+    *,
+    required_record_types: list[str],
+    research_context: AIResearchContext,
+) -> bool:
+    allowed = set(required_record_types)
+    for record_type in required_record_types:
+        allowed.update(research_context.available_data_fields.get(record_type, []))
+    normalized = {str(field).strip() for field in fields if str(field).strip()}
+    return bool(normalized) and normalized.issubset(allowed)
+
+
+def _evidence_refs_supported(
+    refs: Iterable[str],
+    research_context: AIResearchContext,
+    parameter_changes: Mapping[str, Any],
+) -> bool:
+    known_refs = set(research_context.evidence_refs)
+    resolved_refs = [str(ref).strip() for ref in refs if str(ref).strip()]
+    if not resolved_refs:
+        return False
+    for ref in resolved_refs:
+        if ref in known_refs:
+            continue
+        if _is_supported_gap_ref(ref, parameter_changes):
+            continue
+        return False
+    return True
+
+
+def _is_supported_gap_ref(ref: str, parameter_changes: Mapping[str, Any]) -> bool:
+    normalized = ref.strip().lower()
+    experiment_type = str(parameter_changes.get("experiment_type", "")).strip().lower()
+    if normalized in _SUPPORTED_GAP_REFS:
+        return experiment_type in {"", "collect_more_walk_forward_data"}
+    return False
+
+
+def _gap_evidence_ref(parameter_changes: Mapping[str, Any]) -> str:
+    experiment_type = str(parameter_changes.get("experiment_type", "")).strip()
+    if experiment_type == "collect_more_walk_forward_data":
+        return "gap:collect_more_walk_forward_data"
+    return "gap:supported_registered_baseline"
+
+
+def _experiment_signatures(records: Iterable[MemoryRecord]) -> set[str]:
+    signatures: set[str] = set()
+    registry = default_strategy_registry(current_capital_usd=300.0)
+    for record in records:
+        if not _record_blocks_duplicate(record):
+            continue
+        for proposal in _proposal_mappings_from_record(record):
+            family = proposal.get("strategy_family")
+            parameters = proposal.get("parameter_changes") or proposal.get("parameters")
+            if not isinstance(family, str) or not isinstance(parameters, dict):
+                continue
+            validator = proposal.get("selected_validator")
+            inferred_validator = ""
+            try:
+                inferred_validator = registry.get(family).validator_name
+            except KeyError:
+                pass
+            signatures.add(_experiment_signature(family, str(validator or inferred_validator), parameters))
+            signatures.add(_experiment_signature(family, "", parameters))
+    return signatures
+
+
+def _record_blocks_duplicate(record: MemoryRecord) -> bool:
+    tag_set = {tag.strip().lower() for tag in record.tags}
+    return bool(record.rejected_reasons) or bool(tag_set.intersection({"blocked", "rejected"}))
+
+
+def _proposal_mappings_from_record(record: MemoryRecord) -> list[Mapping[str, Any]]:
+    mappings: list[Mapping[str, Any]] = []
+    for section in (record.hypothesis, record.opportunity, record.score, record.paper_trade_outcome):
+        if not isinstance(section, Mapping):
+            continue
+        proposal = section.get("proposal")
+        if isinstance(proposal, Mapping):
+            mappings.append(proposal)
+        if "parameter_changes" in section or "parameters" in section:
+            mappings.append(section)
+    return mappings
+
+
+def _experiment_signature(
+    family: str,
+    selected_validator: str,
+    parameters: Mapping[str, Any],
+) -> str:
+    return "|".join(
+        [
+            family.strip(),
+            selected_validator.strip(),
+            _canonical_parameters(parameters),
+        ]
+    )
+
+
+def _canonical_parameters(parameters: Mapping[str, Any]) -> str:
+    return json.dumps(parameters, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def _evidence_refs(
@@ -653,6 +936,13 @@ def _paper_mapping(outcome: Any) -> dict[str, Any]:
         "status": outcome.status,
         "realized_net_pnl": outcome.net_pnl_usd,
         "max_drawdown_usd": outcome.max_drawdown_usd,
+        "notional_usd": outcome.notional_usd,
+        "gross_pnl_usd": outcome.gross_pnl_usd,
+        "fees_usd": outcome.fees_usd,
+        "slippage_usd": outcome.slippage_usd,
+        "cost_model_mode": outcome.cost_model_mode,
+        "stale_signal_status": outcome.stale_signal_status,
+        "fill_status": outcome.fill_status,
         "failure_reasons": list(outcome.failure_reasons),
     }
 
@@ -670,9 +960,23 @@ def _payload_requests_execution(payload: Any) -> bool:
     return False
 
 
+def _payload_requests_paper_outcome(payload: Any) -> bool:
+    if isinstance(payload, Mapping):
+        for key, value in payload.items():
+            normalized = str(key).lower()
+            if normalized in {"paper_outcomes", "paper_trade_outcomes", "paper_simulation_outcomes", "outcome_id"}:
+                return True
+            if _payload_requests_paper_outcome(value):
+                return True
+    if isinstance(payload, list):
+        return any(_payload_requests_paper_outcome(item) for item in payload)
+    return False
+
+
 def _persist_experiment_memory(memory_path: str | Path, result: ExperimentPlannerResult) -> None:
     store = MemoryStore(memory_path)
     metadata = result.__dict__.get("_response_metadata")
+    partial_rejected_reason_codes = list(result.__dict__.get("_partial_rejected_reason_codes") or [])
     if result.proposals:
         for proposal in result.proposals:
             store.upsert(
@@ -689,6 +993,57 @@ def _persist_experiment_memory(memory_path: str | Path, result: ExperimentPlanne
                     score={"accepted": result.accepted, "rejected_reason_codes": result.rejected_reason_codes},
                     rejected_reasons=list(result.rejected_reason_codes),
                     tags=["experiment-proposal", "accepted" if result.accepted else "rejected"],
+                )
+            )
+    if result.strategy_template_proposals:
+        for proposal in result.strategy_template_proposals:
+            store.upsert(
+                MemoryRecord(
+                    record_id=f"strategy-template-proposal:{result.batch_id}:{proposal.proposal_id}",
+                    created_at=DETERMINISTIC_EVENT_TIME_ISO,
+                    updated_at=DETERMINISTIC_EVENT_TIME_ISO,
+                    opportunity={
+                        "strategy_family": proposal.strategy_family,
+                        "evidence_refs": proposal.evidence_refs,
+                        "design_only": True,
+                        "uses_real_capital": False,
+                        "live_order_routing": False,
+                    },
+                    hypothesis={
+                        "template_proposal": proposal.model_dump(mode="python"),
+                        "llm_response": metadata,
+                    },
+                    score={
+                        "accepted": result.accepted,
+                        "deterministic_tests_required": proposal.deterministic_tests_required,
+                        "human_review_required": proposal.human_review_required,
+                        "rejected_reason_codes": result.rejected_reason_codes,
+                    },
+                    rejected_reasons=list(result.rejected_reason_codes),
+                    tags=["strategy-template-proposal", "design-only", "accepted" if result.accepted else "rejected"],
+                )
+            )
+    if result.proposals or result.strategy_template_proposals:
+        if partial_rejected_reason_codes:
+            store.upsert(
+                MemoryRecord(
+                    record_id=f"experiment-proposal:{result.batch_id}:partial-rejected",
+                    created_at=DETERMINISTIC_EVENT_TIME_ISO,
+                    updated_at=DETERMINISTIC_EVENT_TIME_ISO,
+                    opportunity={
+                        "batch_id": result.batch_id,
+                        "partial_batch_rejection": True,
+                        "uses_real_capital": False,
+                        "live_order_routing": False,
+                    },
+                    hypothesis={"llm_response": metadata},
+                    score={
+                        "accepted": False,
+                        "parent_batch_accepted": result.accepted,
+                        "rejected_reason_codes": partial_rejected_reason_codes,
+                    },
+                    rejected_reasons=partial_rejected_reason_codes,
+                    tags=["experiment-proposal", "rejected", "partial-batch"],
                 )
             )
         return

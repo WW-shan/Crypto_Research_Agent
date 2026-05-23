@@ -345,7 +345,22 @@ The normal operator baseline is:
      --offline-only
    ```
 
-4. If a strategy has at least 30 paper observations and clean walk-forward
+4. Generate the weekly AI research memo:
+
+   ```bash
+   uv run --extra dev crypto-alpha-agent ai-research-memo \
+     --db var/research.sqlite \
+     --memory var/memory/evidence.jsonl \
+     --out var/reports/weekly/2026-W21-ai-memo.md \
+     --current-capital-usd 300
+   ```
+
+   The memo is evidence-grounded and read-only. It summarizes what changed,
+   what failed, what should stop, and the next bounded experiment. It cannot
+   create paper outcomes, bypass registered validators, route orders, or use
+   live execution.
+
+5. If a strategy has at least 30 paper observations and clean walk-forward
    evidence, build a review artifact without enabling live execution:
 
    ```bash
@@ -558,6 +573,30 @@ What to inspect:
 - Whether near-paper eligibility or near-tiny-live review is true.
 - Whether artifact retention paths contain the daily Markdown/JSON captures,
   weekly reports, memory, SQLite, and rollout artifacts needed for audit.
+
+## AI Research Memo Workflow
+
+```bash
+uv run --extra dev crypto-alpha-agent ai-research-memo \
+  --db var/research.sqlite \
+  --memory var/memory/evidence.jsonl \
+  --out var/reports/weekly/2026-W21-ai-memo.md
+```
+
+The memo reads the same local evidence ledgers and memory used by
+`plan-experiments`. It carries no execution authority: AI proposals must cite
+existing validation or paper evidence, or an explicit supported data gap, and
+they may only select a registered validator or propose a design-only validator
+template that still needs deterministic tests and human review.
+
+What to inspect:
+
+- What changed in family sample size, validation count, and recommended action.
+- What failed, including rejected reason codes from weekly evidence and
+  experiment planning.
+- Which stopped or degraded families should remain blocked.
+- Which next experiment or validator-template proposal is suggested, with
+  evidence refs.
 
 ## Replay/Recovery Workflow
 

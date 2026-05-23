@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 
+from crypto_alpha_agent.data.models import SourceRecord
+from crypto_alpha_agent.data.store import ResearchDataStore
+from crypto_alpha_agent.evidence.ledger import PaperOutcomeLedger
+from crypto_alpha_agent.evidence.models import PaperSimulationOutcome
 from crypto_alpha_agent.agents.llm_contracts import HypothesisProposal, ResearchTask
 from crypto_alpha_agent.agents.scanner import ScannerSignal
+from crypto_alpha_agent.memory.store import MemoryRecord, MemoryStore
 from crypto_alpha_agent.pipeline.research_loop import ResearchLoopReport, ValidationSummary
 
 
@@ -178,3 +184,79 @@ def test_research_task_contains_compact_report_context_for_llm() -> None:
     assert captured[0].context["signals"][0]["asset"] == "BTC"
     assert captured[0].context["signals"][0]["metric"] == "funding_rate"
     assert captured[0].evidence
+
+
+def test_research_task_can_include_ai_research_context(tmp_path) -> None:
+    from crypto_alpha_agent.agents.llm_researcher import run_llm_research_node
+
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "memory.jsonl"
+    observed_at = datetime(2026, 5, 17, tzinfo=UTC)
+    PaperOutcomeLedger(db_path).upsert_outcomes(
+        [
+            PaperSimulationOutcome(
+                outcome_id="paper-llm-context",
+                run_id="paper-run-llm-context",
+                candidate_id="candidate-llm-context",
+                strategy_family="funding_extremity_price_confirmation",
+                symbol="BTC/USDT",
+                observed_at=observed_at,
+                status="closed",
+                signal_timestamp=observed_at,
+                entry_price=100.0,
+                exit_price=99.0,
+                quantity=0.1,
+                notional_usd=10.0,
+                gross_pnl_usd=-0.1,
+                fees_usd=0.02,
+                slippage_usd=0.01,
+                net_pnl_usd=-0.13,
+                max_drawdown_usd=0.13,
+                failure_reasons=("fee_killed_edge",),
+            )
+        ]
+    )
+    ResearchDataStore(db_path).upsert_records(
+        [
+            SourceRecord(
+                record_id="ccxt:funding_rate:source_health:2026-05-17T00:00:00+00:00",
+                source="ccxt",
+                record_type="source_health",
+                observed_at=observed_at,
+                payload={
+                    "source": "ccxt",
+                    "feed": "funding_rate",
+                    "success": True,
+                    "attempts": 1,
+                    "records_fetched": 1,
+                    "records_written": 1,
+                    "network_route": "public",
+                    "provider_status": "ok",
+                    "observed_at": observed_at.isoformat(),
+                },
+            )
+        ]
+    )
+    MemoryStore(memory_path).upsert(
+        MemoryRecord(
+            record_id="degraded:funding_extremity_price_confirmation",
+            opportunity={"strategy_family": "funding_extremity_price_confirmation"},
+            rejected_reasons=["fee_killed_edge"],
+            tags=["funding_extremity_price_confirmation", "degraded"],
+        )
+    )
+    llm, captured = _capturing_llm(_proposal_json())
+
+    result = run_llm_research_node(
+        _report(),
+        llm,
+        db_path=db_path,
+        memory_path=memory_path,
+    )
+
+    research_context = captured[0].context["ai_research_context"]
+    assert result.accepted is True
+    assert research_context["paper_evidence_packages"][0]["strategy_family"] == "funding_extremity_price_confirmation"
+    assert research_context["source_health_summaries"][0]["source"] == "ccxt"
+    assert research_context["stopped_strategy_families"] == ["funding_extremity_price_confirmation"]
+    assert research_context["registered_validators"]

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from crypto_alpha_agent.agents.llm_contracts import HypothesisProposal, ResearchTask
+from crypto_alpha_agent.pipeline.ai_research_context import build_ai_research_context
 from crypto_alpha_agent.pipeline.research_loop import ResearchLoopReport
 from crypto_alpha_agent.risk.charter_guard import CharterGuardDecision, guard_generated_idea
 
@@ -30,8 +32,17 @@ def run_llm_research_node(
     *,
     task_id: str = "llm-research",
     max_capital_usd: float = 300.0,
+    db_path: str | Path | None = None,
+    memory_path: str | Path | None = None,
+    strategy_family: str | None = None,
 ) -> LLMResearchResult:
-    task = _research_task_from_report(report, task_id=task_id)
+    task = _research_task_from_report(
+        report,
+        task_id=task_id,
+        db_path=db_path,
+        memory_path=memory_path,
+        strategy_family=strategy_family,
+    )
     raw_response = llm(task)
 
     try:
@@ -73,8 +84,23 @@ def run_llm_research_node(
     )
 
 
-def _research_task_from_report(report: ResearchLoopReport, *, task_id: str) -> ResearchTask:
-    context = _prompt_context(report)
+def _research_task_from_report(
+    report: ResearchLoopReport,
+    *,
+    task_id: str,
+    db_path: str | Path | None = None,
+    memory_path: str | Path | None = None,
+    strategy_family: str | None = None,
+) -> ResearchTask:
+    context = _prompt_context(
+        report,
+        ai_research_context=_optional_ai_research_context(
+            report,
+            db_path=db_path,
+            memory_path=memory_path,
+            strategy_family=strategy_family,
+        ),
+    )
     return ResearchTask(
         task_id=task_id,
         agent_role="hypothesis_generator",
@@ -88,8 +114,12 @@ def _research_task_from_report(report: ResearchLoopReport, *, task_id: str) -> R
     )
 
 
-def _prompt_context(report: ResearchLoopReport) -> dict[str, Any]:
-    return {
+def _prompt_context(
+    report: ResearchLoopReport,
+    *,
+    ai_research_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    context = {
         "run_id": report.run_id,
         "source_filter": report.source_filter,
         "record_type_filter": report.record_type_filter,
@@ -117,6 +147,9 @@ def _prompt_context(report: ResearchLoopReport) -> dict[str, Any]:
             for summary in report.validation_summaries[:10]
         ],
     }
+    if ai_research_context is not None:
+        context["ai_research_context"] = ai_research_context
+    return context
 
 
 def _signal_summary(signal: Any) -> dict[str, Any]:
@@ -173,7 +206,45 @@ def _evidence_from_context(context: dict[str, Any]) -> list[str]:
             f"{summary['strategy_family']} validation for {summary['asset']} "
             f"{summary['timeframe']} was {summary['status']}."
         )
+    ai_context = context.get("ai_research_context")
+    if isinstance(ai_context, dict):
+        evidence.append(
+            "AI research context includes "
+            f"{len(ai_context.get('paper_evidence_packages', []))} paper evidence packages, "
+            f"{len(ai_context.get('source_health_summaries', []))} source health summaries, "
+            f"and {len(ai_context.get('registered_validators', []))} registered validators."
+        )
     return evidence
+
+
+def _optional_ai_research_context(
+    report: ResearchLoopReport,
+    *,
+    db_path: str | Path | None,
+    memory_path: str | Path | None,
+    strategy_family: str | None,
+) -> dict[str, Any] | None:
+    if db_path is None or memory_path is None:
+        return None
+    context = build_ai_research_context(
+        db_path=db_path,
+        memory_path=memory_path,
+        strategy_family=strategy_family,
+        current_capital_usd=report.current_capital_usd,
+    )
+    return _rename_prompt_context_keys(context.model_dump(mode="python"))
+
+
+def _rename_prompt_context_keys(value: Any) -> Any:
+    if isinstance(value, dict):
+        renamed: dict[str, Any] = {}
+        for key, item in value.items():
+            safe_key = "execution_enabled" if key == "live_order_routing" else str(key)
+            renamed[safe_key] = _rename_prompt_context_keys(item)
+        return renamed
+    if isinstance(value, list):
+        return [_rename_prompt_context_keys(item) for item in value]
+    return value
 
 
 def _is_json_error(exc: ValidationError) -> bool:

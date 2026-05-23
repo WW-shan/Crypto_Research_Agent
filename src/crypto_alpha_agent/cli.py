@@ -35,6 +35,7 @@ from crypto_alpha_agent.llm.redaction import redact_text
 from crypto_alpha_agent.observability.logging import load_events
 from crypto_alpha_agent.observability.reports import generate_daily_report
 from crypto_alpha_agent.orchestrator import build_llm_research_graph
+from crypto_alpha_agent.pipeline.ai_research_memo import build_ai_research_memo
 from crypto_alpha_agent.pipeline.evidence_runner import run_daily_evidence_pipeline
 from crypto_alpha_agent.pipeline.evidence_run_ops import (
     EvidenceRunArtifact,
@@ -53,6 +54,7 @@ from crypto_alpha_agent.pipeline.evidence_reports import (
 )
 from crypto_alpha_agent.pipeline.expansion_preparation import build_expansion_preparation_report
 from crypto_alpha_agent.pipeline.markdown import (
+    render_ai_research_memo_markdown,
     render_daily_evidence_report_markdown,
     render_expansion_preparation_markdown,
     render_research_loop_markdown,
@@ -444,6 +446,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_offline_only_llm_argument(evidence_report_parser)
     evidence_report_parser.set_defaults(handler=_handle_evidence_report, parser=evidence_report_parser)
+
+    ai_research_memo_parser = subparsers.add_parser(
+        "ai-research-memo",
+        help="Generate a weekly evidence-grounded AI research memo without execution authority.",
+    )
+    ai_research_memo_parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite research data store.")
+    ai_research_memo_parser.add_argument("--memory", required=True, type=Path, help="Path to the JSONL memory store.")
+    ai_research_memo_parser.add_argument("--out", required=True, type=Path, help="Path for the Markdown memo.")
+    ai_research_memo_parser.add_argument("--strategy-family", help="Optional registered strategy family to plan next.")
+    ai_research_memo_parser.add_argument(
+        "--current-capital-usd",
+        type=_non_negative_finite_float,
+        default=300.0,
+        help="Operator capital profile used to cap paper notional.",
+    )
+    ai_research_memo_parser.set_defaults(handler=_handle_ai_research_memo)
 
     expansion_prep_parser = subparsers.add_parser(
         "expansion-prep-report",
@@ -1421,6 +1439,10 @@ def _handle_plan_experiments(args: argparse.Namespace) -> dict[str, Any]:
             proposal.model_dump(mode="json")
             for proposal in result.proposals
         ],
+        "strategy_template_proposals": [
+            proposal.model_dump(mode="json")
+            for proposal in result.strategy_template_proposals
+        ],
         "degraded_strategy_families": result.degraded_strategy_families,
         "accepted": result.accepted,
         "rejected_reason_codes": result.rejected_reason_codes,
@@ -1476,6 +1498,24 @@ def _handle_evidence_report(args: argparse.Namespace) -> dict[str, Any]:
         "live_order_routing": False,
         **llm_metadata,
         **summary_payload,
+    }
+
+
+def _handle_ai_research_memo(args: argparse.Namespace) -> dict[str, Any]:
+    memo = build_ai_research_memo(
+        db_path=args.db,
+        memory_path=args.memory,
+        strategy_family=args.strategy_family,
+        current_capital_usd=args.current_capital_usd,
+    )
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(render_ai_research_memo_markdown(memo), encoding="utf-8")
+    return {
+        "command": "ai-research-memo",
+        "ai_research_memo_out": str(args.out),
+        "memo": memo.model_dump(mode="json"),
+        "uses_real_capital": False,
+        "live_order_routing": False,
     }
 
 

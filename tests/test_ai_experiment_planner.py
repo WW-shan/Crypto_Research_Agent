@@ -111,6 +111,22 @@ def _paper_outcome(
     )
 
 
+def _strict_llm_experiment_payload(**overrides: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "strategy_family": "funding_extremity_price_confirmation",
+        "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
+        "evidence_refs": ["gap:collect_more_walk_forward_data"],
+        "why_it_might_improve_edge": "Higher funding threshold may survive fees.",
+        "expected_edge_mechanism": "More extreme public funding rates should survive fees and slippage.",
+        "disconfirmation_tests": ["Reject if fee-adjusted expectancy remains non-positive."],
+        "stop_conditions": ["Stop after two failed validation runs."],
+        "required_data_fields": ["market_candle", "funding_rate"],
+        "selected_validator": "funding_price_confirmation",
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_planner_uses_validation_memory_to_avoid_repeating_blocked_parameters(tmp_path):
     memory_path = tmp_path / "memory.jsonl"
     seed_validation_memory(
@@ -192,6 +208,13 @@ def test_planner_rejects_llm_open_interest_family_without_family_specific_eviden
             {
                 "strategy_family": "funding_open_interest_crowding",
                 "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
+                "evidence_refs": ["gap:collect_more_walk_forward_data"],
+                "why_it_might_improve_edge": "Open interest can disconfirm crowded funding reversals.",
+                "expected_edge_mechanism": "Crowded funding plus open interest may identify stronger public dislocations.",
+                "disconfirmation_tests": ["Reject if open-interest confirmation does not improve expectancy."],
+                "stop_conditions": ["Stop after two blocked validation runs."],
+                "required_data_fields": ["market_candle", "funding_rate", "open_interest"],
+                "selected_validator": "funding_oi_crowding",
             }
         )
 
@@ -221,6 +244,161 @@ def test_planner_rejects_unsafe_llm_experiment(tmp_path):
     assert result.accepted is False
     assert "charter_violation" in result.rejected_reason_codes
     assert result.proposals == []
+
+
+def test_planner_rejects_sparse_llm_proposal_schema(tmp_path):
+    def llm(_task):
+        return json.dumps(
+            {
+                "strategy_family": "funding_extremity_price_confirmation",
+                "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
+            }
+        )
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        llm=llm,
+        current_capital_usd=300.0,
+    )
+
+    assert result.accepted is False
+    assert "invalid_proposal_schema" in result.rejected_reason_codes
+
+
+def test_planner_rejects_nonexistent_evidence_ref(tmp_path):
+    def llm(_task):
+        return json.dumps(
+            _strict_llm_experiment_payload(evidence_refs=["validation:not-present"])
+        )
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        llm=llm,
+        current_capital_usd=300.0,
+    )
+
+    assert result.accepted is False
+    assert "missing_evidence_ref" in result.rejected_reason_codes
+
+
+def test_planner_persists_rejected_memory_for_mixed_llm_batch(tmp_path):
+    memory_path = tmp_path / "memory.jsonl"
+
+    def llm(_task):
+        invalid = _strict_llm_experiment_payload(
+            parameter_changes={"threshold_abs": 0.0015, "hold_bars": 1},
+            evidence_refs=["validation:not-present"],
+        )
+        return json.dumps({"proposals": [_strict_llm_experiment_payload(), invalid]})
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=memory_path,
+        llm=llm,
+        current_capital_usd=300.0,
+    )
+
+    assert result.accepted is True
+    assert len(result.proposals) == 1
+    records = MemoryStore(memory_path).list_records()
+    accepted_records = [record for record in records if "accepted" in record.tags]
+    rejected_records = [record for record in records if "rejected" in record.tags]
+    assert accepted_records
+    assert rejected_records
+    assert rejected_records[0].record_id == f"experiment-proposal:{result.batch_id}:partial-rejected"
+    assert rejected_records[0].rejected_reasons == ["missing_evidence_ref"]
+
+
+def test_planner_rejects_arbitrary_data_gap_ref(tmp_path):
+    def llm(_task):
+        return json.dumps(
+            _strict_llm_experiment_payload(
+                evidence_refs=["data-gap:completely_unregistered_dataset"]
+            )
+        )
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        llm=llm,
+        current_capital_usd=300.0,
+    )
+
+    assert result.accepted is False
+    assert "missing_evidence_ref" in result.rejected_reason_codes
+
+
+def test_planner_rejects_unavailable_required_data_field(tmp_path):
+    def llm(_task):
+        return json.dumps(
+            _strict_llm_experiment_payload(
+                required_data_fields=["market_candle", "funding_rate", "liquidations"]
+            )
+        )
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        llm=llm,
+        current_capital_usd=300.0,
+    )
+
+    assert result.accepted is False
+    assert "unsupported_data_fields" in result.rejected_reason_codes
+
+
+def test_planner_rejects_direct_paper_outcome_payload(tmp_path):
+    def llm(_task):
+        return json.dumps(
+            {
+                "paper_outcomes": [{"outcome_id": "fabricated-paper-outcome"}],
+                "proposals": [_strict_llm_experiment_payload()],
+            }
+        )
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        llm=llm,
+        current_capital_usd=300.0,
+    )
+
+    assert result.accepted is False
+    assert "charter_violation" in result.rejected_reason_codes
+
+
+def test_planner_rejects_duplicate_prior_experiment_signature(tmp_path):
+    memory_path = tmp_path / "memory.jsonl"
+    MemoryStore(memory_path).upsert(
+        MemoryRecord(
+            record_id="experiment-proposal:prior",
+            opportunity={"strategy_family": "funding_extremity_price_confirmation"},
+            hypothesis={
+                "proposal": {
+                    "strategy_family": "funding_extremity_price_confirmation",
+                    "selected_validator": "funding_price_confirmation",
+                    "parameter_changes": {"hold_bars": 2, "threshold_abs": 0.001},
+                }
+            },
+            rejected_reasons=["non_positive_net_return"],
+            tags=["experiment-proposal", "rejected"],
+        )
+    )
+
+    def llm(_task):
+        return json.dumps(_strict_llm_experiment_payload())
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=memory_path,
+        llm=llm,
+        current_capital_usd=300.0,
+    )
+
+    assert result.accepted is False
+    assert "duplicate_experiment" in result.rejected_reason_codes
 
 
 def test_planner_reads_evidence_and_proposes_bounded_registered_disconfirmation_experiment(tmp_path):
@@ -376,6 +554,13 @@ def test_planner_omits_unsafe_memory_degraded_family_from_llm_task_and_memory(tm
             {
                 "strategy_family": "funding_extremity_price_confirmation",
                 "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
+                "evidence_refs": ["gap:collect_more_walk_forward_data"],
+                "why_it_might_improve_edge": "Higher funding threshold may survive fees.",
+                "expected_edge_mechanism": "More extreme public funding rates should survive fees and slippage.",
+                "disconfirmation_tests": ["Reject if fee-adjusted expectancy remains non-positive."],
+                "stop_conditions": ["Stop after two failed validation runs."],
+                "required_data_fields": ["market_candle", "funding_rate"],
+                "selected_validator": "funding_price_confirmation",
             }
         )
 
@@ -438,14 +623,18 @@ def test_planner_passes_structured_evidence_context_to_llm(tmp_path):
         assert task.blocked_parameter_sets["funding_extremity_price_confirmation"]
         assert task.memory_context.blocked_parameter_sets["funding_extremity_price_confirmation"]
         return json.dumps(
-            {
-                "strategy_family": "funding_extremity_price_confirmation",
-                "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
-                "why_it_might_improve_edge": "Higher funding threshold may survive fees.",
-                "disconfirmation_tests": ["Reject if fee-adjusted expectancy remains non-positive."],
-                "stop_conditions": ["Stop after two failed validation runs."],
-            }
-        )
+                {
+                    "strategy_family": "funding_extremity_price_confirmation",
+                    "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
+                    "evidence_refs": [task.evidence_refs[0]],
+                    "why_it_might_improve_edge": "Higher funding threshold may survive fees.",
+                    "expected_edge_mechanism": "More extreme public funding rates should survive fees and slippage.",
+                    "disconfirmation_tests": ["Reject if fee-adjusted expectancy remains non-positive."],
+                    "stop_conditions": ["Stop after two failed validation runs."],
+                    "required_data_fields": ["market_candle", "funding_rate"],
+                    "selected_validator": "funding_price_confirmation",
+                }
+            )
 
     result = plan_next_experiments(
         db_path=db_path,
@@ -587,8 +776,12 @@ def test_planner_accepts_safe_llm_experiment_and_writes_proposal_memory(tmp_path
                 "strategy_family": "funding_extremity_price_confirmation",
                 "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
                 "why_it_might_improve_edge": "Higher funding threshold may survive fees.",
+                "expected_edge_mechanism": "More extreme funding rates should survive fees and slippage.",
                 "disconfirmation_tests": ["Reject if fee-adjusted expectancy remains non-positive."],
                 "stop_conditions": ["Stop after two failed validation runs."],
+                "required_data_fields": ["market_candle", "funding_rate"],
+                "selected_validator": "funding_price_confirmation",
+                "evidence_refs": ["gap:collect_more_walk_forward_data"],
             }
         )
 
@@ -621,6 +814,13 @@ def test_experiment_planner_graph_writes_result_to_state_and_memory(tmp_path):
             {
                 "strategy_family": "funding_extremity_price_confirmation",
                 "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
+                "evidence_refs": ["gap:collect_more_walk_forward_data"],
+                "why_it_might_improve_edge": "Higher funding threshold may survive fees.",
+                "expected_edge_mechanism": "More extreme public funding rates should survive fees and slippage.",
+                "disconfirmation_tests": ["Reject if fee-adjusted expectancy remains non-positive."],
+                "stop_conditions": ["Stop after two failed validation runs."],
+                "required_data_fields": ["market_candle", "funding_rate"],
+                "selected_validator": "funding_price_confirmation",
             }
         )
     )
@@ -687,14 +887,18 @@ def test_plan_experiments_auto_uses_configured_planning_llm(
     def fake_llm(task):
         seen["task"] = task
         return json.dumps(
-            {
-                "strategy_family": "funding_extremity_price_confirmation",
-                "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
-                "why_it_might_improve_edge": "Higher public funding extremity may survive fees.",
-                "disconfirmation_tests": ["Reject if fee-adjusted expectancy stays non-positive."],
-                "stop_conditions": ["Stop after two blocked validation runs."],
-            }
-        )
+                {
+                    "strategy_family": "funding_extremity_price_confirmation",
+                    "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
+                    "evidence_refs": ["gap:collect_more_walk_forward_data"],
+                    "why_it_might_improve_edge": "Higher public funding extremity may survive fees.",
+                    "expected_edge_mechanism": "More extreme public funding rates should survive fees and slippage.",
+                    "disconfirmation_tests": ["Reject if fee-adjusted expectancy stays non-positive."],
+                    "stop_conditions": ["Stop after two blocked validation runs."],
+                    "required_data_fields": ["market_candle", "funding_rate"],
+                    "selected_validator": "funding_price_confirmation",
+                }
+            )
 
     def fake_build_configured_llm(*, role, required=False, **_kwargs):
         seen["role"] = role

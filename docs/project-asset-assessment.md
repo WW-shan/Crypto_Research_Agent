@@ -72,11 +72,11 @@ and strengthened first.
 These assets are useful soon, but need stronger data, real LLM integration,
 or better evidence contracts before they become central.
 
-- `agents/llm_contracts.py`, `agents/llm_researcher.py`, and prompt files:
-  upgrade after the real local LLM adapter exists and outputs remain schema
-  constrained.
-- `pipeline/experiment_planner.py`: upgrade after it reads stronger evidence,
-  source health, stopped-family memory, and real LLM proposals.
+- `agents/llm_contracts.py`, `agents/llm_researcher.py`,
+  `pipeline/ai_research_context.py`, and `pipeline/experiment_planner.py`:
+  now form the Phase 11 AI researcher contract. Continue hardening with real
+  positive LLM tests, but keep proposals evidence-grounded, schema constrained,
+  and unable to create paper outcomes or route orders.
 - `strategy/funding_mean_reversion.py`: continue testing with richer funding,
   open-interest context, cost, and out-of-sample evidence.
 - `data/dexscreener.py`: prioritize storing local snapshots over time before
@@ -144,8 +144,9 @@ Future Phases should preserve and strengthen this path:
 4. Apply realistic costs and low-capital constraints.
 5. Record blocked, failed, and rejected assumptions.
 6. Produce daily, weekly, and Phase review reports.
-7. Let AI propose bounded experiments only through available data and registered
-   validators.
+7. Let AI propose bounded experiments only through available data, evidence
+   refs, supported data gaps, registered validators, or design-only validator
+   templates that still require deterministic tests and human review.
 8. Use Phase 13 as read-only review and decision-record writing.
 
 When lower-priority ideas are tested, they must still pass the same

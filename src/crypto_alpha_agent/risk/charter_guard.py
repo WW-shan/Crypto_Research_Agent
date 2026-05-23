@@ -22,6 +22,8 @@ CharterRejectReason = Literal[
 CAPITAL_METADATA_KEYS = {
     "capital_required_usd",
     "min_capital_usd",
+    "max_capital_usd",
+    "max_notional_usd",
     "required_capital_usd",
     "notional_usd",
 }

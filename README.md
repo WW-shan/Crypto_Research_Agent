@@ -332,6 +332,30 @@ uv run --extra dev crypto-alpha-agent plan-experiments \
   --offline-only
 ```
 
+`plan-experiments` now sends the AI researcher a sanitized evidence context:
+recent validation evidence, paper outcome summaries, source health, stopped
+families, blocked parameter sets, available data fields, and registered
+validators. LLM proposals are accepted only when they cite existing evidence
+or a supported data gap, select a registered validator, declare required data
+fields, include disconfirmation tests and stop conditions, and stay inside the
+current capital profile. The planner rejects duplicate experiments,
+unavailable data fields, unsupported sources, direct paper-outcome creation,
+live execution, private RPC, MEV, wallet keys, and any live order routing.
+
+Generate the weekly AI research memo from accumulated evidence:
+
+```bash
+uv run --extra dev crypto-alpha-agent ai-research-memo \
+  --db var/research.sqlite \
+  --memory var/memory/evidence.jsonl \
+  --out var/reports/weekly/2026-W21-ai-memo.md \
+  --current-capital-usd 300
+```
+
+The memo is read-only. It explains what changed, what failed, what should stop,
+and which bounded experiment is next. It cannot create paper outcomes or route
+orders.
+
 ## Rollout Review
 
 `rollout-review` builds a tiny-live readiness artifact and preserves the

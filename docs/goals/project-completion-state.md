@@ -6,51 +6,44 @@ round.
 
 ## Current Round
 
-- Round: 10
-- Status: Phase 10 Execution Realism And Cost Model complete and verified
+- Round: 11
+- Status: Phase 11 AI Researcher Upgrade complete and verified
 - Started: 2026-05-24
 - Completed: 2026-05-24
-- Active slice: Phase 10: Execution Realism And Cost Model
+- Active slice: Phase 11: AI Researcher Upgrade
 - Active plan source:
-  `docs/superpowers/plans/2026-05-24-phase-10-execution-realism-cost-model.md`
+  `docs/superpowers/plans/2026-05-24-phase-11-ai-researcher-upgrade.md`
 - Phase report:
-  `docs/goals/phase-reports/2026-05-24-phase-10-execution-realism-cost-model-completion-report.md`
+  `docs/goals/phase-reports/2026-05-24-phase-11-ai-researcher-upgrade-completion-report.md`
 
 ## Completed This Round
 
-- Ran Phase 10 Smart Search deep research for Binance exchange precision and
-  filter semantics, Binance funding timing, CCXT maker/taker and market
-  metadata, realistic backtesting fill modeling, and execution-grade slippage
-  and liquidity constraints.
+- Ran Phase 11 Smart Search deep research for structured outputs,
+  hallucination guardrails, OWASP prompt injection, excessive agency,
+  vector/RAG source validation, and misinformation risks.
 - Verified local feasibility:
-  - `paper_sim_loop._closed_outcomes` was the narrow paper materialization seam
-    for execution-realism estimates;
-  - `PaperSimulationOutcome` payloads are JSON-ledger compatible, so richer
-    outcome fields did not require a table migration;
-  - existing funding trades already carried signal, entry, exit, raw return,
-    and prices, and could export candle volume plus next funding timestamps;
-  - a Decimal rounding prototype proved simple notional capping is insufficient
-    for the `max_notional_usd <= 25` owner profile;
-  - the hard paper-only boundary and no-live-routing flags were already present.
-- Added `execution/cost_model.py` with strict fee schedules, symbol constraints,
-  adverse price and quantity rounding, pessimistic taker-fee floors, fixed
-  slippage bps, stale-signal checks, volume participation limits, missed fills,
-  partial fills, and `pre_cost_only_profitable` rejection.
-- Extended paper outcomes and paper evidence aggregation with venue, cost model
-  mode, fee model, maker/taker and applied fee rates, entry/exit fees,
-  slippage bps, stale-signal status, fill status, fill ratio, gross PnL, fees,
-  slippage, and summary counts.
-- Added funding timestamp alignment checks so invalid or lookahead-prone
-  `next_funding_at` intervals block with `funding_alignment_invalid`.
-- Updated the strategy registry paper-trade payload with entry volume, exit
-  volume, and next funding timestamp so the cost model can evaluate liquidity
-  and alignment context.
-- Updated `paper-sim-loop` and CLI flags for venue, cost mode, max notional,
-  signal-age limits, symbol constraint overrides, max volume participation, and
-  partial-fill policy.
-- Added regression tests for cost-killed positive-gross trades, missed fills,
-  stale signals, min-notional infeasibility, validation/no-signal execution
-  metadata, evidence aggregation, CLI parsing, and documentation contracts.
+  - validation evidence, paper outcomes, source records, source health, memory,
+    and registry metadata were already available locally;
+  - source-health rows could be normalized through `build_data_quality_report`;
+  - planner memory could store accepted, rejected, partial-rejected, and
+    template proposal records without a schema migration.
+- Added `pipeline/ai_research_context.py` with strict evidence context DTOs for
+  validation evidence, paper evidence, source health, stopped families, blocked
+  parameters, available data fields, evidence refs, and registered validators.
+- Tightened `plan-experiments` LLM acceptance with required evidence refs,
+  selected validator, required data fields, expected edge mechanism,
+  disconfirmation tests, stop conditions, explicit supported data gaps,
+  canonical duplicate detection, direct paper-outcome rejection, and charter
+  guards.
+- Added design-only strategy template proposals requiring deterministic tests
+  and human review before implementation.
+- Added `ai-research-memo` and `pipeline/ai_research_memo.py` to generate a
+  weekly read-only memo explaining what changed, what failed, what should stop,
+  and the next bounded experiment.
+- Upgraded the LLM researcher prompt path with optional sanitized db/memory
+  evidence context.
+- Addressed review findings by persisting partial rejected LLM batch memory and
+  replacing broad gap-string acceptance with an explicit supported-gap allowlist.
 - Updated README, runbook, project asset assessment, roadmap, documentation
   contracts, and this state file.
 
@@ -58,30 +51,25 @@ round.
 
 - Smart Search evidence:
   the phase-specific ignored evidence workspace contains source-backed evidence
-  for Binance exchange filters, Binance futures exchange information, Binance
-  funding timing, CCXT market metadata, and realistic backtesting and slippage
-  references.
-- Small local prototypes confirmed that a BTC-like futures quantity step can be
-  infeasible under the 25 USDT owner profile while a finer spot-like step can
-  remain feasible.
-- Focused implementation verification after review fixes:
-  `uv run --extra dev pytest tests/test_funding_mean_reversion_strategy.py tests/test_execution_cost_model.py tests/test_paper_sim_loop.py tests/test_documentation_contract.py -q`
-  passed with 48 tests.
-- Review pass 1 found a Critical pre-cost-only profitability issue and
-  Important execution-metadata and missed-fill evidence issues; all were fixed.
-- Review pass 2 found no Critical or Important findings remaining.
+  for OpenAI structured outputs, OpenAI hallucination guardrails, OWASP prompt
+  injection, OWASP excessive agency, OWASP vector/RAG source validation, OWASP
+  misinformation, and Pydantic strict validation patterns.
+- Focused Phase 11 plus end-to-end regression:
+  `uv run --extra dev pytest tests/test_ai_research_context.py tests/test_ai_experiment_planner.py tests/test_ai_strategy_template_proposals.py tests/test_ai_research_memo.py tests/test_llm_researcher_adapter.py tests/test_llm_graph_routing.py tests/test_documentation_contract.py tests/test_complete_evidence_system.py::test_complete_safe_autonomous_evidence_system -q`
+  passed with 53 tests.
+- Review pass found two Important issues: mixed valid/invalid LLM batches did
+  not persist rejected memory, and arbitrary data-gap refs were accepted. Both
+  were fixed with regression tests.
 - Full verification:
-  `uv run --extra dev pytest -q` passed with 881 tests and 4 skipped.
-- `uv run --extra dev ruff check .` passed.
-- `git diff --check` passed.
-- `uv run python -m crypto_alpha_agent.security.secret_scan --path README.md --path docs --path src --path tests`
-  returned `[]`.
-- Final commit message target: `feat: add execution realism cost model`.
+  `uv run --extra dev pytest -q` passed with 893 tests and 4 skipped.
+- `uv run ruff check` passed.
+- Final commit message target: `feat: upgrade ai researcher evidence guards`.
 
 ## Current Project Target
 
-The evidence factory now has execution-realistic paper simulation active and is
-ready for Phase 11 AI researcher work:
+The evidence factory now has execution-realistic paper simulation and
+evidence-grounded AI research planning active, and is ready for Phase 12 profit
+evidence review:
 
 - public-data ingestion and local durable SQLite storage;
 - typed OHLCV, funding, DEX, DeFi, and open-interest records;
@@ -103,6 +91,9 @@ ready for Phase 11 AI researcher work:
   fills;
 - daily/weekly evidence reports, paper simulation, memory, and rollout review
   artifacts with `live_execution_enabled=false`.
+- AI research context, stricter experiment proposal guards, duplicate rejected
+  experiment memory, design-only strategy template proposals, and weekly
+  `ai-research-memo` artifacts.
 
 ## Known Hard Boundaries
 
@@ -124,13 +115,12 @@ ready for Phase 11 AI researcher work:
 The first complete research-loop milestone remains complete under the current
 charter. Post-milestone Phase 0, Immediate Phase 1, Immediate Phase 2,
 Immediate Phase 3, Immediate Phase 4, Immediate Phase 5, Phase 8, Phase 9, and
-Phase 10 are complete after this round is verified, committed, and pushed.
+Phase 10, and Phase 11 are complete after this round is verified, committed,
+and pushed.
 
 Future work is now ordered as an evidence-factory buildout before the formal
 evidence campaign:
 
-- Phase 11: upgrade the AI researcher to reason from evidence without bypassing
-  validators.
 - Phase 12: add portfolio/governance scoring for profit/no-profit decisions.
 - Phase 7: only after Phases 8-12, run historical bootstrap and then collect
   future out-of-sample paper observations.
@@ -144,7 +134,7 @@ charter revision.
 
 ## Next Round Entry Instructions
 
-If work continues after Phase 10:
+If work continues after Phase 11:
 
 1. Read `docs/project-charter.md` before any new plan.
 2. Read `docs/goals/project-completion-goal.md` and follow its Per-Round
@@ -155,8 +145,9 @@ If work continues after Phase 10:
    state synchronization, a complete Phase report under
    `docs/goals/phase-reports/`, and no next Phase until the current Phase is
    clean, verified, committed, and pushed.
-3. Start Phase 11: AI Researcher Upgrade. Phase 10 added execution-realistic
-   paper outcomes; do not reimplement Phase 1 through Phase 10.
+3. Start Phase 12: Profit Evidence Review And Portfolio Governance. Phase 11
+   added evidence-grounded AI planning; do not reimplement Phase 1 through
+   Phase 11.
 4. Treat live execution, wallet keys, exchange order routing, private RPC,
    MEV, premium-RPC, and speed-edge paths as blocked unless the owner
    explicitly revises the charter.
@@ -164,9 +155,9 @@ If work continues after Phase 10:
    strong model and report/summary use the configured fast model. Preserve fake
    LLM tests for deterministic adversarial cases, and make real positive tests
    explicit and secret-safe.
-6. For Phase 11, make the AI researcher reason from accumulated evidence,
-   rejected assumptions, and validator outputs without bypassing deterministic
-   validators or inventing unverifiable data.
+6. For Phase 12, score family profitability and governance from accumulated
+   validation, paper, source-health, cost-model, rejected-memory, and AI memo
+   evidence without allocating real capital.
 7. Keep failed evidence and rejected assumptions in memory.
 8. Update this file and `docs/roadmap.md` after the next milestone.
 
@@ -185,3 +176,4 @@ If work continues after Phase 10:
 | 8 | 2026-05-24 | Phase 8 data depth and quality expansion | focused Phase 8 tests 61 passed; pytest 832 passed; ruff passed; diff/staged checks passed; path and staged secret scans returned [] | Phase 8 completion commit `feat: add source qualification workflow` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 9 | 2026-05-24 | Phase 9 strategy validator library expansion | focused Phase 9 tests 157 passed; pytest 868 passed; ruff passed; diff check passed; path secret scan returned [] | Phase 9 completion commit `feat: expand strategy validator library` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 10 | 2026-05-24 | Phase 10 execution realism and cost model | focused Phase 10 tests 48 passed; pytest 881 passed, 4 skipped; ruff passed; diff check passed; path secret scan returned [] | Phase 10 completion commit `feat: add execution realism cost model` | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 11 | 2026-05-24 | Phase 11 AI researcher upgrade | focused Phase 11/end-to-end tests 53 passed; pytest 893 passed, 4 skipped; ruff passed | Phase 11 completion commit `feat: upgrade ai researcher evidence guards` | `https://github.com/WW-shan/Crypto_Research_Agent` |
