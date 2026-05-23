@@ -4,7 +4,7 @@
 
 - Phase: Phase 12 Profit Evidence Review And Portfolio Governance
 - Date: 2026-05-24
-- Commit: pending commit `feat: add profit governance report`
+- Commit: `e89e008 feat: add profit governance report`
 - Owner objective: turn accumulated evidence into explicit profit/no-profit
   governance decisions without live capital.
 - Work type: implementation, tests, documentation, and review.
