@@ -263,20 +263,761 @@ infrastructure, high-capital strategies, or live trading. The remaining blocked
 item is live execution until future charter revision, specifically a future
 explicit charter revision by the owner.
 
-Recommended next slice:
+The roadmap below is the post-milestone work needed to move from "working
+evidence factory" to "profit evidence." None of these phases should weaken the
+charter. A phase is complete only when it improves the system's ability to
+prove or reject a money-making edge under the owner's low-capital constraints.
 
-1. Broaden strategy-family coverage only after conservative historical
-   validation exists for each family.
-2. Run longer paper collection for low-capital strategy families that already
-   have conservative historical validation evidence.
-3. Keep scheduling operator-controlled: cron/systemd may call `evidence-run`,
-   while the agent itself remains a safe one-shot workflow rather than an
-   always-on trading daemon.
-4. Expand ordinary public data coverage where it improves evidence quality:
-   additional CCXT venues, funding/open-interest history, DefiLlama
-   fundamentals, and DEX liquidity snapshots.
-5. Keep feeding failed paper assumptions and rejected candidates back into
-   memory so the research loop learns what not to retest.
+## Post-Milestone Roadmap: Profit Evidence Gaps
+
+The main gap is not another agent framework. The main gap is that no strategy
+family has yet accumulated enough real paper evidence to prove that it can
+survive fees, slippage, data gaps, stale signals, low capital, and ordinary
+infrastructure.
+
+The next work therefore has seven priorities:
+
+1. Close the current worktree and local-configuration state before more code
+   changes.
+2. Connect the local real LLM configuration so AI research work uses the
+   owner's configured models instead of only injected fake callables.
+3. Make the network route explicit. Some public crypto endpoints are reliable
+   only through the operator's local proxy, so source health must distinguish
+   direct success, proxy success, and provider failure.
+4. Expand slow public-data coverage where it improves validation quality.
+5. Add deterministic validators for more low-capital strategy families.
+6. Make backtests and paper simulations more execution-realistic.
+7. Upgrade AI research and governance so evidence can be interpreted and
+   rejected systematically.
+8. Run the historical bootstrap and long-running evidence campaign only after
+   the data, validators, cost model, AI researcher, and governance layers are
+   strong enough to make the results meaningful.
+9. Keep live execution blocked and use the final phase for continuous review of
+   research reports, evidence packages, and finished artifacts so the owner can
+   judge whether the system is actually improving the chance of making money.
+
+### Immediate Sequence: Worktree Then Real LLM
+
+This is the next concrete implementation sequence. It refines the broader
+post-milestone phases below and must happen before long-running evidence
+collection is treated as operational.
+
+The execution order after the immediate LLM work is intentionally not numeric:
+Phase 6 is merged into the Phase 1 entry gate, then Phase 8, Phase 9, Phase 10,
+Phase 11, and Phase 12 build the evidence factory, then Phase 7 runs the
+historical bootstrap and future out-of-sample evidence campaign, and Phase 13
+becomes the ongoing report and artifact review loop.
+
+#### Immediate Phase 0: Worktree And Configuration Closeout
+
+Goal: Start the next implementation from a clean, explainable local state.
+
+Required actions:
+
+- Decide whether `.agents/` and `.claude/` are local-only tool directories. If
+  they are local-only, add ignore rules or a short operator note; if they are
+  product tooling, document and commit them deliberately.
+- Keep `.env` local and ignored. It may contain real LLM credentials, but those
+  credentials must never be staged, committed, logged, copied into reports, or
+  persisted into memory.
+- Preserve the local LLM configuration keys:
+  `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL`,
+  `OPENAI_RESEARCH_MODEL`, `OPENAI_CODER_MODEL`, and `OPENAI_FAST_MODEL`.
+- Record that the current preferred model routing is:
+  research/planning/code uses `gpt-5.5`; fast report/summary work uses
+  `gpt-5.4-mini`.
+- Preserve the local proxy configuration for public data endpoints that fail
+  or timeout on the direct route:
+  `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, lowercase proxy variants,
+  `NO_PROXY`, and `CRYPTO_ALPHA_AGENT_PROXY`.
+- Treat the local proxy as operator configuration, not product infrastructure.
+  It may be used for data collection and source probes, but it must not become
+  a speed edge, private RPC dependency, or live execution path.
+- Handle any accidental pre-plan files explicitly. The current
+  `tests/test_llm_configured_client.py` draft must either be deleted before
+  the formal plan starts or incorporated into the approved Phase 1 TDD plan.
+- Commit the roadmap and state-document updates separately from LLM adapter
+  implementation.
+
+Completion standard:
+
+- `git status --short` before Phase 1 shows only deliberate files.
+- `.env` is ignored and not staged.
+- No API key, bearer token, private key, seed phrase, generated report, SQLite
+  database, cache, or local artifact is staged.
+
+#### Immediate Phase 1: Real LLM Adapter
+
+Goal: Make the code actually use the owner's local OpenAI-compatible LLM
+configuration.
+
+Required implementation:
+
+- Add `LLMSettings` that reads local `.env` and environment variables.
+- Add an OpenAI-compatible Responses client adapter for the configured
+  `OPENAI_BASE_URL`.
+- Support model routing:
+  - default/research/planning: `OPENAI_RESEARCH_MODEL` falling back to
+    `OPENAI_MODEL`;
+  - coder/validator-design: `OPENAI_CODER_MODEL` falling back to
+    `OPENAI_MODEL`;
+  - report/summary: `OPENAI_FAST_MODEL` falling back to `OPENAI_MODEL`.
+- Treat real LLM as the default operator path once credentials are configured.
+  Keep explicit `--no-llm`, `--offline-only`, or test injection hooks only for
+  disabled/offline runs and deterministic safety tests.
+- Redact credentials from all exceptions, logs, memory records, reports,
+  scheduler plans, and test output.
+- Expected file areas:
+  `src/crypto_alpha_agent/llm/`, `src/crypto_alpha_agent/config.py`,
+  `tests/test_llm_configured_client.py`, and `docs/runbook.md`.
+
+Completion standard:
+
+- A real LLM smoke test can call the configured endpoint and return a valid
+  research proposal.
+- The configured route supports the owner's model split:
+  research, planning, and code use `gpt-5.5`; fast summaries use
+  `gpt-5.4-mini`.
+- The adapter does not print the key, raw authorization headers, provider
+  response headers, or other credential-bearing metadata.
+- Missing credentials fail closed with a clear local-configuration error when
+  real LLM is required.
+- The adapter can be tested without printing or persisting the API key.
+- Fake adversarial tests remain for invalid JSON, schema violations, live
+  order requests, private-key requests, MEV, premium RPC, high capital, and
+  other unsafe outputs.
+
+#### Immediate Phase 2: Connect LLM To The Research Loop
+
+Goal: Use the real LLM as a research assistant across the existing evidence
+workflow without granting execution authority.
+
+Required integration points:
+
+- `plan-experiments` uses `gpt-5.5` by default to propose bounded next
+  experiments from validation evidence, paper evidence, stopped-family memory,
+  and blocked parameter sets.
+- `research-loop` can use `gpt-5.5` to generate stronger research hypotheses
+  from stored records, scanner signals, anomaly rankings, and validation
+  summaries.
+- `evidence-report` can use `gpt-5.4-mini` to add concise daily and weekly
+  narrative summaries while preserving deterministic metrics as source of
+  truth.
+- Coder/validator design flows use `gpt-5.5` only to produce candidate design
+  text or draft code for human/TDD implementation. They must not execute code,
+  write live adapters, or bypass review.
+
+Completion standard:
+
+- `plan-experiments` can make a real call to the configured `gpt-5.5` route
+  when credentials are present and real LLM mode is enabled.
+- Real LLM output is parsed through strict schemas.
+- Invalid, unsafe, or unverifiable LLM output is rejected and persisted as
+  rejected memory metadata.
+- LLM raw responses are not stored in memory by default; metadata, hash,
+  length, status, and rejection reasons are enough.
+- Report summaries never overwrite or reinterpret deterministic validation,
+  paper, source-health, or cost metrics.
+
+#### Immediate Phase 3: Real LLM Test Policy
+
+Goal: Use the owner's real LLM for meaningful integration tests while keeping
+deterministic adversarial tests for safety boundaries.
+
+Testing policy:
+
+- Positive integration and smoke tests should use the real configured LLM when
+  credentials are available. This includes real `plan-experiments`, real
+  research proposal generation, and real report-summary paths.
+- Do not skip real LLM calls merely to save token budget during local
+  development when the owner has requested real-model testing.
+- Keep a small set of fake/injected LLM tests for cases that real models cannot
+  reliably produce on demand:
+  invalid JSON, schema violations, live-order requests, private-key requests,
+  MEV or premium-RPC requests, high-capital requests, and malicious text that
+  must be rejected by guards.
+- Any test that uses a real LLM must assert that the API key and base URL are
+  not copied into stdout, stderr, memory, reports, or generated artifacts.
+- CI may remain fake/offline unless the operator explicitly provides local
+  credentials and enables real LLM integration tests.
+
+Completion standard:
+
+- Real LLM tests prove the configured endpoint works.
+- Fake adversarial tests prove the guardrails work.
+- Neither test class leaks credentials or creates live execution authority.
+- Secret leak checks cover stdout, stderr, memory JSONL, Markdown/JSON reports,
+  generated artifacts, staged diffs, and scheduler/run manifests.
+- External LLM provider failures are recorded as integration environment
+  failures, not hidden as product success.
+
+#### Immediate Phase 4: Evidence Run Infrastructure
+
+Goal: Keep the existing evidence-run path operable after the LLM adapter is
+connected, but do not treat formal profit validation as started until Phases
+8, 9, 10, 11, and 12 are complete.
+
+Initial strategy family:
+
+- `funding_extremity_price_confirmation`
+
+Infrastructure flow:
+
+1. Pull CCXT OHLCV.
+2. Pull CCXT funding history.
+3. Run deterministic validation.
+4. Run paper simulation.
+5. Write memory.
+6. Generate daily report with optional LLM summary.
+7. Generate weekly report with optional LLM summary.
+
+Required implementation:
+
+- Write a run wrapper or exact runbook command set for daily operation.
+- Establish a run manifest that records run id, inputs, network route, source
+  health, artifacts, memory path, report path, and completion status.
+- Add lock handling so overlapping runs cannot corrupt the SQLite database,
+  memory file, report, or paper ledger.
+- Add a failed-run marker or local notification hook for nonzero exits.
+- Preserve daily artifacts under `var/` and keep them out of git.
+
+Completion standard:
+
+- The daily pipeline can run repeatedly without touching live trading,
+  exchange order routing, wallet keys, or real capital.
+- Each daily report explains data-source health, signals, deterministic
+  validation, paper outcome, blocked reasons, and the next bounded experiment.
+- Weekly reports summarize sample progress and degraded-family status.
+- Output from this phase is operational smoke evidence only. The formal
+  historical bootstrap and 30/60/90-observation validation campaign belong to
+  Phase 7 after Phases 8-12.
+
+#### Immediate Phase 5: Data And Strategy Expansion
+
+Goal: Start the expansion path after the real LLM adapter and evidence-run
+infrastructure are working. This phase feeds the later Phase 8 and Phase 9
+implementation plans.
+
+Priority order:
+
+1. Open interest.
+2. Funding plus OI crowding.
+3. Liquidation data if a free or cheap source is reliable.
+4. Cross-exchange funding dispersion.
+5. DeFi, stablecoin, and TVL regime watchlists.
+6. DEX liquidity migration watchlists.
+
+Completion standard:
+
+- Every new data source has source-health reporting.
+- Every new strategy has either a deterministic validator or an explicit
+  watchlist-only adapter.
+- Every validator and watchlist adapter fails closed with stable blocked
+  reasons when required data is missing, stale, duplicated, skewed, or outside
+  the owner's low-capital constraints.
+- Weekly reports can compare strategy families side by side and identify which
+  family should continue, stop, redesign, or receive additional data.
+
+### Phase 6: Merged Phase 1 Entry Gate
+
+Goal: Fold state hygiene and operator-baseline work into the entry gate for
+Immediate Phase 1 instead of treating it as a later standalone feature phase.
+
+This phase is not a separate implementation track. It is satisfied by the
+Immediate Phase 0 / Phase 1 entry work: clean worktree, local configuration
+settled, `.env` ignored, local tool directories decided, accidental draft files
+handled, and operator docs aligned before the real LLM adapter is implemented.
+
+Why this matters:
+
+- The first milestone is complete, but the next feature work should not start
+  from a dirty or ambiguous local state.
+- Local untracked tool directories such as `.agents/` and `.claude/` exist in
+  the working tree. They are not product code, but the repository should make a
+  deliberate decision about whether to ignore or document them.
+- Daily evidence collection will create local SQLite, memory, report, log,
+  event, lock, and rollout artifacts. Those must stay out of git.
+
+Deliverables:
+
+- Update `docs/goals/project-completion-state.md` to record the published
+  milestone commit and public repository URL.
+- Decide whether `.agents/` and `.claude/` are local-only tool directories. If
+  they are local-only, add ignore rules or a short operator note.
+- Confirm `.env` is ignored, never staged, and contains only local operator
+  configuration such as LLM credentials and proxy variables.
+- Either delete the accidental `tests/test_llm_configured_client.py` draft
+  before Phase 1 starts or explicitly incorporate it into the approved Phase 1
+  TDD plan.
+- Add a small operator baseline checklist to `docs/runbook.md` covering:
+  clean git status before runs, expected ignored artifact paths, and how to
+  distinguish local tool files from project deliverables.
+- Add a local LLM/proxy configuration note to `docs/runbook.md` that lists
+  variable names only and states that keys must remain local.
+- Add a documentation contract test if the repo should enforce that generated
+  SQLite files, `.env`, reports, logs, and local agent directories are not
+  accidentally treated as committed product artifacts.
+
+Completion standard:
+
+- `git status --short` after a normal evidence run shows no accidental tracked
+  artifacts.
+- The state file records the last completed milestone commit and public URL.
+- Operator docs make clear that local agent/tool config is outside the
+  product unless explicitly committed.
+- `.env` is ignored and not staged.
+- `.agents/` and `.claude/` status is deliberate.
+- No API key, bearer token, provider URL with embedded credentials, private
+  key, seed phrase, database, report, cache, or generated artifact appears in a
+  staged diff.
+- Full tests, ruff, diff checks, and secret-safety review pass before the
+  Immediate Phase 1 adapter work starts.
+- Once those entry-gate checks pass, Phase 6 is recorded as merged into Phase 1
+  readiness rather than scheduled as a separate future phase.
+
+### Phase 8: Data Depth And Quality Expansion
+
+Goal: Expand the public-data layer from basic OHLCV and funding into the slow
+variables most likely to matter for low-capital, non-speed strategies.
+
+Why this matters:
+
+- Funding-only signals are often noisy. They become more useful when combined
+  with open interest, liquidation, basis, volume, volatility, and liquidity
+  regime data.
+- DeFi and DEX snapshots are currently useful as watchlist inputs, but the
+  system needs specific query catalogs and quality checks before they can
+  become strategy evidence.
+- Public APIs have missing data, inconsistent exchange support, rate limits,
+  and symbol-format differences. The research loop needs to make those defects
+  visible instead of hiding them.
+
+Data sources to add or deepen:
+
+- Direct public archive sources:
+  - Binance Public Data OHLCV and futures archive files remain the first
+    reproducible historical source.
+  - Binance futures `metrics` archive is a priority historical source because
+    it includes open interest, open-interest value, top-trader long/short,
+    account long/short, and taker long/short volume ratios.
+  - Binance premium index klines are a priority basis/premium source.
+- CCXT multi-exchange OHLCV and funding history for Binance, OKX, Bybit, and
+  any other exchange whose public API works reliably without trading keys.
+- CCXT open interest and open-interest history where supported.
+- Funding and open-interest cross-exchange snapshots for crowding detection.
+- Direct futures REST sources that require explicit network-route tracking:
+  - Binance funding history, current open interest, open-interest history,
+    basis, global/top long-short ratios, and taker long-short ratio.
+  - Bybit open-interest history.
+  - OKX open interest and funding history.
+- DexScreener pair and token endpoints for price, volume, and liquidity
+  snapshots. These are watchlist inputs unless historical snapshots are stored
+  locally over time.
+- Optional Coinalyze or similar low-cost data for funding, open interest, and
+  liquidation history if free or cheap limits are enough.
+- DefiLlama fees, revenue, TVL, stablecoins, and yield pools as slow
+  fundamentals.
+- Dune query templates for protocol revenue, stablecoin flows, DEX volume,
+  pool liquidity, and exchange inflow/outflow style slow signals.
+- TheGraph query templates for pool liquidity, volume, reserve changes, and
+  protocol-specific fundamentals where subgraphs are reliable.
+
+Deliverables:
+
+- A source coverage matrix in docs showing each provider, fields supported,
+  rate-limit assumptions, credential requirements, and whether it is core or
+  optional.
+- A `source-probe` CLI or equivalent provider qualification workflow that can
+  test each source with direct networking and with the local proxy route.
+- Proxy-aware source health. The system must record `direct`, `proxy`, or
+  `unavailable` as the network route and distinguish `ReachableViaProxy` from
+  general provider success.
+- Local proxy support through standard variables:
+  `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, lowercase variants, `NO_PROXY`, and
+  the project-specific `CRYPTO_ALPHA_AGENT_PROXY`.
+- Provider status transitions:
+  `Candidate`, `Reachable`, `ReachableViaProxy`, `Parseable`,
+  `ResearchUsable`, and `ProductionResearchSource`.
+- SQLite persistence for new slow-data record types only when they have a
+  typed model and data-quality report.
+- Source-health thresholds for missing rate, stale records, duplicate records,
+  timestamp skew, and optional-source failure.
+- Multi-source symbol normalization rules for `BTC/USDT`, perpetual symbols,
+  exchange-specific funding symbols, and DEX chain/token identifiers.
+- A query catalog for Dune and TheGraph with named research questions and
+  expected output schema.
+
+Completion standard:
+
+- Daily reports can say which data sources were fresh, stale, missing, or
+  failed.
+- Source qualification evidence records the tested URL family, network route,
+  HTTP status, parse status, typed record count, schema version if available,
+  and blocked reason when a source fails.
+- Strategy validators can require specific data fields and fail closed when
+  those fields are unavailable.
+- A data source can be marked `ProductionResearchSource` only after the probe
+  is reachable, parseable, produces nonzero typed records, writes source
+  health, and passes a multi-day canary for the fields used by a validator.
+- Optional paid or credentialed data remains optional and redacted from logs,
+  reports, scheduler plans, and memory.
+
+### Phase 9: Strategy Validator Library Expansion
+
+Goal: Add more deterministic strategy-family validators before asking AI to
+invent broader experiments.
+
+Why this matters:
+
+- The current strongest executable family is funding extremity plus price
+  confirmation.
+- DeFi and DEX families are mostly watchlists. They do not yet produce
+  execution-realistic paper candidates.
+- The system needs several independent low-frequency or medium-frequency
+  strategy families before it can discover which one may fit small capital.
+
+Evidence-first rule:
+
+- Do not add a strategy validator just because it is plausible or appears in
+  research. Each candidate must first pass a feasibility screen against data
+  that Phase 8 has qualified.
+- For each candidate, map required fields to existing stored records or
+  qualified provider outputs before implementation. Missing fields produce a
+  `blocked_by_missing_data` or `blocked_by_unqualified_source` record instead
+  of a validator.
+- Before adding a validator to the project, run a small historical feasibility
+  check or prototype over available data to prove timestamps align, sample size
+  is nonzero, costs can be applied, and walk-forward can run or fail closed.
+- Candidates that fail the feasibility screen are recorded as rejected or
+  blocked with evidence, not implemented.
+
+Candidate strategy families to screen:
+
+- Funding crowding with open-interest confirmation:
+  funding is extreme, open interest is expanding, price action confirms or
+  rejects crowding, and the validator tests both trend-continuation and
+  contrarian exits.
+- Funding mean reversion after extreme prints:
+  extreme funding is followed by neutralization or price reversal, filtered by
+  open-interest change, volatility, and liquidity.
+- Cross-exchange funding dispersion:
+  exchanges show materially different funding regimes for the same asset, but
+  the strategy is evaluated as slow directional or paper-only research unless
+  execution complexity is later justified.
+- Basis and carry regime watchlist:
+  spot/perp or dated-futures style basis widens or compresses, with explicit
+  borrow/funding/cost assumptions and no leverage requirement by default.
+- Stablecoin and DeFi liquidity regime watchlist:
+  stablecoin supply, protocol TVL, fees, revenue, and yields shift enough to
+  create a research hypothesis for related assets or sectors.
+- DEX liquidity migration watchlist:
+  pool liquidity and volume migrate across venues or chains, producing
+  watchlist signals instead of direct DEX execution quotes.
+- Volatility compression and expansion filter:
+  low realized volatility followed by funding, volume, or open-interest change
+  creates a testable slow breakout or mean-reversion candidate.
+
+Validator requirements:
+
+- Each strategy family must have a typed `StrategyFamilySpec`.
+- Each validator must produce trade count, net return, gross expectancy,
+  fee-adjusted expectancy, slippage-adjusted expectancy, max drawdown,
+  walk-forward split count, walk-forward pass rate, and blocked reasons.
+- Every validator must fail closed on missing data, insufficient trades,
+  negative expectancy, excessive drawdown, stale source data, or unsupported
+  symbols.
+- Watchlist-only families must state that they do not support paper
+  simulation and must not be routed to paper outcomes.
+
+Completion standard:
+
+- At least three executable paper-simulated strategy families exist.
+- At least three watchlist-only strategy families exist with clear research
+  outputs.
+- Weekly reports rank families by evidence strength and stop degraded families
+  by default.
+
+### Phase 10: Execution Realism And Cost Model
+
+Goal: Make validation and paper simulation conservative enough that a paper
+edge is not an artifact of missing fees, bad fills, unrealistic holding costs,
+or low-liquidity assumptions.
+
+Why this matters:
+
+- With only a few hundred USD, small fees, minimum order sizes, spread, and
+  slippage can erase an apparent edge.
+- Funding and basis strategies are sensitive to exact timestamp handling,
+  funding interval alignment, exchange fees, and borrow or carry assumptions.
+- Paper results must model missed trades, stale signals, and unavailable
+  liquidity rather than assuming perfect fills.
+
+Deliverables:
+
+- Exchange-specific fee model for configured public venues, with maker/taker
+  assumptions recorded per strategy run.
+- Symbol-level minimum notional, quantity precision, and tick-size constraints
+  where available from public exchange metadata.
+- Slippage model that can use conservative fixed bps first, then volume or
+  liquidity-adjusted bps when data supports it.
+- Funding timestamp alignment checks so entries and exits do not accidentally
+  look ahead.
+- Stale-signal model that blocks paper outcomes when the signal would have
+  been too old for ordinary manual or scripted execution.
+- Missed-fill and partial-fill assumptions for strategies that depend on
+  low-liquidity symbols.
+- A pessimistic mode for validators and paper simulation, used as the default
+  gate before rollout review.
+
+Completion standard:
+
+- Every paper outcome records notional, fees, slippage, gross PnL, net PnL,
+  max drawdown, stale-signal status, and failure reason when blocked.
+- A candidate that is only profitable before costs is rejected.
+- A candidate that cannot trade within `max_notional_usd <= 25` is rejected
+  for the current owner profile.
+
+### Phase 11: AI Researcher Upgrade
+
+Goal: Make the AI useful for proposing experiments from accumulated evidence,
+without giving it authority to invent unverifiable data or execute trades.
+
+Why this matters:
+
+- The current LLM layer is deliberately constrained. It can propose bounded
+  research tasks, but it is not yet a strong autonomous researcher.
+- AI becomes more valuable after the system has memory, failed experiments,
+  source health, and strategy evidence to reason over.
+- The danger is hallucinated data, repeated bad experiments, or unsafe strategy
+  suggestions. The AI must remain inside contracts and validators.
+
+Deliverables:
+
+- Evidence retrieval context that summarizes recent validation evidence,
+  paper outcomes, source health, stopped families, and blocked parameter sets.
+- A stricter experiment proposal schema that requires:
+  evidence references, parameter changes, expected edge mechanism,
+  disconfirmation tests, stop conditions, required data fields, and selected
+  validator.
+- A strategy-template proposal mode where AI can suggest a new validator
+  design, but implementation still requires deterministic tests and human
+  review.
+- A duplicate-experiment detector so the AI does not keep retesting rejected
+  assumptions or stopped parameter sets.
+- A hallucination guard that rejects proposals referencing unavailable data
+  fields, unsupported sources, live execution, private RPC, MEV, wallet keys,
+  or capital above the owner profile.
+- A weekly AI research memo that explains what changed, what failed, what
+  should stop, and which experiment is next.
+
+Completion standard:
+
+- AI proposals are accepted only when they cite existing evidence or request a
+  supported data collection gap.
+- AI cannot create a paper outcome directly. It can only select a registered
+  validator or propose a new validator for implementation.
+- Unsafe or unverifiable AI output is persisted as rejected memory, not silently
+  ignored.
+
+### Phase 12: Profit Evidence Review And Portfolio Governance
+
+Goal: Turn accumulated evidence into explicit profit/no-profit decisions.
+
+Why this matters:
+
+- The primary objective is making money, but the system should not pretend a
+  strategy is profitable just because it generated signals.
+- A low-capital strategy must be judged by realistic expected USD return,
+  drawdown, operational burden, failure rate, and robustness across regimes.
+- The system needs a formal way to stop weak families and focus compute and
+  attention on the most promising ones.
+
+Deliverables:
+
+- A weekly family scoreboard with:
+  sample size, net PnL, cost-adjusted expectancy, max drawdown, hit rate,
+  failure rate, source-health quality, stale-signal rate, and walk-forward
+  stability.
+- A profit review artifact that answers:
+  whether the strategy is improving, whether it is worth more data collection,
+  whether it should be stopped, and whether it is near an owner decision point.
+- A stopped-family ledger with reason, date, evidence refs, and conditions
+  required for revival.
+- A paper-only portfolio selector that ranks families for future paper
+  observations without allocating real capital.
+- A monthly owner review report that compares the best paper strategy against
+  doing nothing, fees, opportunity cost, and the owner's capital constraints.
+
+Completion standard:
+
+- The governance layer can state for each active family:
+  keep collecting, stop, redesign validator, add data, or escalate to an owner
+  decision review.
+- No strategy advances because of narrative alone. It advances only because
+  paper evidence and validation evidence meet explicit gates.
+
+### Phase 7: Final Evidence Campaign After Factory Buildout
+
+Goal: After Phases 8, 9, 10, 11, and 12 are complete, use historical data to
+bootstrap strategy evidence and then keep running `evidence-run` as new market
+data arrives to build out-of-sample paper observations and failure evidence.
+
+Why this matters:
+
+- The system can simulate and record evidence, but evidence is meaningful only
+  after source qualification, strategy validators, cost models, AI research
+  guards, and governance scoreboards are in place.
+- Historical data should be used first to reject weak ideas, tune validator
+  requirements, and define what future out-of-sample evidence should confirm.
+- Future daily samples are still needed because a historical result is not a
+  money edge by itself. It may be overfit, stale, fee-sensitive, or dependent
+  on a past market regime.
+- The owner's capital is small, so the edge must remain positive after small
+  notional limits, fees, slippage, stale signals, missed fills, and ordinary
+  infrastructure.
+
+Prerequisites before Phase 7 starts:
+
+- Phase 8 source qualification is complete for every data field required by
+  the target strategy families.
+- Phase 9 has enough executable and watchlist-only strategy families to compare
+  alternatives instead of overfitting one idea.
+- Phase 10 cost and execution realism is active by default.
+- Phase 11 AI researcher can propose bounded experiments from evidence without
+  bypassing validators.
+- Phase 12 governance can classify families as keep collecting, stop,
+  redesign, add data, or near owner decision review.
+
+Deliverables:
+
+- Phase 7A historical bootstrap:
+  - Pull reproducible Binance Public Data candle history for selected symbols
+    and timeframes.
+  - Pull or ingest funding history, open interest, basis, long/short, and other
+    required fields through qualified public sources.
+  - Run deterministic validation for every active executable strategy family
+    over historical stored data.
+  - Run `paper-sim-loop` over historical windows and record blocked or closed
+    paper outcomes.
+  - Generate a historical evidence report that states whether each family is
+    usable, blocked, negative after costs, or worth future out-of-sample
+    observation.
+- Phase 7B ongoing collection:
+  - Continue daily `evidence-run` as new data arrives.
+  - Compare new outcomes against the historical bootstrap expectation.
+  - Treat future observations as out-of-sample checks, not as a replacement for
+    historical validation.
+- Add or finalize an operator-controlled daily run wrapper or documented
+  command set for offline store checks, `evidence-run`, weekly
+  `evidence-report`, and artifact retention.
+- Add or finalize run manifests that record run id, command arguments, source
+  health, records written, report paths, memory path, network route, and
+  completed/failed status.
+- Add failure notification guidance for local operation, for example writing a
+  failed-run marker file or using a local shell mail/notification hook outside
+  the Python package.
+
+Evidence targets:
+
+- Historical bootstrap over multiple past windows before relying on future
+  daily samples.
+- At least 30 paper observations for one narrow strategy family before any
+  rollout review can be considered meaningful.
+- At least 60 paper observations before treating a paper edge as more than a
+  preliminary signal.
+- At least 90 calendar days of daily reports before making a profit/no-profit
+  decision on the first strategy family.
+
+Completion standard:
+
+- The historical bootstrap run records exact sources, symbols, dates,
+  parameters, validation metrics, paper outcomes, blocked reasons, costs, and
+  network route.
+- Weekly reports show sample-size progress, failed reasons, source-health
+  reliability, and whether evidence is improving or degrading.
+- The governance layer can classify every active family using the accumulated
+  historical and out-of-sample evidence.
+- No live capital, wallet keys, order routing, or exchange trade permissions
+  are introduced.
+- Phase 7 is not considered profit proof until future out-of-sample samples
+  confirm or reject what the historical bootstrap suggested.
+
+### Phase 13: Continuous Research Review And Reporting
+
+Goal: Continuously inspect the generated research reports, evidence packages,
+AI memos, strategy scoreboards, and finished artifacts, then write review
+reports that judge whether the system is producing useful money-making
+research or just generating activity.
+
+Why this matters:
+
+- The primary objective is making money, not building a complex agent for its
+  own sake.
+- Even after Phases 8-12 and the Phase 7 evidence campaign, the owner still
+  needs a disciplined review loop that asks whether the outputs are improving,
+  whether research is becoming more focused, and whether weak families are
+  being stopped quickly enough.
+- The system should produce review reports plus explicit decision records, not
+  just raw output. A report that does not change what to test, stop,
+  redesign, or collect next is not useful.
+- Live execution remains blocked by the charter. Phase 13 is about evaluating
+  research effectiveness and finished artifacts, not implementing trading or
+  adding new product code.
+
+Review inputs:
+
+- Daily and weekly evidence reports.
+- Historical bootstrap reports and out-of-sample paper observations.
+- Strategy-family scoreboards and stopped-family ledgers.
+- AI research memos, rejected proposal memory, and duplicate experiment
+  records.
+- Source-health reports and data-quality reports.
+- Cost-model and execution-realism summaries.
+- Owner decision artifacts from Phase 12.
+
+Review cadence:
+
+- Daily quick scan:
+  whether new evidence arrived, whether sources failed, whether any strategy
+  degraded, and whether the next experiment is still valid.
+- Weekly review:
+  compare strategy families, inspect stopped ideas, check whether AI proposals
+  are becoming better or repetitive, and decide what to run next week.
+- Monthly review:
+  decide whether the project is moving toward profit evidence, needs a major
+  redesign, should drop a strategy family, should add a data source, or should
+  pause a line of research.
+
+Outputs:
+
+- A short review report for each cadence.
+- A decision log entry for each active family or major report cycle.
+- A list of follow-up questions, gaps, or blocked items for the next phase.
+
+Required decisions:
+
+- `keep_collecting`: evidence is improving but sample size is not enough.
+- `stop_family`: evidence is negative, degraded, too costly, or too fragile.
+- `redesign_validator`: the idea may be valid but the current validator is too
+  weak, too optimistic, or missing fields.
+- `add_data`: the blocker is data coverage or data quality.
+- `retire_data_source`: the source is stale, unreliable, expensive, or not
+  useful for decisions.
+- `pause_project_line`: the research area is consuming effort without evidence
+  that it can fit the owner's low-capital constraints.
+
+Completion standard:
+
+- No new product code is added in this phase; the output is review reports and
+  decision records only.
+- Every weekly and monthly review produces an explicit decision record.
+- Each active strategy family has a current owner-facing status:
+  keep collecting, stop, redesign, add data, or pause.
+- The review can explain whether the project is closer to finding a
+  cost-adjusted edge than it was in the previous period.
+- Reported improvements are tied to metrics and evidence references, not AI
+  narrative alone.
+- The current code continues to report `live_execution_allowed=false`.
 
 The constraints remain unchanged: low capital measured in a few hundred USD,
 ordinary public APIs/RPC only, no speed edge or speed arbitrage, no MEV or

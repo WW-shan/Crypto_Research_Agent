@@ -25,6 +25,38 @@ may call it without making the agent an always-on daemon.
 No exchange keys, wallet private keys, RPC secrets, or live API credentials are
 required for the current operator workflow.
 
+Local LLM credentials are optional operator configuration until the real LLM
+adapter is implemented. Keep them in `.env` or the shell environment only, and
+never commit or paste the values into docs, reports, memory, or logs. The
+expected variable names are:
+
+```env
+OPENAI_BASE_URL=
+OPENAI_API_KEY=
+OPENAI_API_TYPE=responses
+OPENAI_MODEL=
+OPENAI_RESEARCH_MODEL=
+OPENAI_CODER_MODEL=
+OPENAI_FAST_MODEL=
+```
+
+Some public crypto data endpoints may fail or timeout on the direct network
+route. The operator may use a local proxy for source probes and data ingestion.
+Keep proxy configuration local and record the source-health route as direct,
+proxy, or failed. The expected variable names are:
+
+```env
+HTTP_PROXY=
+HTTPS_PROXY=
+ALL_PROXY=
+http_proxy=
+https_proxy=
+all_proxy=
+NO_PROXY=
+no_proxy=
+CRYPTO_ALPHA_AGENT_PROXY=
+```
+
 Dune is optional and credentialed. If used, load `DUNE_API_KEY` from a local
 operator config outside git or from the shell environment. Do not paste real
 keys into docs, commands saved in shell history, reports, or commits.
