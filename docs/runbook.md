@@ -61,6 +61,29 @@ Dune is optional and credentialed. If used, load `DUNE_API_KEY` from a local
 operator config outside git or from the shell environment. Do not paste real
 keys into docs, commands saved in shell history, reports, or commits.
 
+## Operator Baseline
+
+Before and after local runs, check the worktree:
+
+```bash
+git status --short
+```
+
+The normal operator baseline is:
+
+- `.env`, `.agents/`, `.claude/`, `var/`, caches, local reports, SQLite
+  databases, logs, screenshots, and generated artifacts stay out of git.
+- `.agents/` and `.claude/` are local AI-tool installs. They are not product
+  deliverables unless a future approved plan explicitly promotes tooling into
+  repository documentation or source.
+- Local LLM and proxy settings stay in `.env` or the shell environment. Docs
+  list variable names only, not configured values.
+- Do not stage provider headers, raw keys, memory dumps, reports, databases,
+  logs, screenshots, or generated artifacts.
+- If `git status --short` shows unexpected files after an evidence run, decide
+  whether they are product changes, local artifacts to ignore, or generated
+  evidence that belongs under `var/` before starting another phase.
+
 ## Daily Sequence
 
 1. Run an offline store check:

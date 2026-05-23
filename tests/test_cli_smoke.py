@@ -69,6 +69,8 @@ def test_repo_ignores_local_macos_and_cache_artifacts():
     assert ".env" in ignore_text
     assert ".env.*" in ignore_text
     assert "!.env.example" in ignore_text
+    assert ".agents/" in ignore_text
+    assert ".claude/" in ignore_text
     assert "var/" in ignore_text
     assert "*.pyc" in ignore_text
 

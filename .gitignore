@@ -3,6 +3,8 @@
 .env
 .env.*
 !.env.example
+.agents/
+.claude/
 .ruff_cache/
 .venv/
 .worktrees/

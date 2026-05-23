@@ -6,87 +6,78 @@ round.
 
 ## Current Round
 
-- Round: 1
-- Status: milestone published; final verification passed and GitHub push
-  completed
-- Started: 2026-05-17
-- Completed: 2026-05-17 UTC / 2026-05-18 Asia-Shanghai local time
-- Active slice: complete safe autonomous evidence system milestone
+- Round: 2
+- Status: Phase 0 complete; final verification and staged secret-safety passed
+- Started: 2026-05-23
+- Completed: 2026-05-23
+- Active slice: Immediate Phase 0 / merged Phase 6 worktree and configuration
+  closeout
 - Active plan source:
-  `docs/superpowers/plans/2026-05-17-complete-autonomous-evidence-system.md`
+  `docs/superpowers/plans/2026-05-23-phase-0-worktree-configuration-closeout.md`
+- Phase report:
+  `docs/goals/phase-reports/2026-05-23-phase-0-worktree-configuration-closeout-completion-report.md`
 
 ## Completed This Round
 
-- Completed degradation stop rules across `evidence-run`, `research-loop`,
-  scheduler plans, and experiment planning.
-- Added `rollout-review` so accumulated paper outcomes and validation evidence
-  produce a rollout evaluation, tiny-live readiness artifact, and preserved
-  strategy-specific evidence package while keeping live execution disabled.
-- Hardened rollout evidence semantics:
-  - blocked and `no_signal` paper outcomes do not satisfy rollout observation
-    count;
-  - failed and rejected outcomes feed the failure-rate gate;
-  - unapproved validation evidence cannot make rollout gates pass;
-  - duplicate canonical validation evidence cannot inflate walk-forward splits;
-  - `max_observed_loss_usd` uses the conservative recorded or derived loss.
-- Completed operator documentation for daily and weekly evidence operations,
-  data ingestion, paper simulation, experiment planning, rollout review,
-  replay/recovery, external cron/systemd handoff, logs, locks, failure
-  notification, and artifact retention.
-- Added a full local acceptance test proving:
-  - `evidence-run`;
-  - `research-loop --include-validation --include-paper-evidence --memory`;
-  - `plan-experiments`;
-  - `evidence-report --weekly`;
-  - `rollout-review`.
-- Strengthened acceptance coverage for source health, memory feedback, report
-  contents, rollout artifact persistence, evidence package consistency,
-  low-capital constraints, no-live flags, and unexpected network calls.
-- Fixed final review findings:
-  - TheGraph subgraph URLs are redacted from schedule plans and optional-source
-    failure messages.
-  - HTTP failure messages redact URLs before they can be surfaced in source
-    health.
-  - `RiskGuardian` no longer grants live execution authority under the current
-    charter; even fully approved `gated_live` contexts are blocked with
-    `live_execution_disabled_by_charter`.
+- Ran a new Phase 0 Smart Search deep-research pass and fetched source-backed
+  GitHub documentation for repository ignore rules and secret scanning risk.
+- Verified local feasibility from the current worktree:
+  - `.env` is ignored and only `.env.example` is tracked.
+  - `.agents/` and `.claude/` were untracked local Smart Search skill
+    directories, not product runtime code.
+  - `tests/test_llm_configured_client.py` was an untracked Phase 1 draft that
+    failed because `crypto_alpha_agent.llm.configured` does not exist yet.
+- Added `.agents/` and `.claude/` to `.gitignore` and extended the existing
+  CLI smoke ignore-contract test.
+- Deleted the failing untracked Phase 1 LLM adapter test draft. Immediate Phase
+  1 must recreate LLM adapter tests under its own TDD plan.
+- Added an operator baseline checklist to `docs/runbook.md` covering clean git
+  status, local-only AI tool directories, ignored artifacts, and secret-safe
+  local configuration handling.
+- Updated `docs/roadmap.md` to record Immediate Phase 0 / merged Phase 6
+  completion and Immediate Phase 1 as the next implementation phase.
+- Wrote the Phase 0 plan and completion report.
 
 ## Verification Evidence
 
-- Focused Task 16 checks:
-  `uv run --extra dev pytest tests/test_rollout_readiness_cli.py tests/test_rollout_gates.py tests/test_live_readiness.py -q`
-  passed with 40 tests.
-- Focused Task 17 checks:
-  `uv run --extra dev pytest tests/test_documentation_contract.py -q` passed
-  with 7 tests.
-- Focused Task 18 check:
-  `uv run --extra dev pytest tests/test_complete_evidence_system.py -q` passed.
-- Source coverage check:
-  `uv run --extra dev pytest tests/test_binance_public_ingestion.py tests/test_ccxt_ingestion_service.py tests/test_defillama_dex_ingestion_service.py tests/test_onchain_ingestion_service.py -q`
-  passed with 52 tests.
-- Final review fix checks:
-  `uv run --extra dev pytest tests/test_scheduler_cli.py tests/test_evidence_runner.py tests/test_risk_guardian.py tests/test_tool_retries.py -q`
-  passed with 44 tests.
+- Focused feasibility check:
+  `uv run --extra dev pytest tests/test_llm_configured_client.py -q` failed as
+  expected before deletion with `ModuleNotFoundError: No module named
+  'crypto_alpha_agent.llm'`, proving it was an unresolved Phase 1 draft.
+- Focused Phase 0 checks:
+  `uv run --extra dev pytest tests/test_cli_smoke.py::test_repo_ignores_local_macos_and_cache_artifacts tests/test_documentation_contract.py -q`
+  passed with 8 tests.
+- Ignore check:
+  `git check-ignore -v .env .agents .claude` confirmed `.env`, `.agents/`, and
+  `.claude/` are ignored by `.gitignore`.
+- Draft removal check:
+  `test ! -e tests/test_llm_configured_client.py && git status --short tests/test_llm_configured_client.py`
+  passed with no path output.
+- Review pass 1, specification/requirements:
+  no Critical or Important scope gaps after confirming the diff only covers
+  Phase 0 closeout and does not implement Phase 1.
+- Review pass 2, code-quality/safety:
+  one Important documentation issue was found and fixed by replacing pending
+  state/report text with actual verification results before commit.
+- Focused final checks:
+  `uv run --extra dev pytest tests/test_cli_smoke.py::test_repo_ignores_local_macos_and_cache_artifacts tests/test_documentation_contract.py -q`
+  passed with 8 tests.
 - Full tests:
   `uv run --extra dev pytest -q` passed with 750 tests.
 - Ruff:
   `uv run --extra dev ruff check .` passed.
 - Diff check:
   `git diff --check` passed.
-- Forbidden-path check:
-  `rg -n "create_order|private_key|seed phrase|send_transaction|live_order_routing.*True|touched_real_capital.*True" src tests docs README.md`
-  returned only documentation safety wording, negative tests, and production
-  denylist terms used to block unsafe behavior. It did not reveal production
-  live execution authority.
-- Pre-state staged diff check:
+- Current status before staging:
+  `git status --short --branch --untracked-files=all` showed only deliberate
+  Phase 0 files.
+- Staged checks:
   `git diff --cached --check`, `git diff --cached --name-only`, and
-  `git diff --cached --no-ext-diff --unified=0` were clean before state updates.
-- Secret-safety review result:
-  no `.env`, SQLite database, `var/` artifact, cache, generated report, API key,
-  bearer token, private key, seed phrase, or wallet material was staged.
-- Final commit hash: `fb1635d281f33e93a6723832bdf04a115e160c86`
-- Public GitHub repository URL:
-  `https://github.com/WW-shan/Crypto_Research_Agent`
+  `git diff --cached --no-ext-diff --unified=0` passed for the deliberate Phase
+  0 staged files.
+- Staged secret-safety review:
+  staged diff scan for actual API keys, configured provider URL, local proxy
+  value, bearer tokens, and private-key material produced no findings.
 
 ## Current Project Target
 
@@ -117,7 +108,9 @@ charter:
 
 ## Known Remaining Gaps
 
-None for the first complete research-loop milestone under the current charter.
+The first complete research-loop milestone remains complete under the current
+charter. Post-milestone Phase 0 is complete. The next implementation gap is
+Immediate Phase 1: Real LLM Adapter.
 
 Future work is now ordered as an evidence-factory buildout before the formal
 evidence campaign:
@@ -146,7 +139,7 @@ charter revision.
 
 ## Next Round Entry Instructions
 
-If work continues after this milestone:
+If work continues after Phase 0:
 
 1. Read `docs/project-charter.md` before any new plan.
 2. Read `docs/goals/project-completion-goal.md` and follow its Per-Round
@@ -161,11 +154,10 @@ If work continues after this milestone:
    `docs/roadmap.md`.
 4. Treat Phase 6 as merged into Immediate Phase 0 / Immediate Phase 1 entry
    readiness, not as a later standalone feature phase.
-5. Start with Immediate Phase 0 before implementing the LLM adapter:
-   cleanly decide the `.agents/` and `.claude/` boundary, keep `.env` ignored,
-   keep local LLM and proxy variables local, and either delete or intentionally
-   incorporate the current `tests/test_llm_configured_client.py` draft into the
-   approved Phase 1 plan.
+5. Start with Immediate Phase 1: Real LLM Adapter. Phase 0 resolved the
+   `.agents/` and `.claude/` boundary, kept `.env` ignored, kept local LLM and
+   proxy variables local, and deleted the failing `tests/test_llm_configured_client.py`
+   draft so Phase 1 can recreate tests through its own TDD plan.
 6. Treat live execution, wallet keys, exchange order routing, private RPC,
    MEV, and speed-edge paths as blocked unless the owner explicitly revises the
    charter.
@@ -193,3 +185,4 @@ If work continues after this milestone:
 | --- | --- | --- | --- | --- | --- |
 | 0 | 2026-05-17 | Goal contract bootstrap | pytest 676 passed; ruff passed; diff check passed; staged secret review passed | Goal bootstrap docs slice | public repo target |
 | 1 | 2026-05-17 UTC / 2026-05-18 local | Complete autonomous evidence system milestone | pytest 750 passed; ruff passed; diff check passed; focused source tests 52 passed; forbidden-path review found no production live path | `fb1635d281f33e93a6723832bdf04a115e160c86` | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 2 | 2026-05-23 | Immediate Phase 0 / merged Phase 6 worktree and configuration closeout | focused Phase 0 checks 8 passed; pytest 750 passed; ruff passed; diff check passed; staged secret review passed | Phase 0 completion commit `docs: complete phase 0 closeout` | `https://github.com/WW-shan/Crypto_Research_Agent` |

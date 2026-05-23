@@ -312,6 +312,12 @@ becomes the ongoing report and artifact review loop.
 
 Goal: Start the next implementation from a clean, explainable local state.
 
+Status as of 2026-05-23: complete after the Phase 0 closeout round. `.agents/`
+and `.claude/` are treated as local-only AI-tool directories and ignored by the
+repository. `.env` remains local and ignored. The accidental
+`tests/test_llm_configured_client.py` draft was removed so Immediate Phase 1 can
+recreate LLM adapter tests under its own TDD plan.
+
 Required actions:
 
 - Decide whether `.agents/` and `.claude/` are local-only tool directories. If
@@ -522,6 +528,9 @@ Completion standard:
 
 Goal: Fold state hygiene and operator-baseline work into the entry gate for
 Immediate Phase 1 instead of treating it as a later standalone feature phase.
+
+Status as of 2026-05-23: merged into the completed Immediate Phase 0 closeout.
+The next implementation phase is Immediate Phase 1: Real LLM Adapter.
 
 This phase is not a separate implementation track. It is satisfied by the
 Immediate Phase 0 / Phase 1 entry work: clean worktree, local configuration
