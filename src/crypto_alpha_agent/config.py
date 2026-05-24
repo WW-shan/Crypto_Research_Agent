@@ -124,6 +124,25 @@ def build_configured_llm(
     return OpenAIResponsesAdapter(settings)
 
 
+def build_required_real_llm(
+    *,
+    env_file: str | Path | None = Path(".env"),
+    role: LLMRole = "research",
+    env: dict[str, str] | None = None,
+):
+    settings = build_configured_llm_settings(
+        env_file=env_file,
+        role=role,
+        required=True,
+        env=env,
+    )
+    if settings is None:
+        raise ValueError("Real LLM is required but settings were not built.")
+    from crypto_alpha_agent.llm.responses import OpenAIResponsesAdapter
+
+    return OpenAIResponsesAdapter(settings)
+
+
 def _model_for_role(values: dict[str, str], role: LLMRole) -> str:
     fallback = values.get("OPENAI_MODEL", "").strip()
     if role in {"default", "research", "planning"}:

@@ -4,6 +4,14 @@ from crypto_alpha_agent.config import (
     build_configured_llm,
     build_configured_llm_settings,
 )
+from crypto_alpha_agent.llm.runtime import (
+    LLMHealthCheckResult,
+    LLMHealthCheckTask,
+    LLMRuntimeError,
+    RealLLMRuntime,
+    build_required_real_llm_runtime,
+    parse_structured_llm_json,
+)
 from crypto_alpha_agent.llm.responses import (
     LLMConfigurationError,
     LLMProviderError,
@@ -12,10 +20,16 @@ from crypto_alpha_agent.llm.responses import (
 
 __all__ = [
     "LLMConfigurationError",
+    "LLMHealthCheckResult",
+    "LLMHealthCheckTask",
     "LLMProviderError",
+    "LLMRuntimeError",
     "LLMRole",
     "LLMSettings",
     "OpenAIResponsesAdapter",
+    "RealLLMRuntime",
     "build_configured_llm",
     "build_configured_llm_settings",
+    "build_required_real_llm_runtime",
+    "parse_structured_llm_json",
 ]
