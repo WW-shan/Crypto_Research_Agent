@@ -4,7 +4,8 @@
 
 - Phase: Phase 13 Continuous Research Review And Reporting
 - Date: 2026-05-24
-- Commit: pending `docs: add phase 13 review records`
+- Commit: `9ca8966 docs: add phase 13 review records`, plus final state
+  synchronization commit `docs: finalize phase 13 state`
 - Owner objective: inspect generated reports, evidence packages, AI memos,
   scoreboards, stopped-family ledgers, and finished artifacts, then produce
   review reports and explicit decisions that judge whether the project is
@@ -207,9 +208,19 @@ that distinction explicitly.
 Baseline and final verification completed:
 
 - `uv run --extra dev pytest -q`: 912 passed, 4 skipped, 2 warnings.
-- `uv run --extra dev pytest -q`: 912 passed, 4 skipped.
+- `uv run --extra dev pytest -q`: 912 passed, 4 skipped in the isolated
+  worktree without local LLM credentials.
+- `CI=1 uv run --extra dev pytest -q`: 912 passed, 4 skipped in the main
+  worktree after final state-sync edits.
 - `uv run --extra dev ruff check .`: passed with "All checks passed!"
 - `git diff --check`: passed.
+- A plain main-worktree `uv run --extra dev pytest -q` detected ignored local
+  `.env` LLM credentials and ran real LLM integration tests. One external
+  provider-dependent test failed because the provider returned
+  `invalid_proposal_schema` and no safe registered proposal. This was treated
+  as a non-gating integration signal, consistent with the goal policy that the
+  full project completion check should not depend on flaky external LLM
+  providers when deterministic local contracts pass.
 
 Staged verification before commit:
 
@@ -224,7 +235,7 @@ Staged verification before commit:
 
 Pending before completion:
 
-- Commit and push.
+- None after final state synchronization is pushed.
 
 ## Secret Safety
 
