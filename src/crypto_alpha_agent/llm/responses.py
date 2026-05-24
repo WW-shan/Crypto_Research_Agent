@@ -21,6 +21,7 @@ class LLMConfigurationError(ValueError):
 class OpenAIResponsesAdapter:
     def __init__(self, settings: LLMSettings, *, session: Any | None = None) -> None:
         self.settings = settings
+        self._session_injected = session is not None
         self.session = session if session is not None else requests.Session()
 
     def __call__(self, task: Any) -> str:

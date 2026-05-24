@@ -3,9 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, TypeVar, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from crypto_alpha_agent.config import LLMRole, build_required_real_llm
 from crypto_alpha_agent.llm.redaction import redact_text
@@ -42,6 +42,17 @@ class LLMHealthCheckResult(_RuntimeModel):
     capabilities: list[str] = Field(min_length=2)
     uses_real_capital: Literal[False]
     live_order_routing: Literal[False]
+
+    @field_validator("capabilities")
+    @classmethod
+    def _require_runtime_capabilities(cls, value: list[str]) -> list[str]:
+        required = {"json_schema", "research_only"}
+        missing = sorted(required - set(value))
+        if missing:
+            raise ValueError(
+                "missing required capabilities: " + ", ".join(missing)
+            )
+        return value
 
 
 class RealLLMRuntime:
@@ -165,7 +176,35 @@ def _require_strict_output_model(output_model: type[StructuredModel]) -> None:
             "unsafe_output_schema",
             "LLM output schema must be a Pydantic BaseModel.",
         )
-    config = output_model.model_config
+    for model in _iter_pydantic_model_types(output_model):
+        _require_strict_model_config(model)
+
+
+def _iter_pydantic_model_types(
+    model: type[BaseModel],
+    *,
+    seen: set[type[BaseModel]] | None = None,
+):
+    seen = set() if seen is None else seen
+    if model in seen:
+        return
+    seen.add(model)
+    yield model
+    for field in model.model_fields.values():
+        for nested_model in _model_types_from_annotation(field.annotation):
+            yield from _iter_pydantic_model_types(nested_model, seen=seen)
+
+
+def _model_types_from_annotation(annotation: Any):
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        yield annotation
+        return
+    for arg in get_args(annotation):
+        yield from _model_types_from_annotation(arg)
+
+
+def _require_strict_model_config(model: type[BaseModel]) -> None:
+    config = model.model_config
     if (
         config.get("strict") is not True
         or config.get("extra") != "forbid"
@@ -174,7 +213,7 @@ def _require_strict_output_model(output_model: type[StructuredModel]) -> None:
         raise LLMRuntimeError(
             "unsafe_output_schema",
             (
-                f"LLM output schema {output_model.__name__} must set strict=True, "
+                f"LLM output schema {model.__name__} must set strict=True, "
                 "extra='forbid', and allow_inf_nan=False."
             ),
         )
@@ -184,4 +223,5 @@ def _is_openai_responses_adapter(llm: Any) -> bool:
     return (
         llm.__class__.__module__ == "crypto_alpha_agent.llm.responses"
         and llm.__class__.__name__ == "OpenAIResponsesAdapter"
+        and getattr(llm, "_session_injected", True) is False
     )
