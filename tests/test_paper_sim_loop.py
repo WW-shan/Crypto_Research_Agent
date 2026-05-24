@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import UTC, datetime
+from io import StringIO
 
 import pytest
 
@@ -63,11 +64,20 @@ def _write_happy_path_fixture(tmp_path):
 
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, "-m", "crypto_alpha_agent.cli", *args],
-        check=False,
-        capture_output=True,
-        text=True,
+    from crypto_alpha_agent.cli import main
+
+    stdout = StringIO()
+    stderr = StringIO()
+    with redirect_stdout(stdout), redirect_stderr(stderr):
+        try:
+            returncode = main(list(args))
+        except SystemExit as exc:
+            returncode = int(exc.code or 0)
+    return subprocess.CompletedProcess(
+        [*args],
+        returncode,
+        stdout=stdout.getvalue(),
+        stderr=stderr.getvalue(),
     )
 
 

@@ -9,6 +9,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict
 
 from crypto_alpha_agent.agents.llm_contracts import HypothesisProposal, ResearchTask
+from crypto_alpha_agent.agents.report_summarizer import EvidenceReportSummaryTask
 from crypto_alpha_agent.pipeline.experiment_planner import (
     ExperimentPlannerInput,
     ExperimentPlannerMemoryContext,
@@ -348,14 +349,77 @@ def test_responses_adapter_includes_experiment_schema_hint_for_planner_task() ->
         "proposals",
         "strategy_family",
         "parameter_changes",
+        "evidence_refs",
         "why_it_might_improve_edge",
+        "expected_edge_mechanism",
         "disconfirmation_tests",
         "stop_conditions",
+        "required_data_fields",
+        "selected_validator",
         "uses_real_capital",
         "live_order_routing",
     ]:
         assert field_name in prompt
     assert "false" in prompt
+    assert "Do not include allowed_data_sources" in prompt
+    assert "proposal_id" in prompt
+    assert "max_capital_usd" in prompt
+    assert "max_notional_usd" in prompt
+
+
+def test_responses_adapter_uses_json_schema_format_for_planner_task() -> None:
+    session = _FakeSession(_FakeResponse(payload={"output_text": "{}"}))
+    adapter = OpenAIResponsesAdapter(_settings(), session=session)
+    task = ExperimentPlannerTask(
+        task_id="planner-schema-format",
+        objective="Plan bounded experiments.",
+        planner_input=ExperimentPlannerInput(
+            db_path="research.sqlite",
+            memory_path="memory.jsonl",
+            strategy_family="funding_extremity_price_confirmation",
+            max_proposals=1,
+            current_capital_usd=300.0,
+            offline_only=False,
+        ),
+        validation_evidence_summaries=[],
+        paper_evidence_packages=[],
+        degraded_strategy_families=[],
+        blocked_parameter_sets={},
+        memory_context=ExperimentPlannerMemoryContext(
+            degraded_strategy_families=[],
+            blocked_parameter_sets={},
+            blocked_parameter_set_count=0,
+        ),
+        current_capital_usd=300.0,
+    )
+
+    adapter(task)
+
+    request_payload = session.calls[0]["json"]
+    text_format = request_payload["text"]["format"]
+    proposal_schema = text_format["schema"]["properties"]["proposals"]["items"]
+    parameter_schema = proposal_schema["properties"]["parameter_changes"]
+
+    assert text_format["type"] == "json_schema"
+    assert text_format["name"] == "ExperimentPlannerPayload"
+    assert text_format["strict"] is True
+    assert text_format["schema"]["additionalProperties"] is False
+    assert proposal_schema["additionalProperties"] is False
+    assert "allowed_data_sources" not in proposal_schema["properties"]
+    assert set(proposal_schema["required"]) == {
+        "strategy_family",
+        "parameter_changes",
+        "evidence_refs",
+        "why_it_might_improve_edge",
+        "expected_edge_mechanism",
+        "disconfirmation_tests",
+        "stop_conditions",
+        "required_data_fields",
+        "selected_validator",
+        "uses_real_capital",
+        "live_order_routing",
+    }
+    assert parameter_schema["additionalProperties"] is False
 
 
 def test_responses_adapter_includes_health_check_schema_hint_for_runtime_task() -> None:
@@ -371,6 +435,23 @@ def test_responses_adapter_includes_health_check_schema_hint_for_runtime_task() 
         "research_only",
     ]:
         assert expected_text in prompt
+
+
+def test_responses_adapter_summary_hint_avoids_unsafe_safety_echoes() -> None:
+    adapter = OpenAIResponsesAdapter(_settings())
+
+    prompt = adapter._render_input(
+        EvidenceReportSummaryTask(
+            task_id="summary-schema-hint",
+            report_type="daily",
+            objective="Summarize evidence.",
+            deterministic_report={"families": []},
+        )
+    )
+
+    assert "Do not write phrases containing live, order, routing" in prompt
+    assert "research-only" in prompt
+    assert "public-data-only" in prompt
 
 
 def test_responses_adapter_provider_errors_are_redacted() -> None:

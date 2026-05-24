@@ -29,6 +29,9 @@ class OpenAIResponsesAdapter:
             "model": self.settings.model,
             "input": self._render_input(task),
         }
+        text_format = _text_format_for_task(task)
+        if text_format is not None:
+            payload["text"] = {"format": text_format}
         headers = {
             "Authorization": f"Bearer {self.settings.api_key.get_secret_value()}",
             "Content-Type": "application/json",
@@ -140,6 +143,262 @@ def _extract_output_item_text(item: Any) -> str | None:
         return text.strip()
     return None
 
+
+def _text_format_for_task(task: Any) -> dict[str, Any] | None:
+    task_type = type(task).__name__
+    if task_type == "ResearchTask":
+        return _json_schema_text_format(
+            "HypothesisProposal",
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "proposal_id": {"type": "string"},
+                    "thesis": {"type": "string"},
+                    "hypothesis": {"type": "string"},
+                    "assumptions": _string_list_schema(),
+                    "evidence": _string_list_schema(),
+                    "disconfirmation": _string_list_schema(),
+                    "data_needed": _string_list_schema(),
+                    "capital_required_usd": {"type": "number", "minimum": 0},
+                    "speed_dependency": {
+                        "type": "string",
+                        "enum": ["none", "low", "medium", "high"],
+                    },
+                    "rpc_dependency": {
+                        "type": "string",
+                        "enum": ["none", "low", "medium", "high"],
+                    },
+                    "action_mode": {"type": "string", "enum": ["research_only"]},
+                },
+                "required": [
+                    "proposal_id",
+                    "thesis",
+                    "hypothesis",
+                    "assumptions",
+                    "evidence",
+                    "disconfirmation",
+                    "data_needed",
+                    "capital_required_usd",
+                    "speed_dependency",
+                    "rpc_dependency",
+                    "action_mode",
+                ],
+            },
+        )
+    if task_type == "ExperimentPlannerTask":
+        return _json_schema_text_format(
+            "ExperimentPlannerPayload",
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "proposals": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 3,
+                        "items": _experiment_proposal_payload_schema(task),
+                    }
+                },
+                "required": ["proposals"],
+            },
+        )
+    if task_type == "EvidenceReportSummaryTask":
+        return _json_schema_text_format(
+            "EvidenceReportNarrativeSummary",
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "report_type": {"type": "string", "enum": ["daily", "weekly"]},
+                    "summary": {"type": "string"},
+                    "metric_refs": _string_list_schema(max_items=16),
+                    "caveats": _string_list_schema(max_items=12),
+                    "uses_real_capital": {"type": "boolean", "enum": [False]},
+                    "live_order_routing": {"type": "boolean", "enum": [False]},
+                },
+                "required": [
+                    "report_type",
+                    "summary",
+                    "metric_refs",
+                    "caveats",
+                    "uses_real_capital",
+                    "live_order_routing",
+                ],
+            },
+        )
+    if task_type == "LLMHealthCheckTask":
+        return _json_schema_text_format(
+            "LLMHealthCheckResult",
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "status": {"type": "string", "enum": ["ok"]},
+                    "schema_name": {
+                        "type": "string",
+                        "enum": ["LLMHealthCheckResult"],
+                    },
+                    "capabilities": _string_list_schema(min_items=2),
+                    "uses_real_capital": {"type": "boolean", "enum": [False]},
+                    "live_order_routing": {"type": "boolean", "enum": [False]},
+                },
+                "required": [
+                    "status",
+                    "schema_name",
+                    "capabilities",
+                    "uses_real_capital",
+                    "live_order_routing",
+                ],
+            },
+        )
+    return None
+
+
+def _json_schema_text_format(name: str, schema: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "json_schema",
+        "name": name,
+        "schema": schema,
+        "strict": True,
+    }
+
+
+def _string_list_schema(
+    *,
+    min_items: int = 1,
+    max_items: int | None = None,
+    enum_values: list[str] | None = None,
+) -> dict[str, Any]:
+    item_schema: dict[str, Any] = {"type": "string"}
+    if enum_values:
+        item_schema["enum"] = enum_values
+    schema: dict[str, Any] = {
+        "type": "array",
+        "minItems": min_items,
+        "items": item_schema,
+    }
+    if max_items is not None:
+        schema["maxItems"] = max_items
+    return schema
+
+
+def _experiment_proposal_payload_schema(task: Any) -> dict[str, Any]:
+    values = _planner_schema_values(task)
+    strategy_family_schema: dict[str, Any] = {"type": "string"}
+    if values["strategy_families"]:
+        strategy_family_schema["enum"] = values["strategy_families"]
+    selected_validator_schema: dict[str, Any] = {"type": "string"}
+    if values["validator_names"]:
+        selected_validator_schema["enum"] = values["validator_names"]
+    required_data_fields_schema = _string_list_schema(
+        min_items=values["required_data_field_count"],
+        max_items=values["required_data_field_count"],
+        enum_values=values["required_data_fields"],
+    )
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "strategy_family": strategy_family_schema,
+            "parameter_changes": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "threshold_abs": {"type": "number", "minimum": 0},
+                    "hold_bars": {"type": "integer", "minimum": 1},
+                },
+                "required": ["threshold_abs", "hold_bars"],
+            },
+            "evidence_refs": _string_list_schema(),
+            "why_it_might_improve_edge": {"type": "string"},
+            "expected_edge_mechanism": {"type": "string"},
+            "disconfirmation_tests": _string_list_schema(),
+            "stop_conditions": _string_list_schema(),
+            "required_data_fields": required_data_fields_schema,
+            "selected_validator": selected_validator_schema,
+            "uses_real_capital": {"type": "boolean", "enum": [False]},
+            "live_order_routing": {"type": "boolean", "enum": [False]},
+        },
+        "required": [
+            "strategy_family",
+            "parameter_changes",
+            "evidence_refs",
+            "why_it_might_improve_edge",
+            "expected_edge_mechanism",
+            "disconfirmation_tests",
+            "stop_conditions",
+            "required_data_fields",
+            "selected_validator",
+            "uses_real_capital",
+            "live_order_routing",
+        ],
+    }
+
+
+def _planner_schema_values(task: Any) -> dict[str, Any]:
+    planner_input = getattr(task, "planner_input", None)
+    requested_family = getattr(planner_input, "strategy_family", None)
+    registered_validators = [
+        item
+        for item in getattr(task, "registered_validators", [])
+        if isinstance(item, dict)
+    ]
+    matching_validators = [
+        item
+        for item in registered_validators
+        if not requested_family or item.get("strategy_family") == requested_family
+    ]
+    if not matching_validators:
+        matching_validators = registered_validators
+
+    strategy_families = _dedupe_strings(
+        [
+            str(item.get("strategy_family", ""))
+            for item in matching_validators
+            if item.get("strategy_family")
+        ]
+    )
+    if requested_family and requested_family not in strategy_families:
+        strategy_families = [requested_family, *strategy_families]
+    validator_names = _dedupe_strings(
+        [
+            str(item.get("validator_name", ""))
+            for item in matching_validators
+            if item.get("validator_name")
+        ]
+    )
+    required_data_fields = _dedupe_strings(
+        [
+            str(field)
+            for item in matching_validators
+            for field in item.get("required_record_types", [])
+        ]
+    )
+    if not validator_names:
+        validator_names = ["funding_price_confirmation"]
+    if not required_data_fields:
+        required_data_fields = ["market_candle", "funding_rate"]
+    return {
+        "strategy_families": strategy_families,
+        "validator_names": validator_names,
+        "required_data_fields": required_data_fields,
+        "required_data_field_count": max(1, len(required_data_fields)),
+    }
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        item = value.strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+    return deduped
+
+
 def _schema_hint_for_task(task: Any) -> str:
     task_type = type(task).__name__
     if task_type == "ResearchTask":
@@ -156,13 +415,23 @@ def _schema_hint_for_task(task: Any) -> str:
         )
     if task_type == "ExperimentPlannerTask":
         return (
-            "Schema instructions: return JSON for bounded ExperimentProposal "
-            "items. Prefer an object with a proposals list. Each proposal should "
-            "include strategy_family, parameter_changes, why_it_might_improve_edge, "
-            "disconfirmation_tests, stop_conditions, uses_real_capital=false, and "
-            "live_order_routing=false. Use only registered strategy families and "
-            "do not repeat blocked parameter sets from the task context. Do not use "
-            "prohibited execution terms in why_it_might_improve_edge, "
+            "Schema instructions: return bounded ExperimentProposal payloads as "
+            "exactly one JSON object with a proposals list. The top-level object "
+            "must contain only proposals. Each proposal "
+            "must contain exactly these fields: strategy_family, parameter_changes, "
+            "evidence_refs, why_it_might_improve_edge, expected_edge_mechanism, "
+            "disconfirmation_tests, stop_conditions, required_data_fields, "
+            "selected_validator, uses_real_capital, and live_order_routing. Set "
+            "uses_real_capital=false and live_order_routing=false. Use non-empty "
+            "string lists for evidence_refs, disconfirmation_tests, stop_conditions, "
+            "and required_data_fields. required_data_fields must exactly match the "
+            "selected validator's required_record_types. parameter_changes must be a JSON object. Use only "
+            "registered strategy families and selected_validator values from the task "
+            "context, and do not repeat blocked parameter sets. Do not include "
+            "allowed_data_sources, proposal_id, max_capital_usd, max_notional_usd, "
+            "accepted, rejected_reason_codes, or strategy_template_proposals; the "
+            "planner computes those fields. Do not use prohibited execution terms in "
+            "why_it_might_improve_edge, expected_edge_mechanism, "
             "disconfirmation_tests, or stop_conditions; phrase safety boundaries as "
             "research-only, paper-only, public-data-only, after-cost, and "
             "walk-forward checks."
@@ -177,7 +446,9 @@ def _schema_hint_for_task(task: Any) -> str:
             "12 strings. Do not include uses_real_capital or live_order_routing as "
             "metric_refs; those are structural boolean fields only. Do not include "
             "extra fields or prohibited execution terms in summary, metric_refs, or "
-            "caveats."
+            "caveats. Do not write phrases containing live, order, routing, "
+            "capital, or execution in summary or caveats; say research-only and "
+            "public-data-only instead."
         )
     if task_type == "LLMHealthCheckTask":
         return (

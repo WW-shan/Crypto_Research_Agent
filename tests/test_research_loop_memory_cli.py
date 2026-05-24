@@ -133,15 +133,19 @@ def test_research_loop_memory_cli_persists_generated_and_blocked_hypotheses(
 
     payload = json.loads(capsys.readouterr().out)
     records = MemoryStore(memory_path).list_records()
+    research_records = [record for record in records if "research-loop" in record.tags]
+    llm_records = [record for record in records if "llm" in record.tags]
 
     assert exit_code == 0
     assert payload["memory_records_written"] == 2
     assert payload["memory_path"] == str(memory_path)
     assert payload["uses_real_capital"] is False
     assert payload["live_order_routing"] is False
-    assert {record.opportunity["asset"] for record in records} == {"WETH", "MICRO"}
-    assert all("research-loop" in record.tags for record in records)
-    assert any("blocked" in record.tags for record in records)
+    assert {record.opportunity["asset"] for record in research_records} == {"WETH", "MICRO"}
+    assert all("research-loop" in record.tags for record in research_records)
+    assert any("blocked" in record.tags for record in research_records)
+    assert len(llm_records) == 1
+    assert llm_records[0].record_id == payload["llm_memory_record_id"]
 
 
 def test_research_loop_memory_cli_persists_validation_evidence_lessons(
@@ -246,7 +250,10 @@ def test_research_loop_memory_cli_empty_report_does_not_create_memory_file(
     assert payload["memory_records_written"] == 0
     assert payload["memory_path"] == str(memory_path)
     assert payload["validation_memory_records_written"] == 0
-    assert not memory_path.exists()
+    records = MemoryStore(memory_path).list_records()
+    assert len(records) == 1
+    assert records[0].record_id == payload["llm_memory_record_id"]
+    assert records[0].tags == ["llm", "research_loop", "rejected"]
 
 
 def test_research_loop_memory_cli_ignores_stale_validation_ledger_without_validation(
@@ -295,4 +302,7 @@ def test_research_loop_memory_cli_ignores_stale_validation_ledger_without_valida
     assert exit_code == 0
     assert payload["memory_records_written"] == 0
     assert payload["validation_memory_records_written"] == 0
-    assert not memory_path.exists()
+    records = MemoryStore(memory_path).list_records()
+    assert len(records) == 1
+    assert records[0].record_id == payload["llm_memory_record_id"]
+    assert records[0].tags == ["llm", "research_loop", "rejected"]

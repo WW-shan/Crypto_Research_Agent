@@ -1032,6 +1032,7 @@ def _base_payload(command: str) -> dict[str, Any]:
         "live_api_call_types": ["llm_health_check"],
         "live_market_api_calls": False,
         "uses_real_capital": False,
+        "live_order_routing": False,
     }
 
 
