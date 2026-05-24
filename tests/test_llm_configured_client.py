@@ -15,7 +15,12 @@ from crypto_alpha_agent.pipeline.experiment_planner import (
     ExperimentPlannerTask,
 )
 from crypto_alpha_agent.config import LLMSettings, build_configured_llm_settings
-from crypto_alpha_agent.llm import LLMProviderError, OpenAIResponsesAdapter, build_configured_llm
+from crypto_alpha_agent.llm import (
+    LLMHealthCheckTask,
+    LLMProviderError,
+    OpenAIResponsesAdapter,
+    build_configured_llm,
+)
 from crypto_alpha_agent.llm.redaction import redact_text
 from llm_integration_policy import (
     assert_no_secret_leaks,
@@ -352,6 +357,21 @@ def test_responses_adapter_includes_experiment_schema_hint_for_planner_task() ->
     ]:
         assert field_name in prompt
     assert "false" in prompt
+
+
+def test_responses_adapter_includes_health_check_schema_hint_for_runtime_task() -> None:
+    adapter = OpenAIResponsesAdapter(_settings())
+
+    prompt = adapter._render_input(LLMHealthCheckTask(command="research-loop"))
+
+    for expected_text in [
+        "LLMHealthCheckResult",
+        "uses_real_capital=false",
+        "live_order_routing=false",
+        "json_schema",
+        "research_only",
+    ]:
+        assert expected_text in prompt
 
 
 def test_responses_adapter_provider_errors_are_redacted() -> None:

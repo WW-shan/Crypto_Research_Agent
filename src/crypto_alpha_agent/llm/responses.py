@@ -189,4 +189,12 @@ def _schema_hint_for_task(task: Any) -> str:
             "extra fields or prohibited execution terms in summary, metric_refs, or "
             "caveats."
         )
+    if task_type == "LLMHealthCheckTask":
+        return (
+            "Schema instructions: return exactly one LLMHealthCheckResult JSON "
+            'object with status="ok", schema_name="LLMHealthCheckResult", '
+            "capabilities including json_schema and research_only, "
+            "uses_real_capital=false, and live_order_routing=false. Do not include "
+            "extra fields."
+        )
     return "Schema instructions: return only a valid JSON object for the caller."
