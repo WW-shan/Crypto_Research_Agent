@@ -40,8 +40,8 @@ class LLMHealthCheckResult(_RuntimeModel):
     status: Literal["ok"]
     schema_name: Literal["LLMHealthCheckResult"]
     capabilities: list[str] = Field(min_length=2)
-    uses_real_capital: Literal[False] = False
-    live_order_routing: Literal[False] = False
+    uses_real_capital: Literal[False]
+    live_order_routing: Literal[False]
 
 
 class RealLLMRuntime:
@@ -75,10 +75,12 @@ class RealLLMRuntime:
 
     def metadata(self) -> dict[str, Any]:
         settings = getattr(self.llm, "settings", None)
+        provider_verified = _is_openai_responses_adapter(self.llm)
         metadata: dict[str, Any] = {
-            "llm_provider": "real",
+            "llm_provider": self.provider,
             "used_fake_llm": False,
             "llm_role": self.role,
+            "llm_provider_verified": provider_verified,
         }
         model = getattr(settings, "model", None)
         if model:
@@ -92,9 +94,10 @@ def build_required_real_llm_runtime(
     *,
     env_file: str | Path | None = Path(".env"),
     role: LLMRole = "research",
+    env: dict[str, str] | None = None,
 ) -> RealLLMRuntime:
     try:
-        llm = build_required_real_llm(env_file=env_file, role=role)
+        llm = build_required_real_llm(env_file=env_file, role=role, env=env)
     except ValueError as exc:
         raise LLMRuntimeError(
             "llm_configuration_missing",
@@ -121,12 +124,19 @@ def parse_structured_llm_json(
         ) from exc
     try:
         return output_model.model_validate(payload)
-    except ValidationError as exc:
+    except ValidationError:
         raise LLMRuntimeError(
             "schema_validation_failed",
-            redact_text(str(exc)),
+            f"LLM response failed schema validation for {output_model.__name__}.",
         ) from None
 
 
 def _reject_json_constant(value: str) -> None:
     raise ValueError(f"invalid JSON constant: {value}")
+
+
+def _is_openai_responses_adapter(llm: Any) -> bool:
+    return (
+        llm.__class__.__module__ == "crypto_alpha_agent.llm.responses"
+        and llm.__class__.__name__ == "OpenAIResponsesAdapter"
+    )

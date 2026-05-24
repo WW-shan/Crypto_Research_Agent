@@ -36,6 +36,39 @@ def test_parse_structured_llm_json_rejects_non_json() -> None:
         parse_structured_llm_json("not json", LLMHealthCheckResult)
 
 
+def test_parse_structured_llm_json_schema_error_does_not_echo_raw_input() -> None:
+    secret_model_text = "raw-secret-model-output"
+    raw_response = json.dumps(
+        {
+            "status": secret_model_text,
+            "schema_name": "LLMHealthCheckResult",
+            "capabilities": ["json_schema", "research_only"],
+            "uses_real_capital": False,
+            "live_order_routing": False,
+        }
+    )
+
+    with pytest.raises(LLMRuntimeError, match="schema_validation_failed") as exc_info:
+        parse_structured_llm_json(raw_response, LLMHealthCheckResult)
+
+    message = str(exc_info.value)
+    assert secret_model_text not in message
+    assert "input_value" not in message
+
+
+def test_llm_health_check_result_requires_capital_and_routing_flags() -> None:
+    raw_response = json.dumps(
+        {
+            "status": "ok",
+            "schema_name": "LLMHealthCheckResult",
+            "capabilities": ["json_schema", "research_only"],
+        }
+    )
+
+    with pytest.raises(LLMRuntimeError, match="schema_validation_failed"):
+        parse_structured_llm_json(raw_response, LLMHealthCheckResult)
+
+
 def test_real_runtime_health_check_records_real_provider_metadata() -> None:
     llm = CapturingLLM(
         json.dumps(
@@ -56,6 +89,7 @@ def test_real_runtime_health_check_records_real_provider_metadata() -> None:
     assert llm.calls
     assert runtime.metadata()["llm_provider"] == "real"
     assert runtime.metadata()["used_fake_llm"] is False
+    assert runtime.metadata()["llm_provider_verified"] is False
     assert runtime.metadata()["llm_model"] == "test-real-model"
 
 
@@ -71,4 +105,4 @@ def test_build_required_real_llm_runtime_fails_when_env_missing(tmp_path: Path) 
     env_path.write_text("", encoding="utf-8")
 
     with pytest.raises(LLMRuntimeError, match="llm_configuration_missing"):
-        build_required_real_llm_runtime(env_file=env_path, role="research")
+        build_required_real_llm_runtime(env_file=env_path, role="research", env={})
