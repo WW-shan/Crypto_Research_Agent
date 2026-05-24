@@ -7,6 +7,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict
 
 from crypto_alpha_agent.config import LLMSettings
+from crypto_alpha_agent.llm import build_required_real_llm
 from crypto_alpha_agent.llm.responses import OpenAIResponsesAdapter
 from crypto_alpha_agent.llm.runtime import (
     LLMHealthCheckResult,
@@ -202,6 +203,10 @@ def test_build_required_real_llm_runtime_fails_when_env_missing(tmp_path: Path) 
 
     with pytest.raises(LLMRuntimeError, match="llm_configuration_missing"):
         build_required_real_llm_runtime(env_file=env_path, role="research", env={})
+
+
+def test_required_real_llm_builder_is_exported_from_llm_package() -> None:
+    assert callable(build_required_real_llm)
 
 
 def _settings() -> LLMSettings:

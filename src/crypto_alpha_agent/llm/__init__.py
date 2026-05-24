@@ -3,6 +3,7 @@ from crypto_alpha_agent.config import (
     LLMSettings,
     build_configured_llm,
     build_configured_llm_settings,
+    build_required_real_llm,
 )
 from crypto_alpha_agent.llm.runtime import (
     LLMHealthCheckResult,
@@ -30,6 +31,7 @@ __all__ = [
     "RealLLMRuntime",
     "build_configured_llm",
     "build_configured_llm_settings",
+    "build_required_real_llm",
     "build_required_real_llm_runtime",
     "parse_structured_llm_json",
 ]
