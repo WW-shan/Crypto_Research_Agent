@@ -6,101 +6,88 @@ round.
 
 ## Current Round
 
-- Round: 13
-- Status: Phase 7 Final Evidence Campaign After Factory Buildout complete and
-  verified
+- Round: 14
+- Status: Phase 13 Continuous Research Review And Reporting verified pending
+  commit and push
 - Started: 2026-05-24
 - Completed: 2026-05-24
-- Active slice: Phase 7: Final Evidence Campaign After Factory Buildout
+- Active slice: Phase 13: Continuous Research Review And Reporting
 - Active plan source:
-  `docs/superpowers/plans/2026-05-24-phase-7-final-evidence-campaign.md`
+  `docs/superpowers/plans/2026-05-24-phase-13-continuous-research-review.md`
 - Phase report:
-  `docs/goals/phase-reports/2026-05-24-phase-7-final-evidence-campaign-completion-report.md`
+  `docs/goals/phase-reports/2026-05-24-phase-13-continuous-research-review-completion-report.md`
 
 ## Completed This Round
 
-- Ran Phase 7 Smart Search deep research for historical bootstrap,
-  out-of-sample testing, paper-trading forward testing, and public Binance
-  futures data-source shapes. Search evidence is under
-  `/tmp/smart-search-evidence/20260524-phase7-evidence-campaign/`.
-- Verified local feasibility:
-  - safe `evidence-run`, reports, manifests, source-health rows, three
-    executable paper-simulated families, three research-only watchlists, cost
-    realism, AI research guards, and governance classification already exist;
-  - the missing Phase 7 capability was a first-class historical bootstrap
-    command plus date-window filtering for stored validation and paper
-    simulation;
-  - historical bootstrap must not contaminate future out-of-sample sample
-    progress, forward ledgers, or stopped-family memory.
-- Added `pipeline/historical_bootstrap.py` with strict deterministic models for
-  bootstrap windows, source steps, strategy results, sample targets, manifests,
-  and the top-level `HistoricalBootstrapReport`.
-- Added `historical-bootstrap` CLI and Markdown rendering with sections for
-  safety, bootstrap windows, source collection, strategy results, forward
-  sample progress, governance state, forward 30/60/90 evidence targets,
-  out-of-sample policy, and manifest metadata.
-- Added observed-window filtering to `ResearchDataStore.load_records()`,
-  `run_stored_research_loop()`, and `run_paper_sim_loop()`.
-- Added non-mutating historical bootstrap operation:
-  validation summaries and paper outcomes are included in the report but not
-  written to the forward validation ledger, forward paper-outcome ledger, or
-  stopped-family memory.
-- Added observed-window filtering to Binance Public Data, CCXT funding history,
-  and CCXT open-interest-history ingestion, and split network source collection
-  into monthly segments.
-- Added Binance USD-M global long/short account ratio source-probe target and
-  updated source coverage/query docs.
-- Updated README, runbook, project asset assessment, roadmap, documentation
-  contracts, and this state file.
+- Ran Phase 13 Smart Search deep research for decision journals, trading
+  journal review cadence, strategy scorecards, stop/keep/redesign/add-data
+  decision framing, and the limits of backtesting versus forward paper testing.
+  Search evidence is under `/tmp/smart-search-evidence/20260524-phase13-review/`.
+- Verified local feasibility in an isolated worktree:
+  - existing report builders already produce daily evidence reports, weekly
+    evidence reports, AI research memos, profit governance scoreboards,
+    stopped-family ledgers, historical bootstrap reports, and rollout/tiny-live
+    disabled-execution artifacts;
+  - Phase 13 required committed review reports and decision records, not new
+    product code;
+  - local generated artifacts under ignored `var/` paths could be reviewed
+    without staging report outputs or databases.
+- Added a Phase 13 design spec and implementation plan as process
+  documentation for the documentation-only approach.
+- Added daily, weekly, and monthly review reports under
+  `docs/goals/research-reviews/`.
+- Added `docs/goals/decision-records/2026-05-24-phase-13-decision-log.md` with
+  one owner-facing status for each registered family.
+- Added this round's Phase completion report.
+- Updated `docs/roadmap.md` and this state file to record that the current
+  charter-compliant roadmap has no remaining implementation gaps after Phase
+  13, while future value depends on operating the evidence campaign over time.
 
 ## Verification Evidence
 
 - Smart Search evidence:
   - `smart-search doctor --format json` returned `ok=true`.
   - `00-deep-plan.json`, `01-search.json`, and fetched source notes
-    `02` through `09` are stored under the Phase 7 evidence directory.
-  - External findings supported Binance Public Data historical archives,
-    Binance USD-M funding, open-interest, basis, long/short, and kline public
-    endpoints, plus out-of-sample and forward paper-testing methodology.
+    `02` through `05` are stored under the Phase 13 evidence directory.
+  - External findings supported decision journals, daily/weekly/monthly
+    trading review cadence, multi-metric strategy scorecards, and treating
+    backtesting as due diligence rather than profit proof.
 - Baseline feasibility:
-  `uv run --extra dev pytest tests/test_evidence_runner.py::test_evidence_runner_executes_complete_research_milestone tests/test_governance_reports.py::test_governance_report_marks_registered_no_evidence_families_add_data tests/test_documentation_contract.py::test_documented_representative_cli_examples_parse -q`
-  passed with 3 tests.
-- Red/green Phase 7 focused tests:
-  - Date-window tests initially failed on missing `observed_at_start` and
-    `observed_at_end` support, then passed after implementation.
-  - Historical bootstrap tests initially failed because
-    `crypto_alpha_agent.pipeline.historical_bootstrap` did not exist, then
-    passed after implementation.
-- Review pass found Important issues:
-  - historical bootstrap contaminated forward validation/paper ledgers and
-    out-of-sample progress;
-  - bootstrap could mutate stopped-family memory through weekly degradation
-    persistence;
-  - network source failures still produced successful manifests;
-  - historical source collection ignored some requested window bounds;
-  - state/report docs were not synchronized;
-  - operator examples used a future-ended historical window;
-  - source-query docs overstated expected probe fields.
-  Implementation fixes and regression tests were added. Re-review reported no
-  Critical or Important findings remaining.
-- Focused verification after review fixes:
-  `uv run --extra dev pytest tests/test_historical_bootstrap.py tests/test_binance_public_pipeline_ingestion.py tests/test_ccxt_ingestion_service.py tests/test_paper_sim_loop.py tests/test_research_loop_strategy_validation.py::test_research_loop_filters_validation_records_by_observed_window tests/test_documentation_contract.py -q`
-  passed with 59 tests.
-- Changed-file lint:
-  `uv run ruff check src/crypto_alpha_agent/data/ingestion.py src/crypto_alpha_agent/pipeline/historical_bootstrap.py src/crypto_alpha_agent/pipeline/markdown.py src/crypto_alpha_agent/pipeline/paper_sim_loop.py src/crypto_alpha_agent/pipeline/research_loop.py src/crypto_alpha_agent/cli.py tests/test_historical_bootstrap.py tests/test_binance_public_pipeline_ingestion.py tests/test_ccxt_ingestion_service.py tests/test_paper_sim_loop.py tests/test_documentation_contract.py`
-  passed.
-- Full verification:
-  `uv run --extra dev pytest -q` passed with 912 tests, 4 skipped, and 2
-  warnings.
+  isolated worktree `uv run --extra dev pytest -q` passed with 912 tests, 4
+  skipped, and 2 warnings before Phase 13 edits.
+- Local review evidence commands:
+  - `governance-report` against empty local ledgers exited 0 and classified all
+    six registered families as `add_data`.
+  - `historical-bootstrap` against empty local ledgers exited 0, kept
+    `network_route=blocked`, recorded `network_not_allowed` source steps, and
+    preserved `future_evidence_run_observations_only`.
+  - `evidence-report --daily --offline-only` exited 0 with
+    `no_validation_evidence`, `no_paper_evidence`, `no_memory_records`,
+    `data_quality_issues`, `next_experiments`, and `collect_more_data`.
+  - `evidence-report --weekly --offline-only` exited 0 with
+    `no_family_evidence` and `collect_more_data`.
+  - `ai-research-memo` exited 0 with bounded registered-validator proposals
+    and safe flags.
+  - SQLite inspection of the ignored local database found
+    `paper_outcomes=0`, `validation_evidence=0`, and three `source_health`
+    rows. The configured memory path was referenced by reports but no
+    `var/phase13/memory.jsonl` file was created because there were no memory
+    records.
+- Final full verification before staging:
+  `uv run --extra dev pytest -q` passed with 912 tests and 4 skipped.
 - `uv run --extra dev ruff check .` passed.
 - `git diff --check` passed.
-- Staged diff checks passed:
-  `git diff --cached --check`, `git diff --cached --name-only`, and
-  `git diff --cached --no-ext-diff --unified=0`.
+- Staged file review:
+  `git diff --cached --name-only` listed only the nine Phase 13 documentation
+  files.
+- `git diff --cached --check` passed.
+- `git diff --cached --no-ext-diff --unified=0` was inspected; it contained
+  only Phase 13 docs, no generated `var/` reports, databases, `.env` contents,
+  or secrets.
 - Staged secret scan:
   `uv run python -m crypto_alpha_agent.security.secret_scan --staged --fail-on-empty-with-untracked`
   returned `[]`.
-- Final commit message target: `feat: add historical bootstrap campaign`
+- Final commit message target: `docs: add phase 13 review records`
 
 ## Current Project Target
 
@@ -138,6 +125,10 @@ evidence-grounded AI research planning, and profit governance review active:
   report source collection/probe status, classify historical strategy results,
   and set forward 30/60/90 evidence targets without mutating forward evidence
   ledgers or stopped-family memory.
+- Phase 13 read-only review artifacts that inspect generated reports, evidence
+  packages, AI memos, strategy scoreboards, stopped-family ledgers, and
+  finished artifacts, then record explicit family and major-cycle decisions
+  tied to evidence references instead of AI narrative.
 
 ## Known Hard Boundaries
 
@@ -156,25 +147,25 @@ evidence-grounded AI research planning, and profit governance review active:
 
 ## Known Remaining Gaps
 
-The first complete research-loop milestone remains complete under the current
-charter. Post-milestone Phase 0, Immediate Phase 1, Immediate Phase 2,
-Immediate Phase 3, Immediate Phase 4, Immediate Phase 5, Phase 8, Phase 9,
-Phase 10, Phase 11, Phase 12, and Phase 7 are complete after this round is
+No current charter-compliant implementation gaps remain after Phase 13 is
 fully verified, committed, and pushed.
 
-Future work is now the read-only effectiveness review loop:
+Future work is operational evidence collection, not another implementation
+phase in this roadmap:
 
-- Phase 13: perform read-only review of generated reports, evidence packages,
-  AI memos, strategy scoreboards, and finished artifacts, then write review
-  reports and decision records that judge whether the system is improving
-  profit research effectiveness.
+- collect ordinary public source data;
+- run daily `evidence-run`, evidence reports, AI memos, governance reports, and
+  review reports over time;
+- accumulate 30/60/90 out-of-sample paper observations before any
+  profit/no-profit owner decision;
+- update the Phase 13 decision log when evidence changes.
 
 Live execution remains outside the current charter until a future explicit
 charter revision.
 
-## Next Round Entry Instructions
+## Future Operation Instructions
 
-If work continues after Phase 7:
+If work continues after Phase 13:
 
 1. Read `docs/project-charter.md` before any new plan.
 2. Read `docs/goals/project-completion-goal.md` and follow its Per-Round
@@ -185,9 +176,9 @@ If work continues after Phase 7:
    state synchronization, a complete Phase report under
    `docs/goals/phase-reports/`, and no next Phase until the current Phase is
    clean, verified, committed, and pushed.
-3. Start Phase 13: Continuous Research Review And Reporting. Phase 7 added
-   historical bootstrap; do not reimplement Phase 1 through Phase 12 or
-   Phase 7.
+3. Do not start a new product-code phase unless the owner revises the roadmap
+   or charter. Current useful work is running the evidence campaign and updating
+   review records when new evidence exists.
 4. Treat live execution, wallet keys, exchange order routing, private RPC,
    MEV, premium-RPC, and speed-edge paths as blocked unless the owner
    explicitly revises the charter.
@@ -199,7 +190,8 @@ If work continues after Phase 7:
    strategy scoreboards, stopped-family ledgers, source-health rows, and
    decision records. Do not add product code or live execution.
 7. Keep failed evidence and rejected assumptions in memory.
-8. Update this file and `docs/roadmap.md` after the next milestone.
+8. Update this file and `docs/roadmap.md` only when the public roadmap or final
+   project state changes.
 
 ## Round History
 
@@ -219,3 +211,4 @@ If work continues after Phase 7:
 | 11 | 2026-05-24 | Phase 11 AI researcher upgrade | focused Phase 11/end-to-end tests 53 passed; pytest 893 passed, 4 skipped; ruff passed | Phase 11 completion commit `feat: upgrade ai researcher evidence guards` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 12 | 2026-05-24 | Phase 12 profit evidence review and portfolio governance | focused Phase 12 tests 28 passed; pytest 898 passed, 4 skipped; ruff passed; diff check passed; path secret scan returned [] | `e89e008 feat: add profit governance report` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 13 | 2026-05-24 | Phase 7 final evidence campaign after factory buildout | focused Phase 7 tests 59 passed; pytest 912 passed, 4 skipped; ruff passed; diff and staged secret checks passed | `feat: add historical bootstrap campaign` | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 14 | 2026-05-24 | Phase 13 continuous research review and reporting | pytest 912 passed, 4 skipped; ruff passed; diff and staged secret checks passed | pending `docs: add phase 13 review records` | `https://github.com/WW-shan/Crypto_Research_Agent` |
