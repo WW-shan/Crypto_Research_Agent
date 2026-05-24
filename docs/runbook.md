@@ -209,6 +209,12 @@ uv run --extra dev crypto-alpha-agent source-probe \
 
 uv run --extra dev crypto-alpha-agent source-probe \
   --db var/research.sqlite \
+  --target binance_usdm_global_long_short_account_ratio \
+  --allow-network \
+  --route direct
+
+uv run --extra dev crypto-alpha-agent source-probe \
+  --db var/research.sqlite \
   --target dexscreener_pairs \
   --allow-network \
   --route proxy
@@ -393,6 +399,63 @@ The normal operator baseline is:
 
 7. Preserve the evidence package and readiness artifact for tiny-live review.
    A passing review artifact is not permission to trade.
+
+## Historical Bootstrap Workflow
+
+Use `historical-bootstrap` after the evidence factory layers are available and
+before treating a long-running campaign as meaningful. The command builds a
+historical bootstrap report, machine-readable JSON payload, and run manifest.
+It can run offline for audit, or it can use `--allow-network` to collect public
+historical source windows. Network mode requires at least one explicit
+`YYYY-MM-DD/YYYY-MM-DD` bootstrap window. It never reads wallet keys, routes
+orders, or uses real capital.
+
+```bash
+uv run --extra dev crypto-alpha-agent historical-bootstrap \
+  --db var/research.sqlite \
+  --memory var/memory/evidence.jsonl \
+  --out var/reports/phase7/historical-bootstrap.md \
+  --json-out var/reports/phase7/historical-bootstrap.json \
+  --manifest-out var/run-manifests/historical-bootstrap/2026-05-24.json \
+  --run-id 2026-05-24-phase7-bootstrap \
+  --price-symbol BTC/USDT \
+  --funding-symbol BTC/USDT:USDT \
+  --timeframe 1h \
+  --bootstrap-window 2026-02-01/2026-03-01 \
+  --bootstrap-window 2026-03-01/2026-04-01 \
+  --bootstrap-window 2026-04-01/2026-05-01 \
+  --strategy-family funding_extremity_price_confirmation \
+  --strategy-family funding_mean_reversion_after_extreme \
+  --strategy-family funding_open_interest_crowding \
+  --current-capital-usd 300 \
+  --allow-network \
+  --ccxt-exchange binance \
+  --binance-symbol BTCUSDT \
+  --limit 1000 \
+  --notional-usd 25
+```
+
+What to inspect:
+
+- Bootstrap windows: start/end dates, symbols, timeframe, and stored record
+  counts.
+- Source collection: Binance Public Data, CCXT funding history, CCXT
+  open-interest history, and source probes such as
+  `binance_usdm_global_long_short_account_ratio`.
+- Strategy results: validation status, trade count, blocked reasons, paper
+  outcomes, cost-model modes, governance action, and classification.
+- Forward 30/60/90 evidence targets: current forward observations by family,
+  30 and 60 paper observation targets, and the 90 calendar-day target.
+- Out-of-sample policy: future out-of-sample paper observations must come from
+  later `evidence-run` runs; historical bootstrap windows are not profit proof.
+
+If `--allow-network` is omitted, blocked source steps are expected and should
+be preserved as audit evidence. If network collection succeeds, preserve the
+historical bootstrap report, JSON payload, manifest, SQLite snapshot, memory
+file, and any source-health rows before starting the future daily evidence
+campaign. Historical bootstrap paper outcomes are report-local and do not count
+as forward out-of-sample sample progress. If a network-enabled source
+collection step fails, the manifest is marked failed and the CLI exits nonzero.
 
 ## Data Ingestion Workflow
 
@@ -712,6 +775,7 @@ only for an explicit, auditable override.
 Evidence package preservation is mandatory for tiny-live review. Keep:
 
 - Daily Markdown/JSON captures from `evidence-run` and `evidence-report`.
+- Historical bootstrap Markdown/JSON reports and manifests.
 - Weekly reports.
 - `var/memory/evidence.jsonl`.
 - `var/research.sqlite` and dated SQLite backups.

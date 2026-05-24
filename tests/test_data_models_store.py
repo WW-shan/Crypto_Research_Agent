@@ -56,6 +56,43 @@ def test_store_round_trips_source_records(tmp_path):
     assert loaded[0].payload["symbol"] == "BTC/USDT"
 
 
+def test_store_filters_records_by_observed_window(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    store = ResearchDataStore(db_path)
+    records = [
+        SourceRecord(
+            record_id="before-window",
+            source="ccxt",
+            record_type="market_candle",
+            observed_at=datetime(2026, 3, 31, 23, tzinfo=UTC),
+            payload={"symbol": "BTC/USDT", "close": 99.0},
+        ),
+        SourceRecord(
+            record_id="inside-window",
+            source="ccxt",
+            record_type="market_candle",
+            observed_at=datetime(2026, 4, 1, tzinfo=UTC),
+            payload={"symbol": "BTC/USDT", "close": 100.0},
+        ),
+        SourceRecord(
+            record_id="end-boundary-excluded",
+            source="ccxt",
+            record_type="market_candle",
+            observed_at=datetime(2026, 5, 1, tzinfo=UTC),
+            payload={"symbol": "BTC/USDT", "close": 101.0},
+        ),
+    ]
+
+    store.upsert_records(records)
+    loaded = store.load_records(
+        record_type="market_candle",
+        observed_at_start=datetime(2026, 4, 1, tzinfo=UTC),
+        observed_at_end=datetime(2026, 5, 1, tzinfo=UTC),
+    )
+
+    assert [item.record_id for item in loaded] == ["inside-window"]
+
+
 def test_open_interest_record_round_trips_as_typed_slow_data(tmp_path):
     db_path = tmp_path / "research.sqlite"
     store = ResearchDataStore(db_path)

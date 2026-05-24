@@ -52,6 +52,8 @@ class ResearchDataStore:
         self,
         record_type: RecordType | None = None,
         source: str | None = None,
+        observed_at_start: datetime | None = None,
+        observed_at_end: datetime | None = None,
     ) -> list[SourceRecord]:
         query = """
             SELECT record_id, source, record_type, observed_at, payload_json
@@ -66,6 +68,12 @@ class ResearchDataStore:
         if source is not None:
             clauses.append("source = ?")
             parameters.append(source)
+        if observed_at_start is not None:
+            clauses.append("observed_at >= ?")
+            parameters.append(observed_at_start.isoformat())
+        if observed_at_end is not None:
+            clauses.append("observed_at < ?")
+            parameters.append(observed_at_end.isoformat())
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
         query += " ORDER BY observed_at, record_id"

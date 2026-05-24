@@ -206,6 +206,42 @@ def test_research_loop_uses_registered_funding_open_interest_strategy(tmp_path):
     assert "insufficient_walk_forward_splits" in summary.blocked_reasons
 
 
+def test_research_loop_filters_validation_records_by_observed_window(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    store = ResearchDataStore(db_path)
+    inside_candles = [_candle(i, close) for i, close in enumerate([100, 105, 101, 99])]
+    outside_candles = [_candle(i, close) for i, close in enumerate([106, 100], start=5)]
+    store.upsert_records([item.to_source_record() for item in [*inside_candles, *outside_candles]])
+    store.upsert_records(
+        [
+            _funding_record(_funding(1, 0.0008)),
+            _funding_record(_funding(5, 0.0009)),
+        ]
+    )
+
+    report = run_stored_research_loop(
+        db_path,
+        current_capital_usd=300.0,
+        run_id="windowed-research-loop",
+        include_validation=True,
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        validation_timeframe="1h",
+        hold_bars=1,
+        min_trades=1,
+        observed_at_start=datetime(2026, 5, 17, 0, tzinfo=UTC),
+        observed_at_end=datetime(2026, 5, 17, 4, tzinfo=UTC),
+    )
+
+    summary = report.validation_summaries[0]
+    assert report.loaded_records == 5
+    assert summary.trade_count == 1
+    assert summary.asset == "BTC/USDT"
+    assert report.uses_real_capital is False
+    assert report.live_order_routing is False
+
+
 def test_research_loop_strategy_markdown_names_family_and_blockers(capsys, tmp_path):
     db_path = tmp_path / "research.sqlite"
     report_path = tmp_path / "report.md"

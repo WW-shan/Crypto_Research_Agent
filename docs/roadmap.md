@@ -68,6 +68,9 @@ Implemented:
   - `governance-report` profit governance Markdown builder with family
     scoreboards, stopped-family ledger, paper-only portfolio selector, and
     monthly owner review.
+  - `historical-bootstrap` Phase 7 campaign report builder with date-windowed
+    validation, historical paper simulation, source collection/probe steps,
+    governance classification, and 30/60/90 evidence targets.
   - `rollout-review` CLI that preserves the strategy-specific evidence package.
   - External operator-controlled scheduling handoff documented in the runbook.
 
@@ -313,9 +316,9 @@ is treated as operational.
 The execution order after the immediate LLM work is intentionally not numeric:
 Phase 6 is merged into the Phase 1 entry gate, Immediate Phase 5 prepares the
 expansion path, then Phase 8, Phase 9, Phase 10, Phase 11, and Phase 12 build
-the evidence factory. Phase 12 is now complete, so Phase 7 runs the historical
-bootstrap and future out-of-sample evidence campaign, and Phase 13 becomes the
-ongoing report and artifact review loop.
+the evidence factory. Phase 12 is now complete, and Phase 7 now provides the
+historical bootstrap workflow that starts the future out-of-sample evidence
+campaign. Phase 13 is the ongoing report and artifact review loop.
 
 #### Immediate Phase 0: Worktree And Configuration Closeout
 
@@ -1098,6 +1101,10 @@ Goal: After Phases 8, 9, 10, 11, and 12 are complete, use historical data to
 bootstrap strategy evidence and then keep running `evidence-run` as new market
 data arrives to build out-of-sample paper observations and failure evidence.
 
+Status as of 2026-05-24: implementation complete for the bootstrap/reporting
+workflow; future out-of-sample paper observations still require future
+`evidence-run` samples and are not claimed as profit proof.
+
 Why this matters:
 
 - The system can simulate and record evidence, but evidence is meaningful only
@@ -1152,6 +1159,28 @@ Deliverables:
 - Add failure notification guidance for local operation, for example writing a
   failed-run marker file or using a local shell mail/notification hook outside
   the Python package.
+
+Delivered:
+
+- Added `historical-bootstrap`, a safe Phase 7 CLI that writes a historical
+  bootstrap report, JSON payload, and manifest while preserving
+  `uses_real_capital=false` and `live_order_routing=false`.
+- Added date-window filtering to stored-data validation and paper simulation,
+  so historical windows can be evaluated separately instead of reusing the full
+  SQLite store for every bootstrap window.
+- Historical bootstrap validation and paper outcomes are report-local and do
+  not mutate the forward validation ledger, forward paper-outcome ledger, or
+  stopped-family memory.
+- Added source-collection steps for Binance Public Data candles, CCXT funding
+  history, and CCXT open-interest history, with blocked audit rows when
+  `--allow-network` is omitted and failed manifests when required
+  network-enabled collection fails.
+- Added Phase 7 source-health probes for Binance USD-M open-interest history,
+  basis, and `binance_usdm_global_long_short_account_ratio`.
+- Added historical bootstrap Markdown sections for safety, bootstrap windows,
+  source collection, strategy results, weekly sample progress, governance
+  classification, 30/60/90 evidence targets, out-of-sample policy, and
+  manifest metadata.
 
 Evidence targets:
 

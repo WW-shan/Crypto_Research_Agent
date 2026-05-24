@@ -54,6 +54,7 @@ def test_source_probe_catalog_includes_phase8_targets():
         "binance_usdm_open_interest_history",
         "binance_usdm_premium_index_klines",
         "binance_usdm_basis",
+        "binance_usdm_global_long_short_account_ratio",
         "bybit_open_interest_history",
         "okx_open_interest",
         "dexscreener_pairs",

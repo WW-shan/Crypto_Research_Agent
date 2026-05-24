@@ -187,12 +187,13 @@ def build_weekly_evidence_report(
     *,
     db_path: str | Path,
     memory_path: str | Path,
+    persist_degradation: bool = True,
 ) -> WeeklyEvidenceReport:
     validation_evidence = ValidationEvidenceLedger(db_path).load_evidence()
     paper_outcomes = PaperOutcomeLedger(db_path).load_outcomes()
     paper_packages = aggregate_paper_evidence(_paper_evidence_mapping(outcome) for outcome in paper_outcomes)
     degradation = detect_strategy_degradation(paper_outcomes, validation_evidence)
-    if degradation.degraded:
+    if persist_degradation and degradation.degraded:
         _persist_degradation_decisions(degradation, memory_path)
     memory_records = MemoryStore(memory_path).list_records()
     families = sorted(

@@ -92,6 +92,9 @@ def run_paper_sim_loop(
     tick_size: float | None = None,
     max_volume_participation_rate: float = 0.05,
     allow_partial_fills: bool = False,
+    observed_at_start: datetime | None = None,
+    observed_at_end: datetime | None = None,
+    persist_outcomes: bool = True,
 ) -> PaperSimLoopReport:
     capital = _require_non_negative_finite("current_capital_usd", current_capital_usd)
     requested_notional = _require_non_negative_finite("notional_usd", notional_usd)
@@ -148,6 +151,9 @@ def run_paper_sim_loop(
         tick_size=tick_size,
         max_volume_participation_rate=max_volume_participation_rate,
         allow_partial_fills=allow_partial_fills,
+        observed_at_start=observed_at_start.isoformat() if observed_at_start is not None else None,
+        observed_at_end=observed_at_end.isoformat() if observed_at_end is not None else None,
+        persist_outcomes=persist_outcomes,
     )
     execution_config_id = _stable_execution_config_id(
         strategy_family=strategy_family,
@@ -180,6 +186,9 @@ def run_paper_sim_loop(
         tick_size=tick_size,
         max_volume_participation_rate=max_volume_participation_rate,
         allow_partial_fills=allow_partial_fills,
+        observed_at_start=observed_at_start.isoformat() if observed_at_start is not None else None,
+        observed_at_end=observed_at_end.isoformat() if observed_at_end is not None else None,
+        persist_outcomes=persist_outcomes,
     )
 
     strategy_parameters = {
@@ -202,7 +211,11 @@ def run_paper_sim_loop(
         strategy_parameters["now"] = now
     if max_age_hours is not None:
         strategy_parameters["max_age_hours"] = max_age_hours
-    records = _load_strategy_records(db_path)
+    records = _load_strategy_records(
+        db_path,
+        observed_at_start=observed_at_start,
+        observed_at_end=observed_at_end,
+    )
     paper_report = default_strategy_registry(current_capital_usd=capital).run_paper(
         StrategyPaperRequest(
             strategy_family=strategy_family,
@@ -296,7 +309,8 @@ def run_paper_sim_loop(
                     cost_assumptions=cost_assumptions,
                 )
 
-    PaperOutcomeLedger(db_path).replace_run_outcomes(resolved_run_id, outcomes)
+    if persist_outcomes:
+        PaperOutcomeLedger(db_path).replace_run_outcomes(resolved_run_id, outcomes)
     evidence_packages = aggregate_paper_evidence(
         [_paper_evidence_mapping(outcome) for outcome in outcomes],
         strategy_family=strategy_family,
@@ -613,10 +627,18 @@ def _paper_evidence_mapping(outcome: PaperSimulationOutcome) -> dict[str, object
     }
 
 
-def _load_strategy_records(db_path: str | Path) -> tuple[dict[str, object], ...]:
+def _load_strategy_records(
+    db_path: str | Path,
+    *,
+    observed_at_start: datetime | None = None,
+    observed_at_end: datetime | None = None,
+) -> tuple[dict[str, object], ...]:
     return tuple(
         record.model_dump(mode="json")
-        for record in ResearchDataStore(db_path).load_records()
+        for record in ResearchDataStore(db_path).load_records(
+            observed_at_start=observed_at_start,
+            observed_at_end=observed_at_end,
+        )
     )
 
 

@@ -103,3 +103,28 @@ def test_binance_ingestion_persists_candles_with_fake_client(tmp_path):
 
     assert [record.payload["symbol"] for record in records] == ["BTC/USDT", "BTC/USDT"]
     assert len(records) == 2
+
+
+def test_binance_ingestion_filters_records_by_observed_window(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    client = FakeBinancePublicDataClient()
+
+    summary = ingest_binance_public_month(
+        db_path,
+        symbol="BTC/USDT",
+        interval="1h",
+        year=2026,
+        month=5,
+        allow_network=True,
+        observed_at_start=datetime(2026, 5, 1, 1, tzinfo=UTC),
+        observed_at_end=datetime(2026, 5, 1, 2, tzinfo=UTC),
+        client=client,
+    )
+
+    records = ResearchDataStore(db_path).load_records(record_type="market_candle")
+
+    assert summary.records_fetched == 2
+    assert summary.records_written == 1
+    assert [record.observed_at for record in records] == [
+        datetime(2026, 5, 1, 1, tzinfo=UTC)
+    ]

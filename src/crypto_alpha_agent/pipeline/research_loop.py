@@ -101,9 +101,17 @@ def run_stored_research_loop(
     data_quality_now: datetime | None = None,
     memory_path: str | Path | None = None,
     allow_stopped_family: bool = False,
+    observed_at_start: datetime | None = None,
+    observed_at_end: datetime | None = None,
+    persist_validation_evidence: bool = True,
 ) -> ResearchLoopReport:
     store = ResearchDataStore(db_path)
-    records = store.load_records(record_type=record_type, source=source)
+    records = store.load_records(
+        record_type=record_type,
+        source=source,
+        observed_at_start=observed_at_start,
+        observed_at_end=observed_at_end,
+    )
     if limit is not None:
         records = records[-limit:] if limit > 0 else []
 
@@ -156,7 +164,7 @@ def run_stored_research_loop(
         else []
     )
     notes.extend(decision_reason_codes)
-    if include_validation:
+    if include_validation and persist_validation_evidence:
         validation_evidence = [
             _validation_evidence_from_summary(summary, run_id=resolved_run_id)
             for summary in validation_summaries

@@ -85,6 +85,52 @@ preserved for recovery or rollout review. The command writes a run manifest,
 machine-readable JSON payload, latest pointers, and a failed-run marker on
 nonzero exits while keeping live execution disabled.
 
+## Historical Bootstrap And Evidence Campaign
+
+`historical-bootstrap` is the Phase 7 campaign entry point after the data,
+validator, cost-model, AI researcher, and governance layers are in place. It
+can collect selected historical windows, run registered strategy families over
+date-windowed stored records, write a historical bootstrap report, and set
+future out-of-sample 30/60/90 evidence targets. It remains paper-only:
+`uses_real_capital=false` and `live_order_routing=false`.
+
+```bash
+uv run --extra dev crypto-alpha-agent historical-bootstrap \
+  --db var/research.sqlite \
+  --memory var/memory/evidence.jsonl \
+  --out var/reports/phase7/historical-bootstrap.md \
+  --json-out var/reports/phase7/historical-bootstrap.json \
+  --manifest-out var/run-manifests/historical-bootstrap/2026-05-24.json \
+  --run-id 2026-05-24-phase7-bootstrap \
+  --price-symbol BTC/USDT \
+  --funding-symbol BTC/USDT:USDT \
+  --timeframe 1h \
+  --bootstrap-window 2026-02-01/2026-03-01 \
+  --bootstrap-window 2026-03-01/2026-04-01 \
+  --bootstrap-window 2026-04-01/2026-05-01 \
+  --strategy-family funding_extremity_price_confirmation \
+  --strategy-family funding_mean_reversion_after_extreme \
+  --strategy-family funding_open_interest_crowding \
+  --current-capital-usd 300 \
+  --allow-network \
+  --ccxt-exchange binance \
+  --binance-symbol BTCUSDT \
+  --limit 1000 \
+  --notional-usd 25
+```
+
+Without `--allow-network`, the command still writes an auditable offline
+report with blocked source-collection steps and source-health probe entries.
+With network enabled, at least one explicit `YYYY-MM-DD/YYYY-MM-DD` bootstrap
+window is required. It attempts Binance Public Data candles, CCXT funding and
+open-interest history, and public Binance USD-M source probes including
+`binance_usdm_open_interest_history`, `binance_usdm_basis`, and
+`binance_usdm_global_long_short_account_ratio`. Future out-of-sample evidence
+must come from later `evidence-run` observations; historical windows are
+reported separately and do not count as forward sample progress or prove profit
+by themselves. If a network-enabled source collection step fails, the bootstrap
+manifest is marked failed and the CLI exits nonzero.
+
 ## Low-Capital Real Data Ingestion
 
 The ingest CLI is safe by default for operators with ordinary infrastructure

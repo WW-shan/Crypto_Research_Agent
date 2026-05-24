@@ -131,6 +131,21 @@ _TARGETS: tuple[SourceProbeTarget, ...] = (
         rate_limit_assumption="latest 30 days per Binance docs",
     ),
     SourceProbeTarget(
+        target_id="binance_usdm_global_long_short_account_ratio",
+        display_name="Binance USD-M Global Long/Short Account Ratio",
+        source="binance_usdm",
+        feed="global_long_short_account_ratio",
+        endpoint_family="GET /futures/data/globalLongShortAccountRatio",
+        url_family="binance_usdm_global_long_short_account_ratio",
+        url=(
+            "https://fapi.binance.com/futures/data/globalLongShortAccountRatio"
+            "?symbol=BTCUSDT&period=1h&limit=1"
+        ),
+        typed_count_path=(),
+        expected_fields=("symbol", "longShortRatio", "timestamp"),
+        rate_limit_assumption="latest 30 days and 1000 requests per 5 minutes per Binance docs",
+    ),
+    SourceProbeTarget(
         target_id="bybit_open_interest_history",
         display_name="Bybit Open Interest History",
         source="bybit",

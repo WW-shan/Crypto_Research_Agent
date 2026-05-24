@@ -51,6 +51,10 @@ and strengthened first.
 - `governance-report` and `pipeline/governance_reports.py`: deterministic
   profit governance, stopped-family ledger, paper-only portfolio selector, and
   monthly owner review foundation.
+- `historical-bootstrap` and `pipeline/historical_bootstrap.py`: Phase 7
+  historical bootstrap report, source collection/probe audit, date-windowed
+  validation, paper simulation, governance classification, and 30/60/90
+  evidence targets.
 - `validation/funding.py`, `validation/funding_price.py`,
   `validation/walk_forward.py`: first strategy family and validator templates.
 - `strategy/funding_oi_crowding.py`: executable funding validator that uses

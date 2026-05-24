@@ -188,6 +188,58 @@ def test_run_paper_sim_loop_writes_outcomes_without_live_capital(tmp_path):
     assert evidence.total_slippage_usd == pytest.approx(sum(item.slippage_usd for item in loaded))
 
 
+def test_paper_sim_loop_filters_records_by_observed_window(tmp_path):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+
+    db_path = _write_happy_path_fixture(tmp_path)
+    start = datetime(2026, 5, 17, 0, tzinfo=UTC)
+    end = datetime(2026, 5, 17, 4, tzinfo=UTC)
+
+    report = run_paper_sim_loop(
+        db_path,
+        run_id="paper-window",
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        threshold_abs=0.0005,
+        hold_bars=1,
+        min_trades=1,
+        require_walk_forward=False,
+        observed_at_start=start,
+        observed_at_end=end,
+    )
+
+    assert report.outcome_count == 1
+    assert report.outcomes[0].signal_timestamp == datetime(2026, 5, 17, 1, tzinfo=UTC)
+    assert all(outcome.signal_timestamp < end for outcome in report.outcomes)
+    assert report.uses_real_capital is False
+    assert report.live_order_routing is False
+
+
+def test_paper_sim_loop_can_return_report_without_persisting_outcomes(tmp_path):
+    from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
+
+    db_path = _write_happy_path_fixture(tmp_path)
+
+    report = run_paper_sim_loop(
+        db_path,
+        run_id="paper-not-persisted",
+        strategy_family="funding_extremity_price_confirmation",
+        price_symbol="BTC/USDT",
+        funding_symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        threshold_abs=0.0005,
+        hold_bars=1,
+        min_trades=1,
+        require_walk_forward=False,
+        persist_outcomes=False,
+    )
+
+    assert report.outcome_count >= 1
+    assert PaperOutcomeLedger(db_path).load_outcomes(run_id="paper-not-persisted") == []
+
+
 def test_run_paper_sim_loop_blocks_when_min_notional_exceeds_owner_profile(tmp_path, monkeypatch):
     from crypto_alpha_agent.pipeline.paper_sim_loop import run_paper_sim_loop
 

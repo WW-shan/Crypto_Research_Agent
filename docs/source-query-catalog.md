@@ -1,10 +1,18 @@
 # Source Query Catalog
 
-This query catalog records slow research questions for optional Dune and The
-Graph sources. It is a planning and qualification artifact, not a live trading
-or order-routing surface. Queries must run through local operator
-configuration, redact credentials, and persist only research-safe snapshots or
-source-health rows.
+This query catalog records slow research questions for optional Dune, The
+Graph, and public futures source-probe targets. It is a planning and
+qualification artifact, not a live trading or order-routing surface. Queries
+must run through local operator configuration, redact credentials, and persist
+only research-safe snapshots or source-health rows.
+
+## Public Futures Probe Targets
+
+| Target | Research Question | Expected Fields | Credential | Safety Notes |
+| --- | --- | --- | --- | --- |
+| `binance_usdm_open_interest_history` | Is open interest expanding or contracting around funding extremes? | `symbol`, `sumOpenInterest`, `timestamp` | none | `sumOpenInterestValue` may appear in payloads but is not required by the current probe contract |
+| `binance_usdm_basis` | Is perp or futures basis widening enough to change funding or carry context? | `pair`, `basis`, `timestamp` | none | `basisRate` may appear in payloads but is not required by the current probe contract |
+| `binance_usdm_global_long_short_account_ratio` | Is broad account positioning crowded enough to inform a future validator or watchlist? | `symbol`, `longShortRatio`, `timestamp` | none | Phase 7 probe target; source-health only until a later typed model and quality checks exist |
 
 ## Dune Queries
 

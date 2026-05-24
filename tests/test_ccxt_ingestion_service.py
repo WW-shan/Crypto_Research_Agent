@@ -65,6 +65,34 @@ class FakeCcxtCollector:
         ]
 
 
+class WindowedCcxtCollector:
+    def fetch_funding_rate_history(self, symbol, since=None, limit=None, params=None):
+        return [
+            FundingRateRecord(
+                source="ccxt",
+                venue="binance",
+                symbol=symbol,
+                timestamp=datetime(2026, 5, 17, hour, tzinfo=UTC),
+                funding_rate=0.0007,
+            )
+            for hour in (0, 1, 2)
+        ]
+
+    def fetch_open_interest_history(self, symbol, timeframe, since=None, limit=None, params=None):
+        return [
+            OpenInterestRecord(
+                source="ccxt",
+                venue="binance",
+                symbol=symbol,
+                timestamp=datetime(2026, 5, 17, hour, tzinfo=UTC),
+                timeframe=timeframe,
+                open_interest=20000.0 + hour,
+                open_interest_value=150000000.0 + hour,
+            )
+            for hour in (0, 1, 2)
+        ]
+
+
 class CollidingFundingCollector:
     def fetch_funding_rate_history(self, symbol, since=None, limit=None, params=None):
         timestamp = datetime(2026, 5, 17, tzinfo=UTC)
@@ -182,6 +210,28 @@ def test_ingest_ccxt_funding_writes_funding_records(tmp_path):
     assert records[0].payload["funding_rate"] == 0.0007
 
 
+def test_ingest_ccxt_funding_filters_records_by_observed_window(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+
+    summary = ingest_ccxt_funding_rate_history(
+        db_path,
+        symbol="BTC/USDT:USDT",
+        limit=3,
+        allow_network=True,
+        observed_at_start=datetime(2026, 5, 17, 1, tzinfo=UTC),
+        observed_at_end=datetime(2026, 5, 17, 2, tzinfo=UTC),
+        collector=WindowedCcxtCollector(),
+    )
+
+    records = ResearchDataStore(db_path).load_records(record_type="funding_rate", source="ccxt")
+
+    assert summary.records_fetched == 3
+    assert summary.records_written == 1
+    assert [record.observed_at for record in records] == [
+        datetime(2026, 5, 17, 1, tzinfo=UTC)
+    ]
+
+
 def test_ingest_ccxt_open_interest_writes_open_interest_records(tmp_path):
     db_path = tmp_path / "research.sqlite"
     collector = FakeCcxtCollector()
@@ -200,6 +250,29 @@ def test_ingest_ccxt_open_interest_writes_open_interest_records(tmp_path):
     assert summary.records_written == 1
     assert records[0].payload["open_interest"] == 20403.637
     assert collector.open_interest_calls == [("BTC/USDT:USDT", "1h", None, 1, None)]
+
+
+def test_ingest_ccxt_open_interest_filters_records_by_observed_window(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+
+    summary = ingest_ccxt_open_interest_history(
+        db_path,
+        symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        limit=3,
+        allow_network=True,
+        observed_at_start=datetime(2026, 5, 17, 1, tzinfo=UTC),
+        observed_at_end=datetime(2026, 5, 17, 2, tzinfo=UTC),
+        collector=WindowedCcxtCollector(),
+    )
+
+    records = ResearchDataStore(db_path).load_records(record_type="open_interest", source="ccxt")
+
+    assert summary.records_fetched == 3
+    assert summary.records_written == 1
+    assert [record.observed_at for record in records] == [
+        datetime(2026, 5, 17, 1, tzinfo=UTC)
+    ]
 
 
 def test_ingest_ccxt_funding_keeps_same_timestamp_records_by_venue_and_settlement(tmp_path):

@@ -4,6 +4,7 @@ from crypto_alpha_agent.pipeline.ai_research_memo import AIResearchMemo
 from crypto_alpha_agent.pipeline.expansion_preparation import ExpansionPreparationReport
 from crypto_alpha_agent.pipeline.evidence_reports import DailyEvidenceReport, WeeklyEvidenceReport
 from crypto_alpha_agent.pipeline.governance_reports import ProfitGovernanceReport
+from crypto_alpha_agent.pipeline.historical_bootstrap import HistoricalBootstrapReport
 from crypto_alpha_agent.pipeline.research_loop import ResearchLoopReport
 
 
@@ -589,6 +590,167 @@ def render_expansion_preparation_markdown(report: ExpansionPreparationReport) ->
             )
             + " |"
         )
+    return "\n".join(lines) + "\n"
+
+
+def render_historical_bootstrap_markdown(report: HistoricalBootstrapReport) -> str:
+    lines = [
+        "# Phase 7 Historical Bootstrap Report",
+        "",
+        "## Safety",
+        f"Real capital: {_bool_text(report.uses_real_capital)}",
+        f"Live order routing: {_bool_text(report.live_order_routing)}",
+        f"Network route: {_escape_text(report.network_route)}",
+        "",
+        "## Bootstrap Windows",
+        "| Window | Start | End | Price symbol | Funding symbol | Timeframe | Records |",
+        "| --- | --- | --- | --- | --- | --- | ---: |",
+    ]
+    for window in report.bootstrap_windows:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    _escape_table_cell(window.window_id),
+                    _escape_table_cell(window.start_at.isoformat()),
+                    _escape_table_cell(window.end_at.isoformat()),
+                    _escape_table_cell(window.price_symbol),
+                    _escape_table_cell(window.funding_symbol),
+                    _escape_table_cell(window.timeframe),
+                    f"{window.record_count:g}",
+                ]
+            )
+            + " |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Source Collection",
+            "| Source | Feed | Window | Status | Route | Records written | Reason |",
+            "| --- | --- | --- | --- | --- | ---: | --- |",
+        ]
+    )
+    for step in report.source_steps:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    _escape_table_cell(step.source_id),
+                    _escape_table_cell(step.feed),
+                    _escape_table_cell(step.window_id or "all"),
+                    _escape_table_cell(step.status),
+                    _escape_table_cell(step.network_route),
+                    f"{step.records_written:g}",
+                    _escape_table_cell(step.reason_code or "none"),
+                ]
+            )
+            + " |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Strategy Results",
+            "| Window | Strategy | Classification | Governance | Validation | Trades | Paper outcomes | Paper statuses | Cost modes | Blocked reasons |",
+            "| --- | --- | --- | --- | --- | ---: | ---: | --- | --- | --- |",
+        ]
+    )
+    for result in report.strategy_results:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    _escape_table_cell(result.window_id),
+                    _escape_table_cell(result.strategy_family),
+                    _escape_table_cell(result.classification),
+                    _escape_table_cell(result.governance_action),
+                    _escape_table_cell(result.validation_status),
+                    f"{result.validation_trade_count:g}",
+                    f"{result.paper_outcome_count:g}",
+                    _escape_table_cell(", ".join(result.paper_statuses) or "none"),
+                    _escape_table_cell(", ".join(result.cost_model_modes) or "none"),
+                    _escape_table_cell(
+                        ", ".join(
+                            [
+                                *result.validation_blocked_reasons,
+                                *result.paper_blocked_reasons,
+                            ]
+                        )
+                        or "none"
+                    ),
+                ]
+            )
+            + " |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Forward Sample Progress",
+            "| Strategy | Progress toward 30 |",
+            "| --- | ---: |",
+        ]
+    )
+    if report.weekly_sample_progress:
+        for family, progress in sorted(report.weekly_sample_progress.items()):
+            lines.append(f"| {_escape_table_cell(family)} | {progress:g}/30 |")
+    else:
+        lines.append("| none | 0/30 |")
+    lines.extend(
+        [
+            "",
+            "## Governance Classification",
+            "| Strategy | Action |",
+            "| --- | --- |",
+        ]
+    )
+    if report.governance_actions:
+        for family, action in sorted(report.governance_actions.items()):
+            lines.append(f"| {_escape_table_cell(family)} | {_escape_table_cell(action)} |")
+    else:
+        lines.append("| none | add_data |")
+    lines.extend(
+        [
+            "",
+            "## Forward 30/60/90 Evidence Targets",
+            f"Paper observation targets: {', '.join(str(value) for value in report.sample_targets.paper_observation_targets)}",
+            f"Calendar day target: {report.sample_targets.calendar_day_target:g}",
+            "",
+            "| Strategy | Observations | Calendar days |",
+            "| --- | ---: | ---: |",
+        ]
+    )
+    families = sorted(
+        {
+            *report.sample_targets.current_observations_by_family.keys(),
+            *report.sample_targets.current_calendar_days_by_family.keys(),
+        }
+    )
+    if families:
+        for family in families:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _escape_table_cell(family),
+                        f"{report.sample_targets.current_observations_by_family.get(family, 0):g}",
+                        f"{report.sample_targets.current_calendar_days_by_family.get(family, 0):g}",
+                    ]
+                )
+                + " |"
+            )
+    else:
+        lines.append("| none | 0 | 0 |")
+    lines.extend(
+        [
+            "",
+            "## Out-of-Sample Policy",
+            _escape_text(report.out_of_sample_policy),
+            "",
+            "## Manifest",
+            f"Run id: {_escape_text(report.manifest.run_id)}",
+            f"Status: {_escape_text(report.manifest.status)}",
+            f"Memory path: {_escape_text(report.manifest.memory_path)}",
+        ]
+    )
     return "\n".join(lines) + "\n"
 
 

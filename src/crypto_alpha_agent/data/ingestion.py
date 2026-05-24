@@ -75,6 +75,8 @@ def ingest_binance_public_month(
     year: int,
     month: int,
     allow_network: bool = False,
+    observed_at_start: datetime | None = None,
+    observed_at_end: datetime | None = None,
     client=None,
 ) -> IngestionSummary:
     if not allow_network:
@@ -84,7 +86,12 @@ def ingest_binance_public_month(
     store = ResearchDataStore(db_path)
     try:
         candles = binance_client.download_monthly_spot_klines(symbol, interval, year, month)
-        records = [candle.to_source_record() for candle in candles]
+        windowed_candles = _filter_records_by_timestamp(
+            candles,
+            observed_at_start=observed_at_start,
+            observed_at_end=observed_at_end,
+        )
+        records = [candle.to_source_record() for candle in windowed_candles]
         records_written = store.upsert_records(records)
     except Exception as exc:
         _write_source_health(
@@ -308,6 +315,8 @@ def ingest_ccxt_funding_rate_history(
     limit: int | None = None,
     allow_network: bool = False,
     exchange_id: str = "binance",
+    observed_at_start: datetime | None = None,
+    observed_at_end: datetime | None = None,
     collector: Any | None = None,
 ) -> CcxtIngestionSummary:
     if not allow_network:
@@ -322,7 +331,12 @@ def ingest_ccxt_funding_rate_history(
             limit=limit,
             params=None,
         )
-        records = [_funding_rate_to_source_record(record) for record in funding_history]
+        windowed_funding = _filter_records_by_timestamp(
+            funding_history,
+            observed_at_start=observed_at_start,
+            observed_at_end=observed_at_end,
+        )
+        records = [_funding_rate_to_source_record(record) for record in windowed_funding]
         records_written = store.upsert_records(records)
     except Exception as exc:
         _write_source_health(
@@ -368,6 +382,8 @@ def ingest_ccxt_open_interest_history(
     limit: int | None = None,
     allow_network: bool = False,
     exchange_id: str = "binance",
+    observed_at_start: datetime | None = None,
+    observed_at_end: datetime | None = None,
     collector: Any | None = None,
 ) -> CcxtIngestionSummary:
     if not allow_network:
@@ -383,7 +399,12 @@ def ingest_ccxt_open_interest_history(
             limit=limit,
             params=None,
         )
-        records = [_open_interest_to_source_record(record) for record in open_interest_history]
+        windowed_open_interest = _filter_records_by_timestamp(
+            open_interest_history,
+            observed_at_start=observed_at_start,
+            observed_at_end=observed_at_end,
+        )
+        records = [_open_interest_to_source_record(record) for record in windowed_open_interest]
         records_written = store.upsert_records(records)
     except Exception as exc:
         _write_source_health(
@@ -453,6 +474,20 @@ def _defi_yield_to_source_record(pool: DefiYieldSnapshot) -> SourceRecord:
         observed_at=pool.observed_at,
         payload=pool.model_dump(mode="json"),
     )
+
+
+def _filter_records_by_timestamp(
+    records: list[MarketCandle] | list[FundingRateRecord] | list[OpenInterestRecord],
+    *,
+    observed_at_start: datetime | None,
+    observed_at_end: datetime | None,
+) -> list[MarketCandle] | list[FundingRateRecord] | list[OpenInterestRecord]:
+    return [
+        record
+        for record in records
+        if (observed_at_start is None or record.timestamp >= observed_at_start)
+        and (observed_at_end is None or record.timestamp < observed_at_end)
+    ]
 
 
 def _ccxt_ohlcv_to_source_record(candle: MarketCandle) -> SourceRecord:

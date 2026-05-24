@@ -54,10 +54,12 @@ from crypto_alpha_agent.pipeline.evidence_reports import (
 )
 from crypto_alpha_agent.pipeline.expansion_preparation import build_expansion_preparation_report
 from crypto_alpha_agent.pipeline.governance_reports import build_profit_governance_report
+from crypto_alpha_agent.pipeline.historical_bootstrap import build_historical_bootstrap_report
 from crypto_alpha_agent.pipeline.markdown import (
     render_ai_research_memo_markdown,
     render_daily_evidence_report_markdown,
     render_expansion_preparation_markdown,
+    render_historical_bootstrap_markdown,
     render_profit_governance_report_markdown,
     render_research_loop_markdown,
     render_weekly_evidence_report_markdown,
@@ -463,6 +465,56 @@ def build_parser() -> argparse.ArgumentParser:
         help="Operator capital profile used for paper-only governance constraints.",
     )
     governance_report_parser.set_defaults(handler=_handle_governance_report, parser=governance_report_parser)
+
+    historical_bootstrap_parser = subparsers.add_parser(
+        "historical-bootstrap",
+        help="Generate a Phase 7 historical bootstrap and evidence-campaign report.",
+    )
+    historical_bootstrap_parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite research data store.")
+    historical_bootstrap_parser.add_argument("--memory", required=True, type=Path, help="Path to the JSONL memory store.")
+    historical_bootstrap_parser.add_argument("--out", required=True, type=Path, help="Path for the Markdown bootstrap report.")
+    historical_bootstrap_parser.add_argument("--json-out", required=True, type=Path, help="Path for the machine-readable payload JSON.")
+    historical_bootstrap_parser.add_argument("--manifest-out", required=True, type=Path, help="Path for the bootstrap manifest JSON.")
+    historical_bootstrap_parser.add_argument("--run-id", help="Optional historical bootstrap run identifier.")
+    historical_bootstrap_parser.add_argument(
+        "--current-capital-usd",
+        type=_non_negative_finite_float,
+        default=300.0,
+        help="Operator capital profile used for research constraints.",
+    )
+    historical_bootstrap_parser.add_argument(
+        "--allow-network",
+        action="store_true",
+        help="Required explicit gate before network-backed historical source collection.",
+    )
+    historical_bootstrap_parser.add_argument("--binance-symbol", help="Binance Public Data symbol, e.g. BTCUSDT.")
+    historical_bootstrap_parser.add_argument("--price-symbol", required=True, help="Stored market candle symbol.")
+    historical_bootstrap_parser.add_argument("--funding-symbol", required=True, help="Stored funding-rate symbol.")
+    historical_bootstrap_parser.add_argument("--timeframe", required=True, help="Stored market candle timeframe.")
+    historical_bootstrap_parser.add_argument(
+        "--bootstrap-window",
+        action="append",
+        default=[],
+        help="Historical bootstrap window in YYYY-MM-DD/YYYY-MM-DD form. Repeat for multiple windows.",
+    )
+    historical_bootstrap_parser.add_argument(
+        "--strategy-family",
+        action="append",
+        default=[],
+        help="Registered strategy family to include. Repeat for multiple families.",
+    )
+    historical_bootstrap_parser.add_argument("--ccxt-exchange", default="binance", help="CCXT exchange id for public market data.")
+    historical_bootstrap_parser.add_argument("--limit", type=_positive_int, default=1000, help="Positive CCXT record limit.")
+    historical_bootstrap_parser.add_argument(
+        "--notional-usd",
+        type=_non_negative_finite_float,
+        default=25.0,
+        help="Paper notional used for historical paper simulation.",
+    )
+    historical_bootstrap_parser.set_defaults(
+        handler=_handle_historical_bootstrap,
+        parser=historical_bootstrap_parser,
+    )
 
     ai_research_memo_parser = subparsers.add_parser(
         "ai-research-memo",
@@ -1533,6 +1585,48 @@ def _handle_governance_report(args: argparse.Namespace) -> dict[str, Any]:
         "uses_real_capital": False,
         "live_order_routing": False,
     }
+
+
+def _handle_historical_bootstrap(args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        report = build_historical_bootstrap_report(
+            db_path=args.db,
+            memory_path=args.memory,
+            run_id=args.run_id,
+            current_capital_usd=args.current_capital_usd,
+            price_symbol=args.price_symbol,
+            funding_symbol=args.funding_symbol,
+            timeframe=args.timeframe,
+            bootstrap_windows=args.bootstrap_window,
+            strategy_families=args.strategy_family,
+            allow_network=args.allow_network,
+            binance_symbol=args.binance_symbol,
+            ccxt_exchange=args.ccxt_exchange,
+            limit=args.limit,
+            notional_usd=args.notional_usd,
+            report_path=args.out,
+            json_path=args.json_out,
+            manifest_path=args.manifest_out,
+        )
+    except ValueError as exc:
+        args.parser.error(str(exc))
+        raise AssertionError("argparse parser.error should exit") from exc
+
+    write_text_artifact(args.out, render_historical_bootstrap_markdown(report))
+    payload = {
+        "command": "historical-bootstrap",
+        "status": report.manifest.status,
+        "exit_code": 0 if report.manifest.status == "success" else 2,
+        "historical_bootstrap_report_out": str(args.out),
+        "json_out": str(args.json_out),
+        "manifest_out": str(args.manifest_out),
+        "report": report.model_dump(mode="json"),
+        "uses_real_capital": False,
+        "live_order_routing": False,
+    }
+    write_json_artifact(args.json_out, payload)
+    write_json_artifact(args.manifest_out, report.manifest.model_dump(mode="json"))
+    return payload
 
 
 def _handle_ai_research_memo(args: argparse.Namespace) -> dict[str, Any]:
