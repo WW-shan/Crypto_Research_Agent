@@ -7,6 +7,27 @@ import pytest
 from crypto_alpha_agent.cli import main
 
 
+class PassingRuntime:
+    def health_check(self, *, command: str):
+        return object()
+
+    def metadata(self):
+        return {
+            "llm_provider": "real",
+            "used_fake_llm": False,
+            "llm_role": "research",
+            "llm_model": "test-real-model",
+        }
+
+
+@pytest.fixture(autouse=True)
+def required_llm_runtime(monkeypatch):
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.build_required_real_llm_runtime",
+        lambda role="research": PassingRuntime(),
+    )
+
+
 def test_ingest_offline_check_reports_no_live_capital(capsys, tmp_path):
     exit_code = main(["ingest", "--offline-check", "--db", str(tmp_path / "research.sqlite")])
 

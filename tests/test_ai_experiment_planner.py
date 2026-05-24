@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -16,6 +14,58 @@ from crypto_alpha_agent.memory.store import MemoryRecord, MemoryStore
 from crypto_alpha_agent.orchestrator import DETERMINISTIC_EVENT_TIME_ISO
 from crypto_alpha_agent.pipeline.experiment_planner import plan_next_experiments
 from crypto_alpha_agent.strategy import default_strategy_registry
+
+
+class _PlannerRuntime:
+    def __init__(self, response: str) -> None:
+        self.llm = _PlannerLLM(response)
+        self.health_commands: list[str] = []
+
+    def health_check(self, *, command: str):
+        self.health_commands.append(command)
+        return object()
+
+    def metadata(self) -> dict[str, Any]:
+        return {
+            "llm_provider": "real",
+            "used_fake_llm": False,
+            "llm_role": "planning",
+            "llm_model": "test-real-model",
+            "llm_health_schema": "LLMHealthCheckResult",
+        }
+
+
+class _PlannerLLM:
+    def __init__(self, response: str) -> None:
+        self.response = response
+        self.task = None
+
+    def __call__(self, task):
+        self.task = task
+        return self.response
+
+
+def _planner_response(*, threshold_abs: float = 0.001, hold_bars: int = 2) -> str:
+    return json.dumps(
+        {
+            "strategy_family": "funding_extremity_price_confirmation",
+            "parameter_changes": {
+                "threshold_abs": threshold_abs,
+                "hold_bars": hold_bars,
+            },
+            "evidence_refs": ["gap:collect_more_walk_forward_data"],
+            "why_it_might_improve_edge": "Higher public funding extremity may survive fees.",
+            "expected_edge_mechanism": (
+                "More extreme public funding rates should survive fees and slippage."
+            ),
+            "disconfirmation_tests": [
+                "Reject if fee-adjusted expectancy stays non-positive."
+            ],
+            "stop_conditions": ["Stop after two blocked validation runs."],
+            "required_data_fields": ["market_candle", "funding_rate"],
+            "selected_validator": "funding_price_confirmation",
+        }
+    )
 
 
 def seed_validation_memory(
@@ -839,12 +889,23 @@ def test_experiment_planner_graph_writes_result_to_state_and_memory(tmp_path):
     assert MemoryStore(memory_path).list_records()
 
 
-def test_cli_plan_experiments_outputs_safe_json(tmp_path):
-    result = subprocess.run(
+def test_cli_plan_experiments_outputs_safe_json(capsys, monkeypatch, tmp_path):
+    from crypto_alpha_agent.cli import main
+
+    runtime = _PlannerRuntime(_planner_response())
+    seen: dict[str, Any] = {}
+
+    def fake_build_required_real_llm_runtime(*, role):
+        seen["role"] = role
+        return runtime
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.build_required_real_llm_runtime",
+        fake_build_required_real_llm_runtime,
+    )
+
+    exit_code = main(
         [
-            sys.executable,
-            "-m",
-            "crypto_alpha_agent.cli",
             "plan-experiments",
             "--db",
             str(tmp_path / "research.sqlite"),
@@ -856,22 +917,22 @@ def test_cli_plan_experiments_outputs_safe_json(tmp_path):
             "1",
             "--current-capital-usd",
             "90",
-            "--offline-only",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
+        ]
     )
 
-    assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
     assert payload["command"] == "plan-experiments"
     assert payload["current_capital_usd"] == 90.0
     assert payload["accepted"] is True
     assert payload["uses_real_capital"] is False
     assert payload["live_order_routing"] is False
+    assert payload["llm_provider"] == "real"
+    assert payload["used_fake_llm"] is False
     assert len(payload["proposals"]) == 1
     assert payload["proposals"][0]["max_notional_usd"] == 9.0
+    assert seen["role"] == "planning"
+    assert runtime.health_commands == ["plan-experiments"]
 
 
 def test_plan_experiments_auto_uses_configured_planning_llm(
@@ -882,33 +943,15 @@ def test_plan_experiments_auto_uses_configured_planning_llm(
     from crypto_alpha_agent.cli import main
 
     seen: dict[str, Any] = {}
-    monkeypatch.setenv("CRYPTO_ALPHA_AGENT_RUN_REAL_LLM_TESTS", "1")
+    runtime = _PlannerRuntime(_planner_response(threshold_abs=0.001, hold_bars=2))
 
-    def fake_llm(task):
-        seen["task"] = task
-        return json.dumps(
-                {
-                    "strategy_family": "funding_extremity_price_confirmation",
-                    "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
-                    "evidence_refs": ["gap:collect_more_walk_forward_data"],
-                    "why_it_might_improve_edge": "Higher public funding extremity may survive fees.",
-                    "expected_edge_mechanism": "More extreme public funding rates should survive fees and slippage.",
-                    "disconfirmation_tests": ["Reject if fee-adjusted expectancy stays non-positive."],
-                    "stop_conditions": ["Stop after two blocked validation runs."],
-                    "required_data_fields": ["market_candle", "funding_rate"],
-                    "selected_validator": "funding_price_confirmation",
-                }
-            )
-
-    def fake_build_configured_llm(*, role, required=False, **_kwargs):
+    def fake_build_required_real_llm_runtime(*, role):
         seen["role"] = role
-        seen["required"] = required
-        return fake_llm
+        return runtime
 
     monkeypatch.setattr(
-        "crypto_alpha_agent.cli.build_configured_llm",
-        fake_build_configured_llm,
-        raising=False,
+        "crypto_alpha_agent.cli.build_required_real_llm_runtime",
+        fake_build_required_real_llm_runtime,
     )
 
     exit_code = main(
@@ -928,46 +971,34 @@ def test_plan_experiments_auto_uses_configured_planning_llm(
     payload = json.loads(capsys.readouterr().out)
     assert exit_code == 0
     assert seen["role"] == "planning"
-    assert seen["required"] is False
-    assert seen["task"].task_id.startswith("experiment-planner:")
-    assert payload["llm_used"] is True
+    assert runtime.llm.task.task_id.startswith("experiment-planner:")
+    assert payload["llm_provider"] == "real"
     assert payload["llm_role"] == "planning"
     assert payload["proposals"][0]["parameter_changes"] == {"threshold_abs": 0.001, "hold_bars": 2}
 
 
-def test_plan_experiments_offline_only_skips_configured_llm(
+def test_plan_experiments_offline_only_is_rejected(
     capsys,
-    monkeypatch,
     tmp_path,
 ):
     from crypto_alpha_agent.cli import main
 
-    def fail_build_configured_llm(**_kwargs):
-        raise AssertionError("offline planning should not build configured LLM")
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "plan-experiments",
+                "--db",
+                str(tmp_path / "research.sqlite"),
+                "--memory",
+                str(tmp_path / "memory.jsonl"),
+                "--strategy-family",
+                "funding_extremity_price_confirmation",
+                "--max-proposals",
+                "1",
+                "--offline-only",
+            ]
+        )
 
-    monkeypatch.setattr(
-        "crypto_alpha_agent.cli.build_configured_llm",
-        fail_build_configured_llm,
-        raising=False,
-    )
-
-    exit_code = main(
-        [
-            "plan-experiments",
-            "--db",
-            str(tmp_path / "research.sqlite"),
-            "--memory",
-            str(tmp_path / "memory.jsonl"),
-            "--strategy-family",
-            "funding_extremity_price_confirmation",
-            "--max-proposals",
-            "1",
-            "--offline-only",
-        ]
-    )
-
-    payload = json.loads(capsys.readouterr().out)
-    assert exit_code == 0
-    assert payload["llm_used"] is False
-    assert payload["llm_mode"] == "offline_only"
-    assert payload["accepted"] is True
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert "unrecognized arguments: --offline-only" in captured.err

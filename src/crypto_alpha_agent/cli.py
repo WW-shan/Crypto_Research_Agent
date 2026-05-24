@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from crypto_alpha_agent.agents.report_summarizer import ReportType, summarize_evidence_report
-from crypto_alpha_agent.config import LLMRole, build_configured_llm
+from crypto_alpha_agent.config import LLMRole
 from crypto_alpha_agent.data.ingestion import (
     ingest_binance_public_month,
     ingest_ccxt_funding_rate_history,
@@ -30,7 +30,12 @@ from crypto_alpha_agent.data.onchain_ingestion import (
 from crypto_alpha_agent.data.source_probe import available_probe_targets, probe_target
 from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
-from crypto_alpha_agent.llm import LLMProviderError
+from crypto_alpha_agent.llm import (
+    LLMProviderError,
+    LLMRuntimeError,
+    RealLLMRuntime,
+    build_required_real_llm_runtime,
+)
 from crypto_alpha_agent.llm.redaction import redact_text
 from crypto_alpha_agent.observability.logging import load_events
 from crypto_alpha_agent.observability.reports import generate_daily_report
@@ -84,6 +89,27 @@ class EvidenceRunConfigurationError(ValueError):
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if getattr(args, "llm_gate_bypass", False):
+        payload = args.handler(args)
+        print(json.dumps(payload, sort_keys=True))
+        return int(payload.get("exit_code", 0) or 0)
+    try:
+        runtime = build_required_real_llm_runtime(
+            role=_llm_role_for_command(args.command)
+        )
+        runtime.health_check(command=args.command)
+    except LLMProviderError as exc:
+        payload = _llm_preflight_failure_payload(
+            args.command,
+            _llm_provider_runtime_error(exc),
+        )
+        print(json.dumps(payload, sort_keys=True))
+        return 2
+    except LLMRuntimeError as exc:
+        payload = _llm_preflight_failure_payload(args.command, exc)
+        print(json.dumps(payload, sort_keys=True))
+        return 2
+    args.llm_runtime = runtime
     payload = args.handler(args)
     print(json.dumps(payload, sort_keys=True))
     return int(payload.get("exit_code", 0) or 0)
@@ -94,7 +120,21 @@ def build_parser() -> argparse.ArgumentParser:
         prog="crypto-alpha-agent",
         description="Operate the crypto alpha research agent in local safe modes.",
     )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="crypto-alpha-agent 0.1.0",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    llm_health_parser = subparsers.add_parser(
+        "llm-health-check",
+        help="Run the required real LLM structured health check.",
+    )
+    llm_health_parser.set_defaults(
+        handler=_handle_llm_health_check,
+        llm_gate_bypass=True,
+    )
 
     _add_dry_run_command(
         subparsers,
@@ -236,7 +276,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Explicitly allow validation for a stopped strategy family.",
     )
-    _add_offline_only_llm_argument(research_loop_parser)
     research_loop_parser.set_defaults(handler=_handle_research_loop, parser=research_loop_parser)
 
     paper_sim_loop_parser = subparsers.add_parser(
@@ -420,16 +459,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=300.0,
         help="Operator capital profile used to cap paper notional.",
     )
-    plan_experiments_parser.add_argument(
-        "--offline-only",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help=(
-            "Omitted: use configured real LLM when local credentials exist. "
-            "--offline-only: deterministic local mode. "
-            "--no-offline-only: require configured real LLM."
-        ),
-    )
     plan_experiments_parser.set_defaults(handler=_handle_plan_experiments, parser=plan_experiments_parser)
 
     evidence_report_parser = subparsers.add_parser(
@@ -448,7 +477,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Strategy family to include in daily report. Repeat for multiple families.",
     )
-    _add_offline_only_llm_argument(evidence_report_parser)
     evidence_report_parser.set_defaults(handler=_handle_evidence_report, parser=evidence_report_parser)
 
     governance_report_parser = subparsers.add_parser(
@@ -996,19 +1024,6 @@ def _add_dry_run_command(
     command_parser.set_defaults(handler=handler)
 
 
-def _add_offline_only_llm_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--offline-only",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help=(
-            "Omitted: use configured real LLM when local credentials exist. "
-            "--offline-only: deterministic local mode. "
-            "--no-offline-only: require configured real LLM."
-        ),
-    )
-
-
 def _base_payload(command: str) -> dict[str, Any]:
     return {
         "command": command,
@@ -1018,49 +1033,63 @@ def _base_payload(command: str) -> dict[str, Any]:
     }
 
 
-def _resolve_llm_for_cli(args: argparse.Namespace, *, role: LLMRole) -> tuple[Any | None, dict[str, Any]]:
-    offline_only = getattr(args, "offline_only", None)
-    if offline_only is True:
-        return None, {
-            "llm_used": False,
-            "llm_mode": "offline_only",
-            "llm_role": role,
-        }
-    if (
-        offline_only is None
-        and os.environ.get("PYTEST_CURRENT_TEST")
-        and os.environ.get("CRYPTO_ALPHA_AGENT_RUN_REAL_LLM_TESTS") != "1"
-    ):
-        return None, {
-            "llm_used": False,
-            "llm_mode": "pytest_offline_default",
-            "llm_role": role,
-        }
+def _llm_role_for_command(command: str) -> LLMRole:
+    if command in {"plan-experiments", "schedule"}:
+        return "planning"
+    if command in {
+        "evidence-report",
+        "governance-report",
+        "historical-bootstrap",
+        "rollout-review",
+    }:
+        return "summary"
+    return "research"
 
-    required = offline_only is False
-    try:
-        llm = build_configured_llm(role=role, required=required)
-    except ValueError as exc:
-        args.parser.error(redact_text(str(exc)))
-        raise AssertionError("argparse parser.error should exit") from exc
 
-    if llm is None:
-        return None, {
-            "llm_used": False,
-            "llm_mode": "offline_no_config",
-            "llm_role": role,
-        }
-
-    settings = getattr(llm, "settings", None)
-    metadata: dict[str, Any] = {
-        "llm_used": True,
-        "llm_mode": "configured",
-        "llm_role": str(getattr(settings, "role", role)),
+def _llm_preflight_failure_payload(
+    command: str,
+    exc: LLMRuntimeError,
+) -> dict[str, Any]:
+    return {
+        "command": command,
+        "exit_code": 2,
+        "reason_code": exc.reason_code,
+        "llm_required": True,
+        "llm_provider": "unavailable",
+        "side_effects_started": False,
+        "uses_real_capital": False,
+        "live_order_routing": False,
+        "failure": redact_text(str(exc)),
     }
-    model = getattr(settings, "model", None)
-    if model:
-        metadata["llm_model"] = str(model)
-    return llm, metadata
+
+
+def _llm_provider_runtime_error(exc: LLMProviderError) -> LLMRuntimeError:
+    return LLMRuntimeError(
+        "llm_provider_unavailable",
+        redact_text(str(exc)),
+    )
+
+
+def _handle_llm_health_check(_args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        runtime = build_required_real_llm_runtime(role="research")
+        health = runtime.health_check(command="llm-health-check")
+    except LLMProviderError as exc:
+        return _llm_preflight_failure_payload(
+            "llm-health-check",
+            _llm_provider_runtime_error(exc),
+        )
+    except LLMRuntimeError as exc:
+        return _llm_preflight_failure_payload("llm-health-check", exc)
+    return {
+        "command": "llm-health-check",
+        "exit_code": 0,
+        "llm_required": True,
+        "health": health.model_dump(mode="json"),
+        "uses_real_capital": False,
+        "live_order_routing": False,
+        **runtime.metadata(),
+    }
 
 
 def _handle_scan(_args: argparse.Namespace) -> dict[str, Any]:
@@ -1145,11 +1174,12 @@ def _handle_replay(args: argparse.Namespace) -> dict[str, Any]:
 
 def _handle_research_loop(args: argparse.Namespace) -> dict[str, Any]:
     _validate_research_loop_strategy_args(args)
+    runtime: RealLLMRuntime = args.llm_runtime
+    llm = runtime.llm
     ingestion = None
     source = _normalize_research_loop_source(args.source)
     if source == "binance_public" and _has_binance_ingestion_intent(args):
         _validate_binance_research_loop_ingestion_args(args)
-        llm, llm_metadata = _resolve_llm_for_cli(args, role="research")
         ingestion = ingest_binance_public_month(
             db_path=args.db,
             symbol=args.symbol,
@@ -1160,7 +1190,6 @@ def _handle_research_loop(args: argparse.Namespace) -> dict[str, Any]:
         )
     else:
         _require_existing_sqlite_db(args.parser, args.db)
-        llm, llm_metadata = _resolve_llm_for_cli(args, role="research")
 
     report = run_stored_research_loop(
         args.db,
@@ -1205,26 +1234,25 @@ def _handle_research_loop(args: argparse.Namespace) -> dict[str, Any]:
         "live_order_routing": False,
         "report": report.model_dump(mode="json"),
         "stopped_family_override_used": "stopped_family_override_used" in report.decision_reason_codes,
-        **llm_metadata,
+        **runtime.metadata(),
     }
-    if llm is not None:
-        try:
-            llm_state = build_llm_research_graph(
-                llm,
-                max_capital_usd=args.current_capital_usd,
-            ).invoke(
-                {
-                    "research_report": report,
-                    "memory_path": str(args.memory) if args.memory is not None else None,
-                    "suggest_paper_action": False,
-                }
-            )
-        except LLMProviderError as exc:
-            args.parser.error(str(exc))
-            raise AssertionError("argparse parser.error should exit") from exc
-        payload["llm_research_result"] = llm_state["llm_research_result"]
-        if "memory_record_id" in llm_state:
-            payload["llm_memory_record_id"] = llm_state["memory_record_id"]
+    try:
+        llm_state = build_llm_research_graph(
+            llm,
+            max_capital_usd=args.current_capital_usd,
+        ).invoke(
+            {
+                "research_report": report,
+                "memory_path": str(args.memory) if args.memory is not None else None,
+                "suggest_paper_action": False,
+            }
+        )
+    except LLMProviderError as exc:
+        args.parser.error(str(exc))
+        raise AssertionError("argparse parser.error should exit") from exc
+    payload["llm_research_result"] = llm_state["llm_research_result"]
+    if "memory_record_id" in llm_state:
+        payload["llm_memory_record_id"] = llm_state["memory_record_id"]
     if args.memory is not None:
         payload["memory_records_written"] = len(memory_records)
         payload["memory_path"] = str(args.memory)
@@ -1486,7 +1514,7 @@ def _handle_rollout_review(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _handle_plan_experiments(args: argparse.Namespace) -> dict[str, Any]:
-    llm, llm_metadata = _resolve_llm_for_cli(args, role="planning")
+    runtime: RealLLMRuntime = args.llm_runtime
     try:
         result = plan_next_experiments(
             db_path=args.db,
@@ -1494,8 +1522,8 @@ def _handle_plan_experiments(args: argparse.Namespace) -> dict[str, Any]:
             strategy_family=args.strategy_family,
             max_proposals=args.max_proposals,
             current_capital_usd=args.current_capital_usd,
-            llm=llm,
-            offline_only=llm is None,
+            llm=runtime.llm,
+            offline_only=False,
         )
     except LLMProviderError as exc:
         args.parser.error(str(exc))
@@ -1517,7 +1545,7 @@ def _handle_plan_experiments(args: argparse.Namespace) -> dict[str, Any]:
         "rejected_reason_codes": result.rejected_reason_codes,
         "uses_real_capital": False,
         "live_order_routing": False,
-        **llm_metadata,
+        **runtime.metadata(),
     }
     response_metadata = result.__dict__.get("_response_metadata")
     if response_metadata is not None:
@@ -1526,7 +1554,7 @@ def _handle_plan_experiments(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _handle_evidence_report(args: argparse.Namespace) -> dict[str, Any]:
-    llm, llm_metadata = _resolve_llm_for_cli(args, role="summary")
+    runtime: RealLLMRuntime = args.llm_runtime
     args.out.parent.mkdir(parents=True, exist_ok=True)
     if args.daily:
         report = build_daily_evidence_report(
@@ -1538,7 +1566,7 @@ def _handle_evidence_report(args: argparse.Namespace) -> dict[str, Any]:
             args,
             report,
             report_type="daily",
-            llm=llm,
+            llm=runtime.llm,
         )
         args.out.write_text(render_daily_evidence_report_markdown(report), encoding="utf-8")
         return {
@@ -1547,7 +1575,7 @@ def _handle_evidence_report(args: argparse.Namespace) -> dict[str, Any]:
             "report": report.model_dump(mode="json"),
             "uses_real_capital": False,
             "live_order_routing": False,
-            **llm_metadata,
+            **runtime.metadata(),
             **summary_payload,
         }
 
@@ -1556,7 +1584,7 @@ def _handle_evidence_report(args: argparse.Namespace) -> dict[str, Any]:
         args,
         report,
         report_type="weekly",
-        llm=llm,
+        llm=runtime.llm,
     )
     args.out.write_text(render_weekly_evidence_report_markdown(report), encoding="utf-8")
     return {
@@ -1565,7 +1593,7 @@ def _handle_evidence_report(args: argparse.Namespace) -> dict[str, Any]:
         "report": report.model_dump(mode="json"),
         "uses_real_capital": False,
         "live_order_routing": False,
-        **llm_metadata,
+        **runtime.metadata(),
         **summary_payload,
     }
 
