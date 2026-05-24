@@ -20,6 +20,22 @@ from crypto_alpha_agent.scheduler import build_daily_schedule_plan
 STRATEGY_FAMILY = "funding_extremity_price_confirmation"
 
 
+def _planner_llm(_task):
+    return json.dumps(
+        {
+            "strategy_family": STRATEGY_FAMILY,
+            "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
+            "evidence_refs": ["gap:collect_more_walk_forward_data"],
+            "why_it_might_improve_edge": "Higher public funding extremity may survive fees.",
+            "expected_edge_mechanism": "More extreme public funding rates may retain fee-adjusted edge.",
+            "disconfirmation_tests": ["Reject if deterministic validation remains weak."],
+            "stop_conditions": ["Stop after repeated blocked validation runs."],
+            "required_data_fields": ["market_candle", "funding_rate"],
+            "selected_validator": "funding_price_confirmation",
+        }
+    )
+
+
 def test_negative_latest_window_paper_expectancy_triggers_degraded_expectancy():
     positive_history = [
         _paper_outcome(f"old-{index}", net_pnl_usd=2.0, hours=index)
@@ -191,6 +207,7 @@ def test_mark_family_degraded_persists_memory_record_planner_can_read(tmp_path):
         memory_path=memory_path,
         strategy_family=STRATEGY_FAMILY,
         max_proposals=1,
+        llm=_planner_llm,
     )
     persisted = MemoryStore(memory_path).get(f"degraded:{STRATEGY_FAMILY}")
 
@@ -222,6 +239,7 @@ def test_planner_excludes_stopped_family_from_memory_by_default(tmp_path):
         memory_path=memory_path,
         strategy_family=STRATEGY_FAMILY,
         max_proposals=1,
+        llm=_planner_llm,
     )
 
     assert evidence_reports.load_stopped_strategy_families(memory_path) == [STRATEGY_FAMILY]
@@ -244,6 +262,7 @@ def test_planner_allow_stopped_family_returns_override_metadata(tmp_path):
         strategy_family=STRATEGY_FAMILY,
         max_proposals=1,
         allow_stopped_family=True,
+        llm=_planner_llm,
     )
 
     assert [proposal.strategy_family for proposal in result.proposals] == [STRATEGY_FAMILY]

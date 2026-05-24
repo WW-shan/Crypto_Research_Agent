@@ -383,7 +383,7 @@ def build_llm_research_graph(
 
 
 def build_experiment_planner_graph(
-    llm: Any | None = None,
+    llm: Any,
     *,
     checkpointer: Any | None = None,
     interrupt_before: Literal["*"] | Sequence[str] | None = None,
@@ -403,7 +403,6 @@ def build_experiment_planner_graph(
             max_proposals=next_state.get("max_proposals", 3),
             current_capital_usd=next_state.get("current_capital_usd", 300.0),
             llm=llm,
-            offline_only=next_state.get("offline_only", True),
         )
         next_state["experiment_planner_result"] = result.model_dump(mode="python")
         next_state["experiment_proposals"] = [

@@ -177,6 +177,13 @@ def _strict_llm_experiment_payload(**overrides: Any) -> dict[str, Any]:
     return payload
 
 
+def _planner_llm(**overrides: Any):
+    def llm(_task):
+        return json.dumps(_strict_llm_experiment_payload(**overrides))
+
+    return llm
+
+
 def test_planner_uses_validation_memory_to_avoid_repeating_blocked_parameters(tmp_path):
     memory_path = tmp_path / "memory.jsonl"
     seed_validation_memory(
@@ -193,12 +200,22 @@ def test_planner_uses_validation_memory_to_avoid_repeating_blocked_parameters(tm
         strategy_family="funding_extremity_price_confirmation",
         max_proposals=2,
         current_capital_usd=300.0,
+        llm=_planner_llm(),
     )
 
     assert result.live_order_routing is False
     assert all(proposal.strategy_family == "funding_extremity_price_confirmation" for proposal in result.proposals)
     assert all(proposal.max_capital_usd <= 300.0 for proposal in result.proposals)
     assert all(proposal.parameter_changes != {"threshold_abs": 0.0005, "hold_bars": 1} for proposal in result.proposals)
+
+
+def test_plan_experiments_requires_llm(tmp_path):
+    with pytest.raises(TypeError, match="llm"):
+        plan_next_experiments(
+            db_path=tmp_path / "research.sqlite",
+            memory_path=tmp_path / "memory.jsonl",
+            current_capital_usd=300.0,
+        )
 
 
 def test_planner_does_not_emit_evidence_less_open_interest_family_baseline(tmp_path):
@@ -227,6 +244,7 @@ def test_planner_does_not_emit_evidence_less_open_interest_family_baseline(tmp_p
         memory_path=memory_path,
         max_proposals=3,
         current_capital_usd=300.0,
+        llm=_planner_llm(),
     )
 
     assert result.accepted is True
@@ -245,6 +263,11 @@ def test_planner_rejects_open_interest_family_without_family_specific_evidence(t
         strategy_family="funding_open_interest_crowding",
         max_proposals=2,
         current_capital_usd=300.0,
+        llm=_planner_llm(
+            strategy_family="funding_open_interest_crowding",
+            required_data_fields=["market_candle", "funding_rate", "open_interest"],
+            selected_validator="funding_oi_crowding",
+        ),
     )
 
     assert result.accepted is False
@@ -470,6 +493,14 @@ def test_planner_reads_evidence_and_proposes_bounded_registered_disconfirmation_
         strategy_family="funding_extremity_price_confirmation",
         current_capital_usd=80.0,
         max_proposals=3,
+        llm=_planner_llm(
+            parameter_changes={
+                "experiment_type": "collect_more_walk_forward_data",
+                "threshold_abs": 0.0005,
+                "hold_bars": 1,
+                "min_walk_forward_splits": 3,
+            },
+        ),
     )
 
     assert result.accepted is True
@@ -505,6 +536,14 @@ def test_planner_uses_paper_insufficient_walk_forward_splits_to_collect_more_dat
         strategy_family="funding_extremity_price_confirmation",
         current_capital_usd=80.0,
         max_proposals=1,
+        llm=_planner_llm(
+            parameter_changes={
+                "experiment_type": "collect_more_walk_forward_data",
+                "threshold_abs": 0.0005,
+                "hold_bars": 1,
+                "min_walk_forward_splits": 3,
+            },
+        ),
     )
 
     assert result.accepted is True
@@ -520,13 +559,14 @@ def test_planner_defaults_to_first_registered_funding_baseline_when_no_evidence_
         db_path=tmp_path / "research.sqlite",
         memory_path=memory_path,
         current_capital_usd=300.0,
+        llm=_planner_llm(parameter_changes={"threshold_abs": 0.0005, "hold_bars": 1}),
     )
 
     assert result.proposals
     assert result.proposals[0].strategy_family == "funding_extremity_price_confirmation"
     assert result.proposals[0].parameter_changes["threshold_abs"] == 0.0005
     assert result.proposals[0].max_notional_usd == 25.0
-    assert not memory_path.exists()
+    assert any("experiment-proposal" in record.tags for record in MemoryStore(memory_path).list_records())
 
 
 def test_planner_rejects_unknown_strategy_family_without_proposals(tmp_path):
@@ -537,13 +577,14 @@ def test_planner_rejects_unknown_strategy_family_without_proposals(tmp_path):
         memory_path=memory_path,
         strategy_family="unknown_non_funding_family",
         current_capital_usd=300.0,
+        llm=_planner_llm(),
     )
 
     assert result.accepted is False
     assert result.proposals == []
     assert result.rejected_reason_codes
     assert "no_safe_registered_proposals" in result.rejected_reason_codes
-    assert not memory_path.exists()
+    assert any("experiment-proposal" in record.tags for record in MemoryStore(memory_path).list_records())
 
 
 def test_planner_rejects_when_all_funding_families_are_degraded(tmp_path):
@@ -569,6 +610,7 @@ def test_planner_rejects_when_all_funding_families_are_degraded(tmp_path):
         memory_path=memory_path,
         current_capital_usd=300.0,
         max_proposals=2,
+        llm=_planner_llm(),
     )
 
     assert result.accepted is False
@@ -576,7 +618,7 @@ def test_planner_rejects_when_all_funding_families_are_degraded(tmp_path):
     assert result.rejected_reason_codes
     assert "no_safe_registered_proposals" in result.rejected_reason_codes
     assert result.degraded_strategy_families == sorted(funding_families)
-    assert not any("experiment-proposal" in record.tags for record in MemoryStore(memory_path).list_records())
+    assert not any("accepted" in record.tags for record in MemoryStore(memory_path).list_records())
 
 
 def test_planner_omits_unsafe_memory_degraded_family_from_llm_task_and_memory(tmp_path):
@@ -717,6 +759,7 @@ def test_planner_excludes_degraded_families_by_default(tmp_path):
         memory_path=memory_path,
         current_capital_usd=300.0,
         max_proposals=2,
+        llm=_planner_llm(),
     )
 
     assert "funding_extremity_price_confirmation" in result.degraded_strategy_families

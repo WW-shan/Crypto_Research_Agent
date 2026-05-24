@@ -27,7 +27,6 @@ _DEGRADED_MARKERS = {
     "fee_killed_edge",
     "negative_expectancy",
 }
-_FUNDING_BASELINE_PARAMETERS = {"threshold_abs": 0.0005, "hold_bars": 1}
 _FAMILY_SPECIFIC_EVIDENCE_REQUIRED = {"funding_open_interest_crowding"}
 _SUPPORTED_GAP_REFS = {"gap:collect_more_walk_forward_data"}
 
@@ -123,7 +122,6 @@ class ExperimentPlannerInput(_PlannerModel):
     strategy_family: str | None = None
     max_proposals: int = Field(default=3, ge=1)
     current_capital_usd: float = Field(ge=0)
-    offline_only: bool = True
     allow_stopped_family: bool = False
 
 
@@ -174,8 +172,7 @@ def plan_next_experiments(
     strategy_family: str | None = None,
     max_proposals: int = 3,
     current_capital_usd: float = 300.0,
-    llm: PlannerLLM | None = None,
-    offline_only: bool = True,
+    llm: PlannerLLM,
     allow_stopped_family: bool = False,
 ) -> ExperimentPlannerResult:
     planner_input = ExperimentPlannerInput(
@@ -184,7 +181,6 @@ def plan_next_experiments(
         strategy_family=strategy_family,
         max_proposals=max_proposals,
         current_capital_usd=float(current_capital_usd),
-        offline_only=offline_only,
         allow_stopped_family=allow_stopped_family,
     )
     batch_id = _batch_id(planner_input)
@@ -210,38 +206,17 @@ def plan_next_experiments(
     blocked_parameter_sets = _blocked_parameter_sets(memory_records)
     duplicate_signatures = _experiment_signatures(memory_records)
 
-    if llm is not None:
-        result = _plan_with_llm(
-            planner_input,
-            batch_id=batch_id,
-            llm=llm,
-            validation_evidence=validation_evidence,
-            paper_evidence=paper_evidence,
-            degraded_families=degraded_families,
-            blocked_parameter_sets=blocked_parameter_sets,
-            duplicate_signatures=duplicate_signatures,
-            research_context=research_context,
-        )
-    else:
-        proposals = _fallback_proposals(
-            planner_input,
-            batch_id=batch_id,
-            validation_evidence=validation_evidence,
-            paper_evidence=paper_evidence,
-            degraded_families=degraded_families,
-            blocked_parameter_sets=blocked_parameter_sets,
-            duplicate_signatures=duplicate_signatures,
-        )
-        accepted = bool(proposals)
-        result = ExperimentPlannerResult(
-            batch_id=batch_id,
-            accepted=accepted,
-            proposals=proposals,
-            degraded_strategy_families=degraded_families,
-            rejected_reason_codes=[] if accepted else ["no_safe_registered_proposals"],
-            validation_evidence_count=len(validation_evidence),
-            paper_evidence_count=len(paper_evidence),
-        )
+    result = _plan_with_llm(
+        planner_input,
+        batch_id=batch_id,
+        llm=llm,
+        validation_evidence=validation_evidence,
+        paper_evidence=paper_evidence,
+        degraded_families=degraded_families,
+        blocked_parameter_sets=blocked_parameter_sets,
+        duplicate_signatures=duplicate_signatures,
+        research_context=research_context,
+    )
 
     stopped_family_override_used = _stopped_family_override_used(
         planner_input=planner_input,
@@ -254,14 +229,7 @@ def plan_next_experiments(
             [*result.decision_reason_codes, "stopped_family_override_used"]
         )
 
-    should_persist_deterministic_result = bool(result.proposals or result.strategy_template_proposals) and not _is_no_evidence_deterministic_fallback(
-        validation_evidence=validation_evidence,
-        paper_evidence=paper_evidence,
-        degraded_families=degraded_families,
-        blocked_parameter_sets=blocked_parameter_sets,
-    )
-    if llm is not None or should_persist_deterministic_result:
-        _persist_experiment_memory(memory_path, result)
+    _persist_experiment_memory(memory_path, result)
     return result
 
 
@@ -411,98 +379,6 @@ def _plan_with_llm(
     if partial_rejected_reason_codes:
         result.__dict__["_partial_rejected_reason_codes"] = partial_rejected_reason_codes
     return result
-
-
-def _fallback_proposals(
-    planner_input: ExperimentPlannerInput,
-    *,
-    batch_id: str,
-    validation_evidence: list[ValidationEvidence],
-    paper_evidence: list[PaperEvidencePackage],
-    degraded_families: list[str],
-    blocked_parameter_sets: dict[str, list[dict[str, Any]]],
-    duplicate_signatures: set[str],
-) -> list[ExperimentProposal]:
-    families = _candidate_families(planner_input, degraded_families=degraded_families)
-    proposals: list[ExperimentProposal] = []
-    has_any_evidence = bool(validation_evidence or paper_evidence)
-    for family in families:
-        family_validation = [item for item in validation_evidence if item.strategy_family == family]
-        family_paper = [item for item in paper_evidence if item.strategy_family == family]
-        if _should_skip_without_family_evidence(
-            family,
-            has_any_evidence=has_any_evidence,
-            family_validation=family_validation,
-            family_paper=family_paper,
-        ):
-            continue
-        for parameters, reason in _fallback_parameter_sets(family_validation, family_paper):
-            if _parameters_were_blocked(family, parameters, blocked_parameter_sets):
-                continue
-            spec = default_strategy_registry(current_capital_usd=planner_input.current_capital_usd).get(family)
-            if _experiment_signature(family, spec.validator_name, parameters) in duplicate_signatures:
-                continue
-            proposals.append(
-                _build_proposal(
-                    planner_input,
-                    batch_id=batch_id,
-                    index=len(proposals) + 1,
-                    strategy_family=family,
-                    parameter_changes=parameters,
-                    evidence_refs=_evidence_refs(family_validation, family_paper),
-                    why_it_might_improve_edge=reason,
-                    expected_edge_mechanism=reason,
-                )
-            )
-            if len(proposals) >= planner_input.max_proposals:
-                return proposals
-    return proposals
-
-
-def _fallback_parameter_sets(
-    validation_evidence: list[ValidationEvidence],
-    paper_evidence: list[PaperEvidencePackage],
-) -> list[tuple[dict[str, Any], str]]:
-    blocked_reasons = {reason for item in validation_evidence for reason in item.blocked_reasons}
-    paper_reasons = {reason for item in paper_evidence for reason in item.failure_reasons}
-    negative_expectancy = any(
-        item.net_return < 0 or item.fee_adjusted_expectancy < 0 or item.slippage_adjusted_expectancy < 0
-        for item in validation_evidence
-    ) or any(item.net_pnl_usd < 0 for item in paper_evidence)
-
-    if "insufficient_walk_forward_splits" in blocked_reasons or "insufficient_walk_forward_splits" in paper_reasons:
-        return [
-            (
-                {
-                    "experiment_type": "collect_more_walk_forward_data",
-                    "threshold_abs": 0.0005,
-                    "hold_bars": 1,
-                    "min_walk_forward_splits": 3,
-                },
-                "Validation was blocked by insufficient walk-forward splits, so the next experiment gathers more public history before changing execution assumptions.",
-            )
-        ]
-    if "fee_killed_edge" in paper_reasons or negative_expectancy:
-        return [
-            (
-                {"threshold_abs": 0.001, "hold_bars": 2},
-                "A stricter funding threshold and longer hold test whether only larger public dislocations survive fees and slippage.",
-            ),
-            (
-                {"threshold_abs": 0.0015, "hold_bars": 1},
-                "A smaller sweep around higher extremity filters can disconfirm whether fees killed the baseline edge.",
-            ),
-        ]
-    return [
-        (
-            dict(_FUNDING_BASELINE_PARAMETERS),
-            "No recent evidence exists, so start with the registered low-capital funding baseline.",
-        ),
-        (
-            {"threshold_abs": 0.001, "hold_bars": 1},
-            "A conservative adjacent threshold sweep checks whether larger funding extremes improve fee-adjusted expectancy.",
-        ),
-    ]
 
 
 def _should_skip_without_family_evidence(
@@ -1076,21 +952,6 @@ def _raw_response_metadata(raw_response: Any, *, accepted: bool) -> dict[str, An
 
 def _reject_json_constant(value: str) -> None:
     raise ValueError(f"invalid JSON constant: {value}")
-
-
-def _is_no_evidence_deterministic_fallback(
-    *,
-    validation_evidence: list[ValidationEvidence],
-    paper_evidence: list[PaperEvidencePackage],
-    degraded_families: list[str],
-    blocked_parameter_sets: dict[str, list[dict[str, Any]]],
-) -> bool:
-    return (
-        not validation_evidence
-        and not paper_evidence
-        and not degraded_families
-        and not blocked_parameter_sets
-    )
 
 
 def _registered_strategy_families() -> set[str]:

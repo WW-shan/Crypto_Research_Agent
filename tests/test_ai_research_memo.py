@@ -5,11 +5,36 @@ import json
 from crypto_alpha_agent.pipeline.ai_research_memo import build_ai_research_memo
 
 
+def _planning_llm(_task):
+    return json.dumps(
+        {
+            "strategy_family": "funding_extremity_price_confirmation",
+            "parameter_changes": {
+                "experiment_type": "collect_more_walk_forward_data",
+                "threshold_abs": 0.001,
+                "hold_bars": 2,
+                "min_walk_forward_splits": 3,
+            },
+            "evidence_refs": ["gap:collect_more_walk_forward_data"],
+            "why_it_might_improve_edge": "More public history can test whether the signal survives costs.",
+            "expected_edge_mechanism": "Larger public funding extremes may retain fee-adjusted edge.",
+            "disconfirmation_tests": ["Reject if deterministic validation remains weak."],
+            "stop_conditions": ["Stop after repeated blocked validation runs."],
+            "required_data_fields": ["market_candle", "funding_rate"],
+            "selected_validator": "funding_price_confirmation",
+        }
+    )
+
+
 def test_weekly_ai_research_memo_summarizes_change_failure_and_next_step(tmp_path) -> None:
     db_path = tmp_path / "research.sqlite"
     memory_path = tmp_path / "memory.jsonl"
 
-    memo = build_ai_research_memo(db_path=db_path, memory_path=memory_path)
+    memo = build_ai_research_memo(
+        db_path=db_path,
+        memory_path=memory_path,
+        llm=_planning_llm,
+    )
 
     assert memo.uses_real_capital is False
     assert memo.live_order_routing is False

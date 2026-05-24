@@ -9,7 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from crypto_alpha_agent.orchestrator import DETERMINISTIC_EVENT_TIME_ISO
 from crypto_alpha_agent.pipeline.evidence_reports import build_weekly_evidence_report
-from crypto_alpha_agent.pipeline.experiment_planner import ExperimentProposal, StrategyTemplateProposal, plan_next_experiments
+from crypto_alpha_agent.pipeline.experiment_planner import (
+    ExperimentProposal,
+    PlannerLLM,
+    StrategyTemplateProposal,
+    plan_next_experiments,
+)
 
 
 class AIResearchMemo(BaseModel):
@@ -33,6 +38,7 @@ def build_ai_research_memo(
     *,
     db_path: str | Path,
     memory_path: str | Path,
+    llm: PlannerLLM,
     strategy_family: str | None = None,
     current_capital_usd: float = 300.0,
 ) -> AIResearchMemo:
@@ -42,7 +48,7 @@ def build_ai_research_memo(
         memory_path=memory_path,
         strategy_family=strategy_family,
         current_capital_usd=current_capital_usd,
-        offline_only=True,
+        llm=llm,
     )
     what_changed = _what_changed(report)
     what_failed = _what_failed(report, plan.rejected_reason_codes)

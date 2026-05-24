@@ -53,6 +53,8 @@ class _SummaryLLM:
 
     def __call__(self, task):
         self.task = task
+        if type(task).__name__ == "ExperimentPlannerTask":
+            return _planning_response()
         if self.response is not None:
             return self.response
         return _summary_response(report_type=task.report_type)
@@ -79,10 +81,36 @@ def _summary_response(*, report_type: str = "daily") -> str:
     )
 
 
+def _planning_response() -> str:
+    return json.dumps(
+        {
+            "strategy_family": STRATEGY_FAMILY,
+            "parameter_changes": {
+                "experiment_type": "collect_more_walk_forward_data",
+                "threshold_abs": 0.001,
+                "hold_bars": 2,
+                "min_walk_forward_splits": 3,
+            },
+            "evidence_refs": ["gap:collect_more_walk_forward_data"],
+            "why_it_might_improve_edge": "More public history can test whether the signal survives costs.",
+            "expected_edge_mechanism": "Larger public funding extremes may retain fee-adjusted edge.",
+            "disconfirmation_tests": ["Reject if deterministic validation remains weak."],
+            "stop_conditions": ["Stop after repeated blocked validation runs."],
+            "required_data_fields": ["market_candle", "funding_rate"],
+            "selected_validator": "funding_price_confirmation",
+        }
+    )
+
+
+def _planning_llm(_task):
+    return _planning_response()
+
+
 def test_daily_evidence_report_includes_validation_paper_and_memory_sections(tmp_path):
     report = build_daily_evidence_report(
         db_path=tmp_path / "research.sqlite",
         memory_path=tmp_path / "memory.jsonl",
+        llm=_planning_llm,
         strategy_families=[STRATEGY_FAMILY],
     )
 
@@ -116,6 +144,7 @@ def test_daily_report_counts_candidates_outcomes_quality_and_next_experiments(tm
     report = build_daily_evidence_report(
         db_path=db_path,
         memory_path=memory_path,
+        llm=_planning_llm,
         strategy_families=[STRATEGY_FAMILY],
     )
     markdown = render_daily_evidence_report_markdown(report)
@@ -158,6 +187,7 @@ def test_daily_report_marks_fresh_degraded_evidence_as_stopped_memory(tmp_path):
     report = build_daily_evidence_report(
         db_path=db_path,
         memory_path=memory_path,
+        llm=_planning_llm,
         strategy_families=[STRATEGY_FAMILY],
     )
     memory_records = MemoryStore(memory_path).list_records()
@@ -179,6 +209,7 @@ def test_daily_report_memory_count_includes_planner_side_effect_records(tmp_path
     report = build_daily_evidence_report(
         db_path=db_path,
         memory_path=memory_path,
+        llm=_planning_llm,
         strategy_families=[STRATEGY_FAMILY],
     )
 
@@ -323,6 +354,43 @@ def test_evidence_report_can_use_fast_summary_llm(capsys, monkeypatch, tmp_path)
     assert "Validation evidence: 2" in markdown
 
 
+def test_evidence_report_cli_rejects_planner_llm_provider_failure(capsys, monkeypatch, tmp_path):
+    from crypto_alpha_agent.llm.responses import LLMProviderError
+
+    class FailingPlannerLLM:
+        def __call__(self, task):
+            if type(task).__name__ == "ExperimentPlannerTask":
+                raise LLMProviderError("LLM provider request failed with status 504: timeout")
+            return _summary_response(report_type=task.report_type)
+
+    runtime = _SummaryRuntime()
+    runtime.llm = FailingPlannerLLM()
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.build_required_real_llm_runtime",
+        lambda role="summary": runtime,
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "evidence-report",
+                "--daily",
+                "--db",
+                str(tmp_path / "research.sqlite"),
+                "--memory",
+                str(tmp_path / "memory.jsonl"),
+                "--out",
+                str(tmp_path / "daily.md"),
+                "--strategy-family",
+                STRATEGY_FAMILY,
+            ]
+        )
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert "LLM provider request failed with status 504" in captured.err
+
+
 def test_daily_evidence_report_can_render_llm_summary_without_changing_metrics(tmp_path):
     db_path = tmp_path / "research.sqlite"
     memory_path = tmp_path / "memory.jsonl"
@@ -330,6 +398,7 @@ def test_daily_evidence_report_can_render_llm_summary_without_changing_metrics(t
     report = build_daily_evidence_report(
         db_path=db_path,
         memory_path=memory_path,
+        llm=_planning_llm,
         strategy_families=[STRATEGY_FAMILY],
     )
     original = report.model_dump(mode="json")
@@ -369,6 +438,7 @@ def test_report_summarizer_rejects_invalid_or_unsafe_output_without_raw_text(tmp
     report = build_daily_evidence_report(
         db_path=tmp_path / "research.sqlite",
         memory_path=tmp_path / "memory.jsonl",
+        llm=_planning_llm,
         strategy_families=[STRATEGY_FAMILY],
     )
     unsafe_response = "{not json} private-key seed phrase live order"
@@ -391,6 +461,7 @@ def test_report_summarizer_accepts_common_caveats_alias_without_extra_raw_text(t
     report = build_daily_evidence_report(
         db_path=tmp_path / "research.sqlite",
         memory_path=tmp_path / "memory.jsonl",
+        llm=_planning_llm,
         strategy_families=[STRATEGY_FAMILY],
     )
 
@@ -421,6 +492,7 @@ def test_report_summarizer_normalizes_false_safety_flag_echoes_without_raw_text(
     report = build_daily_evidence_report(
         db_path=tmp_path / "research.sqlite",
         memory_path=tmp_path / "memory.jsonl",
+        llm=_planning_llm,
         strategy_families=[STRATEGY_FAMILY],
     )
 
@@ -474,6 +546,7 @@ def test_report_summarizer_rejects_valid_unsafe_instruction_without_raw_text(
     report = build_daily_evidence_report(
         db_path=tmp_path / "research.sqlite",
         memory_path=tmp_path / "memory.jsonl",
+        llm=_planning_llm,
         strategy_families=[STRATEGY_FAMILY],
     )
 

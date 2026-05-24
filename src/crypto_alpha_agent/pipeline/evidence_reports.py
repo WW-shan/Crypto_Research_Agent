@@ -17,7 +17,7 @@ from crypto_alpha_agent.evidence.paper import PaperEvidencePackage, aggregate_pa
 from crypto_alpha_agent.evidence.validation_ledger import ValidationEvidenceLedger
 from crypto_alpha_agent.agents.report_summarizer import EvidenceReportNarrativeSummary
 from crypto_alpha_agent.memory.store import MemoryRecord, MemoryStore
-from crypto_alpha_agent.pipeline.experiment_planner import ExperimentPlannerResult, plan_next_experiments
+from crypto_alpha_agent.pipeline.experiment_planner import ExperimentPlannerResult, PlannerLLM, plan_next_experiments
 
 PAPER_SAMPLE_TARGET = 30
 NEAR_PAPER_TRADE_COUNT = 25
@@ -126,6 +126,7 @@ def build_daily_evidence_report(
     *,
     db_path: str | Path,
     memory_path: str | Path,
+    llm: PlannerLLM,
     strategy_families: list[str] | None = None,
 ) -> DailyEvidenceReport:
     families = _normalize_families(strategy_families)
@@ -141,7 +142,7 @@ def build_daily_evidence_report(
         db_path=db_path,
         memory_path=memory_path,
         strategy_family=families[0] if len(families) == 1 else None,
-        offline_only=True,
+        llm=llm,
     )
     memory_records = _filtered_memory_records(MemoryStore(memory_path).list_records(), families)
 

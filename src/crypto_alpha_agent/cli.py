@@ -1526,7 +1526,6 @@ def _handle_plan_experiments(args: argparse.Namespace) -> dict[str, Any]:
             max_proposals=args.max_proposals,
             current_capital_usd=args.current_capital_usd,
             llm=runtime.llm,
-            offline_only=False,
         )
     except LLMProviderError as exc:
         args.parser.error(str(exc))
@@ -1560,11 +1559,16 @@ def _handle_evidence_report(args: argparse.Namespace) -> dict[str, Any]:
     runtime: RealLLMRuntime = args.llm_runtime
     args.out.parent.mkdir(parents=True, exist_ok=True)
     if args.daily:
-        report = build_daily_evidence_report(
-            db_path=args.db,
-            memory_path=args.memory,
-            strategy_families=args.strategy_family,
-        )
+        try:
+            report = build_daily_evidence_report(
+                db_path=args.db,
+                memory_path=args.memory,
+                llm=runtime.llm,
+                strategy_families=args.strategy_family,
+            )
+        except LLMProviderError as exc:
+            args.parser.error(str(exc))
+            raise AssertionError("argparse parser.error should exit") from exc
         report, summary_payload = _apply_evidence_report_summary(
             args,
             report,
@@ -1661,12 +1665,18 @@ def _handle_historical_bootstrap(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _handle_ai_research_memo(args: argparse.Namespace) -> dict[str, Any]:
-    memo = build_ai_research_memo(
-        db_path=args.db,
-        memory_path=args.memory,
-        strategy_family=args.strategy_family,
-        current_capital_usd=args.current_capital_usd,
-    )
+    runtime: RealLLMRuntime = args.llm_runtime
+    try:
+        memo = build_ai_research_memo(
+            db_path=args.db,
+            memory_path=args.memory,
+            llm=runtime.llm,
+            strategy_family=args.strategy_family,
+            current_capital_usd=args.current_capital_usd,
+        )
+    except LLMProviderError as exc:
+        args.parser.error(str(exc))
+        raise AssertionError("argparse parser.error should exit") from exc
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(render_ai_research_memo_markdown(memo), encoding="utf-8")
     return {
@@ -1675,6 +1685,7 @@ def _handle_ai_research_memo(args: argparse.Namespace) -> dict[str, Any]:
         "memo": memo.model_dump(mode="json"),
         "uses_real_capital": False,
         "live_order_routing": False,
+        **runtime.metadata(),
     }
 
 
@@ -1727,6 +1738,7 @@ def _apply_evidence_report_summary(
 
 
 def _handle_evidence_run(args: argparse.Namespace) -> dict[str, Any]:
+    runtime: RealLLMRuntime = args.llm_runtime
     started_at = datetime.now(tz=UTC)
     run_id = _resolve_evidence_run_id(args)
     strategy_families = args.strategy_family or ["funding_extremity_price_confirmation"]
@@ -1775,6 +1787,7 @@ def _handle_evidence_run(args: argparse.Namespace) -> dict[str, Any]:
             daily_evidence_report = build_daily_evidence_report(
                 db_path=args.db,
                 memory_path=args.memory,
+                llm=runtime.llm,
                 strategy_families=strategy_families,
             )
             write_text_artifact(
