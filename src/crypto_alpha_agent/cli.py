@@ -1028,7 +1028,9 @@ def _base_payload(command: str) -> dict[str, Any]:
     return {
         "command": command,
         "mode": "dry_run",
-        "live_api_calls": False,
+        "live_api_calls": True,
+        "live_api_call_types": ["llm_health_check"],
+        "live_market_api_calls": False,
         "uses_real_capital": False,
     }
 
@@ -1097,7 +1099,7 @@ def _handle_scan(_args: argparse.Namespace) -> dict[str, Any]:
         **_base_payload("scan"),
         "signals_scanned": 0,
         "opportunities": [],
-        "notes": ["offline dry run only", "no providers configured"],
+        "notes": ["llm-gated dry run only", "no market data provider calls"],
     }
 
 
@@ -1697,13 +1699,8 @@ def _apply_evidence_report_summary(
     report: Any,
     *,
     report_type: ReportType,
-    llm: Any | None,
+    llm: Any,
 ) -> tuple[Any, dict[str, Any]]:
-    if llm is None:
-        return report, {
-            "llm_summary_accepted": False,
-            "llm_summary_rejected_reason_codes": [],
-        }
     try:
         summary_result = summarize_evidence_report(
             report,

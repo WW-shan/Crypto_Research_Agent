@@ -51,7 +51,6 @@ def test_real_plan_experiments_cli_uses_configured_llm_without_secret_leaks(
                 "1",
                 "--current-capital-usd",
                 "90",
-                "--no-offline-only",
             ]
         ),
         capsys=capsys,
@@ -63,7 +62,8 @@ def test_real_plan_experiments_cli_uses_configured_llm_without_secret_leaks(
     memory_text = memory_path.read_text(encoding="utf-8") if memory_path.exists() else ""
 
     assert exit_code == 0
-    assert payload["llm_used"] is True
+    assert payload["llm_provider"] == "real"
+    assert payload["used_fake_llm"] is False
     assert payload["llm_role"] == "planning"
     assert payload["accepted"] is True, payload["rejected_reason_codes"]
     assert payload["proposals"]
@@ -106,7 +106,6 @@ def test_real_research_loop_cli_uses_configured_llm_without_secret_leaks(
                 "real-llm-policy-research",
                 "--current-capital-usd",
                 "300",
-                "--no-offline-only",
             ]
         ),
         capsys=capsys,
@@ -118,7 +117,8 @@ def test_real_research_loop_cli_uses_configured_llm_without_secret_leaks(
     memory_records = [record.model_dump(mode="json") for record in MemoryStore(memory_path).list_records()]
 
     assert exit_code == 0
-    assert payload["llm_used"] is True
+    assert payload["llm_provider"] == "real"
+    assert payload["used_fake_llm"] is False
     assert payload["llm_role"] == "research"
     assert payload["llm_research_result"]["accepted"] is True, payload["llm_research_result"]
     assert payload["llm_research_result"]["raw_response_metadata"]["raw_response_omitted"] is True
@@ -164,7 +164,6 @@ def test_real_evidence_report_cli_uses_fast_summary_llm_without_secret_leaks(
                 str(report_path),
                 "--strategy-family",
                 STRATEGY_FAMILY,
-                "--no-offline-only",
             ]
         ),
         capsys=capsys,
@@ -176,7 +175,8 @@ def test_real_evidence_report_cli_uses_fast_summary_llm_without_secret_leaks(
     markdown = report_path.read_text(encoding="utf-8")
 
     assert exit_code == 0
-    assert payload["llm_used"] is True
+    assert payload["llm_provider"] == "real"
+    assert payload["used_fake_llm"] is False
     assert payload["llm_role"] == "summary"
     assert payload["llm_summary_accepted"] is True, payload["llm_summary_rejected_reason_codes"]
     assert payload["report"]["validation_evidence_count"] == 1

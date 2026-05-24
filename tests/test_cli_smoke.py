@@ -3,7 +3,26 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
+
+
+class _SmokeRuntime:
+    def __init__(self, role: str) -> None:
+        self.role = role
+
+    def health_check(self, *, command: str):
+        return object()
+
+    def metadata(self) -> dict[str, object]:
+        return {
+            "llm_provider": "real",
+            "used_fake_llm": False,
+            "llm_role": self.role,
+            "llm_model": "test-real-model",
+        }
 
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
@@ -16,9 +35,19 @@ def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
 
 
 def _json_from_cli(*args: str) -> dict[str, object]:
-    result = _run_cli(*args)
-    assert result.returncode == 0, result.stderr
-    return json.loads(result.stdout)
+    from crypto_alpha_agent.cli import main
+
+    stdout = StringIO()
+    with (
+        patch(
+            "crypto_alpha_agent.cli.build_required_real_llm_runtime",
+            lambda role="research": _SmokeRuntime(role),
+        ),
+        redirect_stdout(stdout),
+    ):
+        exit_code = main(list(args))
+    assert exit_code == 0, stdout.getvalue()
+    return json.loads(stdout.getvalue())
 
 
 def _write_event_log(path: Path) -> None:
@@ -93,7 +122,9 @@ def test_cli_dry_run_commands_emit_machine_readable_json():
 
         assert payload["command"] == command
         assert payload["mode"] == "dry_run"
-        assert payload["live_api_calls"] is False
+        assert payload["live_api_calls"] is True
+        assert payload["live_api_call_types"] == ["llm_health_check"]
+        assert payload["live_market_api_calls"] is False
         assert payload["uses_real_capital"] is False
 
 

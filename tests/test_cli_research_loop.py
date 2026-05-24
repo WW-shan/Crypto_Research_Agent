@@ -12,6 +12,62 @@ from crypto_alpha_agent.data.models import MarketCandle
 from crypto_alpha_agent.data.store import ResearchDataStore
 
 
+class _ResearchLoopRuntime:
+    def __init__(self, response: str, *, role: str = "research") -> None:
+        self.llm = _ResearchLoopLLM(response)
+        self.role = role
+        self.health_commands: list[str] = []
+
+    def health_check(self, *, command: str):
+        self.health_commands.append(command)
+        return object()
+
+    def metadata(self) -> dict[str, Any]:
+        return {
+            "llm_provider": "real",
+            "used_fake_llm": False,
+            "llm_role": self.role,
+            "llm_model": "test-real-model",
+            "llm_health_schema": "LLMHealthCheckResult",
+        }
+
+
+class _ResearchLoopLLM:
+    def __init__(self, response: str) -> None:
+        self.response = response
+        self.task = None
+
+    def __call__(self, task):
+        self.task = task
+        return self.response
+
+
+@pytest.fixture(autouse=True)
+def required_research_runtime(monkeypatch):
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.build_required_real_llm_runtime",
+        lambda role="research": _ResearchLoopRuntime(_research_response(), role=role),
+    )
+
+
+def _research_response() -> str:
+    return json.dumps(
+        {
+            "proposal_id": "llm-cli-research-001",
+            "thesis": "Public funding and price evidence can be researched at low frequency.",
+            "hypothesis": "Funding extremity plus price confirmation may identify a paper-testable setup.",
+            "assumptions": ["Public candle data and funding data remain available."],
+            "evidence": ["Stored research loop produced a public-data signal."],
+            "disconfirmation": ["Reject if validation expectancy is non-positive after costs."],
+            "data_needed": ["market_candle", "funding_rate"],
+            "capital_required_usd": 25.0,
+            "speed_dependency": "none",
+            "rpc_dependency": "none",
+            "action_mode": "research_only",
+        }
+    )
+
+
 @pytest.mark.parametrize("capital", ["nan", "inf"])
 def test_research_loop_cli_rejects_non_finite_current_capital(capsys, tmp_path, capital):
     db_path = tmp_path / "research.sqlite"
@@ -211,36 +267,11 @@ def test_research_loop_can_run_configured_llm_and_persist_metadata_only(
         volume=1000.0,
     )
     ResearchDataStore(db_path).upsert_records([candle.to_source_record()])
-    seen: dict[str, Any] = {}
-    monkeypatch.setenv("CRYPTO_ALPHA_AGENT_RUN_REAL_LLM_TESTS", "1")
-
-    def fake_llm(task):
-        seen["task"] = task
-        return json.dumps(
-            {
-                "proposal_id": "llm-cli-research-001",
-                "thesis": "Public funding and price evidence can be researched at low frequency.",
-                "hypothesis": "Funding extremity plus price confirmation may identify a paper-testable setup.",
-                "assumptions": ["Public candle data and funding data remain available."],
-                "evidence": ["Stored research loop produced one BTC/USDT signal."],
-                "disconfirmation": ["Reject if validation expectancy is non-positive after costs."],
-                "data_needed": ["market_candle", "funding_rate"],
-                "capital_required_usd": 25.0,
-                "speed_dependency": "none",
-                "rpc_dependency": "none",
-                "action_mode": "research_only",
-            }
-        )
-
-    def fake_build_configured_llm(*, role, required=False, **_kwargs):
-        seen["role"] = role
-        seen["required"] = required
-        return fake_llm
+    runtime = _ResearchLoopRuntime(_research_response())
 
     monkeypatch.setattr(
-        "crypto_alpha_agent.cli.build_configured_llm",
-        fake_build_configured_llm,
-        raising=False,
+        "crypto_alpha_agent.cli.build_required_real_llm_runtime",
+        lambda role="research": runtime,
     )
 
     exit_code = main(
@@ -261,10 +292,11 @@ def test_research_loop_can_run_configured_llm_and_persist_metadata_only(
     persisted_records = [record.model_dump(mode="json") for record in llm_records]
 
     assert exit_code == 0
-    assert seen["role"] == "research"
-    assert seen["required"] is False
-    assert seen["task"].task_id == "llm-research"
-    assert payload["llm_used"] is True
+    assert runtime.health_commands == ["research-loop"]
+    assert runtime.llm.task.task_id == "llm-research"
+    assert payload["llm_provider"] == "real"
+    assert payload["used_fake_llm"] is False
+    assert payload["llm_role"] == "research"
     assert payload["llm_research_result"]["accepted"] is True
     assert "raw_response" not in payload["llm_research_result"]
     assert payload["llm_research_result"]["raw_response_metadata"]["raw_response_omitted"] is True

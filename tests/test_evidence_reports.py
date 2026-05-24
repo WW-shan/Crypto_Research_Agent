@@ -26,6 +26,59 @@ from crypto_alpha_agent.agents.report_summarizer import summarize_evidence_repor
 STRATEGY_FAMILY = "funding_extremity_price_confirmation"
 
 
+class _SummaryRuntime:
+    def __init__(self, response: str | None = None, *, role: str = "summary") -> None:
+        self.llm = _SummaryLLM(response)
+        self.role = role
+        self.health_commands: list[str] = []
+
+    def health_check(self, *, command: str):
+        self.health_commands.append(command)
+        return object()
+
+    def metadata(self) -> dict[str, object]:
+        return {
+            "llm_provider": "real",
+            "used_fake_llm": False,
+            "llm_role": self.role,
+            "llm_model": "test-real-model",
+            "llm_health_schema": "LLMHealthCheckResult",
+        }
+
+
+class _SummaryLLM:
+    def __init__(self, response: str | None) -> None:
+        self.response = response
+        self.task = None
+
+    def __call__(self, task):
+        self.task = task
+        if self.response is not None:
+            return self.response
+        return _summary_response(report_type=task.report_type)
+
+
+@pytest.fixture(autouse=True)
+def required_summary_runtime(monkeypatch):
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.build_required_real_llm_runtime",
+        lambda role="summary": _SummaryRuntime(role=role),
+    )
+
+
+def _summary_response(*, report_type: str = "daily") -> str:
+    return json.dumps(
+        {
+            "report_type": report_type,
+            "summary": "Evidence report metrics remain research-only and require continued validation.",
+            "metric_refs": ["validation_evidence_count"],
+            "caveats": ["Narrative summary is secondary."],
+            "uses_real_capital": False,
+            "live_order_routing": False,
+        }
+    )
+
+
 def test_daily_evidence_report_includes_validation_paper_and_memory_sections(tmp_path):
     report = build_daily_evidence_report(
         db_path=tmp_path / "research.sqlite",
@@ -227,31 +280,16 @@ def test_evidence_report_can_use_fast_summary_llm(capsys, monkeypatch, tmp_path)
     memory_path = tmp_path / "memory.jsonl"
     daily_out = tmp_path / "daily-llm.md"
     _seed_daily_fixture(db_path, memory_path)
-    seen: dict[str, object] = {}
-    monkeypatch.setenv("CRYPTO_ALPHA_AGENT_RUN_REAL_LLM_TESTS", "1")
-
-    def fake_llm(task):
-        seen["task"] = task
-        return json.dumps(
-            {
-                "report_type": "daily",
-                "summary": "Daily evidence has validation records, paper outcomes, and an active data collection need.",
-                "metric_refs": ["validation_evidence_count=2", "paper_outcome_count=2"],
-                "caveats": ["Narrative summary is secondary."],
-                "uses_real_capital": False,
-                "live_order_routing": False,
-            }
+    runtime = _SummaryRuntime(
+        _summary_response(report_type="daily").replace(
+            "Evidence report metrics remain research-only and require continued validation.",
+            "Daily evidence has validation records, paper outcomes, and an active data collection need.",
         )
-
-    def fake_build_configured_llm(*, role, required=False, **_kwargs):
-        seen["role"] = role
-        seen["required"] = required
-        return fake_llm
+    )
 
     monkeypatch.setattr(
-        "crypto_alpha_agent.cli.build_configured_llm",
-        fake_build_configured_llm,
-        raising=False,
+        "crypto_alpha_agent.cli.build_required_real_llm_runtime",
+        lambda role="summary": runtime,
     )
 
     exit_code = main(
@@ -273,9 +311,11 @@ def test_evidence_report_can_use_fast_summary_llm(capsys, monkeypatch, tmp_path)
     markdown = daily_out.read_text(encoding="utf-8")
 
     assert exit_code == 0
-    assert seen["role"] == "summary"
-    assert seen["required"] is False
-    assert payload["llm_used"] is True
+    assert runtime.health_commands == ["evidence-report"]
+    assert runtime.llm.task.report_type == "daily"
+    assert payload["llm_provider"] == "real"
+    assert payload["used_fake_llm"] is False
+    assert payload["llm_role"] == "summary"
     assert payload["report"]["validation_evidence_count"] == 2
     assert payload["report"]["paper_outcome_count"] == 2
     assert payload["report"]["llm_summary"]["summary"].startswith("Daily evidence")
