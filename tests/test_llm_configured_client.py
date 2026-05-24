@@ -258,7 +258,7 @@ def test_responses_adapter_does_not_duplicate_v1_suffix() -> None:
     assert session.calls[0]["url"] == "https://provider.example/v1/responses"
 
 
-def test_responses_adapter_extracts_nested_output_items_and_strips_json_fences() -> None:
+def test_responses_adapter_extracts_nested_output_items_without_stripping_json_fences() -> None:
     response = _FakeResponse(
         payload={
             "output": [
@@ -273,9 +273,8 @@ def test_responses_adapter_extracts_nested_output_items_and_strips_json_fences()
     )
     adapter = OpenAIResponsesAdapter(_settings(), session=_FakeSession(response))
 
-    assert (
-        adapter(_DummyTask(task_id="adapter-task-2", objective="Return JSON"))
-        == '{"proposal_id":"p2"}'
+    assert adapter(_DummyTask(task_id="adapter-task-2", objective="Return JSON")) == (
+        '```json\n{"proposal_id":"p2"}\n```'
     )
 
 

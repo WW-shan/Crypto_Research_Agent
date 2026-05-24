@@ -60,7 +60,7 @@ class OpenAIResponsesAdapter:
                     f"LLM provider returned invalid JSON: {type(exc).__name__}"
                 )
             ) from None
-        return _strip_json_fence(_extract_response_text(response_payload))
+        return _extract_response_text(response_payload)
 
     def _responses_url(self) -> str:
         base_url = self.settings.base_url.rstrip("/")
@@ -138,17 +138,6 @@ def _extract_output_item_text(item: Any) -> str | None:
     if isinstance(text, str) and text.strip():
         return text.strip()
     return None
-
-
-def _strip_json_fence(text: str) -> str:
-    value = text.strip()
-    if not value.startswith("```"):
-        return value
-    lines = value.splitlines()
-    if len(lines) >= 3 and lines[0].startswith("```") and lines[-1].strip() == "```":
-        return "\n".join(lines[1:-1]).strip()
-    return value
-
 
 def _schema_hint_for_task(task: Any) -> str:
     task_type = type(task).__name__

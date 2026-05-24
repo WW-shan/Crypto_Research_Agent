@@ -45,16 +45,40 @@ class LLMHealthCheckResult(_RuntimeModel):
 
 
 class RealLLMRuntime:
-    def __init__(self, *, llm: Any, provider: Literal["real"], role: LLMRole) -> None:
+    def __init__(
+        self,
+        *,
+        llm: Any,
+        provider: Literal["real"],
+        role: LLMRole,
+        _allow_test_double: bool = False,
+    ) -> None:
         if provider != "real":
             raise LLMRuntimeError(
                 "fake_llm_not_allowed",
                 "Product runtime requires a real LLM provider.",
             )
+        provider_verified = _is_openai_responses_adapter(llm)
+        if not provider_verified and not _allow_test_double:
+            raise LLMRuntimeError(
+                "unverified_llm_provider",
+                "Product runtime requires the configured real LLM adapter.",
+            )
         self.llm = llm
         self.provider = provider
         self.role = role
+        self._provider_verified = provider_verified
+        self._used_test_double = _allow_test_double
         self.last_health: LLMHealthCheckResult | None = None
+
+    @classmethod
+    def _for_test_double(cls, *, llm: Any, role: LLMRole) -> RealLLMRuntime:
+        return cls(
+            llm=llm,
+            provider="real",
+            role=role,
+            _allow_test_double=True,
+        )
 
     def health_check(self, *, command: str) -> LLMHealthCheckResult:
         raw_response = self.llm(LLMHealthCheckTask(command=command))
@@ -75,12 +99,11 @@ class RealLLMRuntime:
 
     def metadata(self) -> dict[str, Any]:
         settings = getattr(self.llm, "settings", None)
-        provider_verified = _is_openai_responses_adapter(self.llm)
         metadata: dict[str, Any] = {
             "llm_provider": self.provider,
-            "used_fake_llm": False,
+            "used_fake_llm": self._used_test_double,
             "llm_role": self.role,
-            "llm_provider_verified": provider_verified,
+            "llm_provider_verified": self._provider_verified,
         }
         model = getattr(settings, "model", None)
         if model:
@@ -109,6 +132,7 @@ def build_required_real_llm_runtime(
 def parse_structured_llm_json(
     raw_response: Any, output_model: type[StructuredModel]
 ) -> StructuredModel:
+    _require_strict_output_model(output_model)
     if not isinstance(raw_response, str):
         raise LLMRuntimeError(
             "invalid_llm_response_type",
@@ -116,12 +140,12 @@ def parse_structured_llm_json(
         )
     try:
         payload = json.loads(raw_response, parse_constant=_reject_json_constant)
-    except (json.JSONDecodeError, ValueError) as exc:
+    except (json.JSONDecodeError, ValueError):
         digest = hashlib.sha256(raw_response.encode("utf-8")).hexdigest()[:12]
         raise LLMRuntimeError(
             "invalid_json",
             f"LLM response was not valid JSON: sha256={digest}",
-        ) from exc
+        ) from None
     try:
         return output_model.model_validate(payload)
     except ValidationError:
@@ -133,6 +157,27 @@ def parse_structured_llm_json(
 
 def _reject_json_constant(value: str) -> None:
     raise ValueError(f"invalid JSON constant: {value}")
+
+
+def _require_strict_output_model(output_model: type[StructuredModel]) -> None:
+    if not isinstance(output_model, type) or not issubclass(output_model, BaseModel):
+        raise LLMRuntimeError(
+            "unsafe_output_schema",
+            "LLM output schema must be a Pydantic BaseModel.",
+        )
+    config = output_model.model_config
+    if (
+        config.get("strict") is not True
+        or config.get("extra") != "forbid"
+        or config.get("allow_inf_nan") is not False
+    ):
+        raise LLMRuntimeError(
+            "unsafe_output_schema",
+            (
+                f"LLM output schema {output_model.__name__} must set strict=True, "
+                "extra='forbid', and allow_inf_nan=False."
+            ),
+        )
 
 
 def _is_openai_responses_adapter(llm: Any) -> bool:

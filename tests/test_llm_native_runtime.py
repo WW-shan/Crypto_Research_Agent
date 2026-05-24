@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel
 
 from crypto_alpha_agent.config import LLMSettings
 from crypto_alpha_agent.llm.runtime import (
@@ -32,8 +33,29 @@ class CapturingLLM:
 
 
 def test_parse_structured_llm_json_rejects_non_json() -> None:
-    with pytest.raises(LLMRuntimeError, match="invalid_json"):
+    with pytest.raises(LLMRuntimeError, match="invalid_json") as exc_info:
         parse_structured_llm_json("not json", LLMHealthCheckResult)
+
+    assert exc_info.value.__cause__ is None
+
+
+def test_parse_structured_llm_json_rejects_markdown_fence() -> None:
+    raw_response = (
+        '```json\n{"status":"ok","schema_name":"LLMHealthCheckResult",'
+        '"capabilities":["json_schema","research_only"],'
+        '"uses_real_capital":false,"live_order_routing":false}\n```'
+    )
+
+    with pytest.raises(LLMRuntimeError, match="invalid_json"):
+        parse_structured_llm_json(raw_response, LLMHealthCheckResult)
+
+
+def test_parse_structured_llm_json_rejects_non_strict_output_model() -> None:
+    class LooseModel(BaseModel):
+        value: int
+
+    with pytest.raises(LLMRuntimeError, match="unsafe_output_schema"):
+        parse_structured_llm_json('{"value":"1","extra":"ignored"}', LooseModel)
 
 
 def test_parse_structured_llm_json_schema_error_does_not_echo_raw_input() -> None:
@@ -81,16 +103,34 @@ def test_real_runtime_health_check_records_real_provider_metadata() -> None:
             }
         )
     )
-    runtime = RealLLMRuntime(llm=llm, provider="real", role="research")
+    runtime = RealLLMRuntime._for_test_double(llm=llm, role="research")
 
     result = runtime.health_check(command="research-loop")
 
     assert result.status == "ok"
     assert llm.calls
     assert runtime.metadata()["llm_provider"] == "real"
-    assert runtime.metadata()["used_fake_llm"] is False
+    assert runtime.metadata()["used_fake_llm"] is True
     assert runtime.metadata()["llm_provider_verified"] is False
     assert runtime.metadata()["llm_model"] == "test-real-model"
+
+
+def test_real_runtime_health_check_rejects_missing_capabilities() -> None:
+    llm = CapturingLLM(
+        json.dumps(
+            {
+                "status": "ok",
+                "schema_name": "LLMHealthCheckResult",
+                "capabilities": ["json_schema", "tool_use"],
+                "uses_real_capital": False,
+                "live_order_routing": False,
+            }
+        )
+    )
+    runtime = RealLLMRuntime._for_test_double(llm=llm, role="research")
+
+    with pytest.raises(LLMRuntimeError, match="llm_health_missing_capability"):
+        runtime.health_check(command="research-loop")
 
 
 def test_real_runtime_rejects_fake_provider() -> None:
@@ -98,6 +138,13 @@ def test_real_runtime_rejects_fake_provider() -> None:
 
     with pytest.raises(LLMRuntimeError, match="fake_llm_not_allowed"):
         RealLLMRuntime(llm=llm, provider="fake", role="research")
+
+
+def test_real_runtime_rejects_unverified_callable_by_default() -> None:
+    llm = CapturingLLM("{}")
+
+    with pytest.raises(LLMRuntimeError, match="unverified_llm_provider"):
+        RealLLMRuntime(llm=llm, provider="real", role="research")
 
 
 def test_build_required_real_llm_runtime_fails_when_env_missing(tmp_path: Path) -> None:
