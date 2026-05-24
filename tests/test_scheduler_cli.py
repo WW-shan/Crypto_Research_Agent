@@ -117,6 +117,10 @@ def test_schedule_cli_dry_run_emits_json_plan_without_live_routing(capsys, tmp_p
     assert captured["sleeps"] is False
     assert captured["uses_real_capital"] is False
     assert captured["live_order_routing"] is False
+    assert captured["llm_provider"] == "real"
+    assert captured["used_fake_llm"] is False
+    assert captured["llm_judgement"]["schema_name"] == "RuntimeCommandJudgement"
+    assert captured["llm_judgement"]["evidence_refs"] == [f"schedule:{captured['run_id']}"]
     assert [step["name"] for step in captured["planned_commands"]] == [
         "offline-ingest-check",
         "evidence-run",

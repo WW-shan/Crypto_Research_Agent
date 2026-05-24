@@ -99,6 +99,13 @@ class EvidenceRunManifest(BaseModel):
     decision_reason_codes: list[str] = Field(default_factory=list)
     reason_code: str | None = None
     failure: str | None = None
+    llm_interpretation: dict[str, Any] | None = None
+    llm_provider: str | None = None
+    used_fake_llm: bool | None = None
+    llm_role: str | None = None
+    llm_provider_verified: bool | None = None
+    llm_model: str | None = None
+    llm_health_schema: str | None = None
     uses_real_capital: Literal[False] = False
     live_order_routing: Literal[False] = False
 

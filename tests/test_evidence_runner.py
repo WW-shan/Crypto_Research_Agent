@@ -610,6 +610,10 @@ def test_evidence_run_cli_outputs_safe_json_and_writes_report(tmp_path, capsys, 
     assert payload["command"] == "evidence-run"
     assert payload["uses_real_capital"] is False
     assert payload["live_order_routing"] is False
+    assert payload["llm_provider"] == "real"
+    assert payload["used_fake_llm"] is False
+    assert payload["llm_interpretation"]["schema_name"] == "EvidenceRunInterpretation"
+    assert payload["llm_interpretation"]["evidence_refs"][0].startswith("evidence-run:")
     assert payload["memory_records_written"] > 0
     research_report_out = tmp_path / "daily.research.md"
     assert payload["status"] == "success"
@@ -639,6 +643,9 @@ def test_evidence_run_cli_outputs_safe_json_and_writes_report(tmp_path, capsys, 
     assert Path(payload["latest_manifest_out"]).exists()
     manifest = json.loads(Path(payload["manifest_out"]).read_text(encoding="utf-8"))
     assert manifest["status"] == "success"
+    assert manifest["llm_interpretation"]["schema_name"] == "EvidenceRunInterpretation"
+    assert manifest["llm_provider"] == "real"
+    assert manifest["used_fake_llm"] is False
     assert manifest["artifacts"]["daily_report"] == str(report_out)
     assert manifest["artifacts"]["research_report"] == str(research_report_out)
     assert manifest["artifact_status"]["daily_report"]["exists"] is True
@@ -646,6 +653,91 @@ def test_evidence_run_cli_outputs_safe_json_and_writes_report(tmp_path, capsys, 
     assert manifest["artifact_status"]["json_payload"]["exists"] is True
     assert manifest["artifact_status"]["manifest"]["exists"] is True
     assert manifest["artifact_status"]["lock"]["exists"] is False
+
+
+def test_evidence_run_cli_fails_closed_when_llm_interpretation_fails(
+    tmp_path,
+    capsys,
+    monkeypatch,
+):
+    from crypto_alpha_agent.llm.runtime import LLMHealthCheckResult, LLMRuntimeError
+
+    class FailingInterpretationRuntime:
+        def llm(self, _task):
+            return "{}"
+
+        def health_check(self, *, command: str):
+            return LLMHealthCheckResult(
+                status="ok",
+                schema_name="LLMHealthCheckResult",
+                capabilities=["json_schema", "research_only"],
+                uses_real_capital=False,
+                live_order_routing=False,
+            )
+
+        def structured_call(self, _task, _output_model):
+            raise LLMRuntimeError(
+                "schema_validation_failed",
+                "LLM evidence-run interpretation failed schema validation.",
+            )
+
+        def metadata(self) -> dict[str, object]:
+            return {
+                "llm_provider": "real",
+                "used_fake_llm": False,
+                "llm_role": "research",
+                "llm_provider_verified": True,
+                "llm_model": "test-real-model",
+            }
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.build_required_real_llm_runtime",
+        lambda role="research": FailingInterpretationRuntime(),
+    )
+    monkeypatch.setattr(
+        "crypto_alpha_agent.pipeline.evidence_runner.build_ccxt_collector",
+        lambda exchange_id: DeterministicCcxtCollector(),
+    )
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "memory.jsonl"
+    report_out = tmp_path / "daily.md"
+    json_out = tmp_path / "payload.json"
+    manifest_out = tmp_path / "manifest.json"
+
+    exit_code = main(
+        [
+            "evidence-run",
+            "--db",
+            str(db_path),
+            "--memory",
+            str(memory_path),
+            "--report-out",
+            str(report_out),
+            "--json-out",
+            str(json_out),
+            "--manifest-out",
+            str(manifest_out),
+            "--allow-network",
+            "--symbol",
+            "BTC/USDT",
+            "--funding-symbol",
+            "BTC/USDT:USDT",
+            "--timeframe",
+            "1h",
+            "--limit",
+            "200",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 2
+    assert payload["status"] == "failed"
+    assert payload["reason_code"] == "schema_validation_failed"
+    assert "llm_interpretation" not in payload
+    assert not report_out.exists()
+    assert not json_out.exists()
+    assert not manifest_out.exists()
 
 
 def test_evidence_run_cli_lock_contention_writes_failed_marker(tmp_path, capsys):

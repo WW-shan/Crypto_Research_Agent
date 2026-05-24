@@ -959,6 +959,12 @@ def test_cli_paper_sim_loop_outputs_json_and_persists_ledger(tmp_path):
     assert payload["mode"] == "paper_simulation_only"
     assert payload["uses_real_capital"] is False
     assert payload["live_order_routing"] is False
+    assert payload["llm_provider"] == "real"
+    assert payload["used_fake_llm"] is False
+    assert payload["llm_judgement"]["schema_name"] == "RuntimeCommandJudgement"
+    assert payload["llm_judgement"]["evidence_refs"] == [
+        "paper-sim-loop:funding_extremity_price_confirmation"
+    ]
     assert payload["report"]["run_id"] == "cli-paper"
     assert payload["report"]["outcome_count"] == 3
     assert payload["report"]["notional_usd"] == 25.0

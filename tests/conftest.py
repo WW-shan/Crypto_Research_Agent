@@ -144,6 +144,23 @@ class _RequiredLLMTestLLM:
                         "live_order_routing": False,
                     }
                 )
+            if schema_name == "EvidenceRunInterpretation":
+                return json.dumps(
+                    {
+                        "schema_name": "EvidenceRunInterpretation",
+                        "decision": "add_data",
+                        "rationale": "Evidence-run output was interpreted by the structured test runtime.",
+                        "evidence_refs": evidence_refs,
+                        "blocked_reason_review": [],
+                        "next_experiment": {
+                            "strategy_family": "funding_extremity_price_confirmation",
+                            "experiment_type": "collect_more_walk_forward_data",
+                        },
+                        "next_actions": ["Continue with bounded paper validation."],
+                        "uses_real_capital": False,
+                        "live_order_routing": False,
+                    }
+                )
             return json.dumps(
                 {
                     "schema_name": schema_name,

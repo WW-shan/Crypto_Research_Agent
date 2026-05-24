@@ -1461,7 +1461,7 @@ git commit -m "feat: require llm review judgements"
   `paper`, `report`, `replay`, `paper-sim-loop`, and
   `expansion-prep-report`.
 
-- [ ] **Step 1: Add evidence-run LLM interpretation**
+- [x] **Step 1: Add evidence-run LLM interpretation**
 
 In `_handle_evidence_run`, after the `report` value is returned by
 `run_daily_evidence_pipeline` and before writing daily/weekly reports:
@@ -1490,7 +1490,7 @@ interpretation.validate_refs(set(evidence_refs))
 
 Add `llm_interpretation` and runtime metadata to the payload and manifest.
 
-- [ ] **Step 2: Treat evidence-run LLM failure as command failure**
+- [x] **Step 2: Treat evidence-run LLM failure as command failure**
 
 Wrap the interpretation call in the existing `try` block. If it raises
 `LLMRuntimeError`, call `_finalize_evidence_run_failure` with:
@@ -1504,7 +1504,7 @@ write_artifacts=False
 This preserves the confirmed preflight no-side-effect rule and avoids success
 artifacts for failed interpretation.
 
-- [ ] **Step 3: Add LLM judgement to schedule**
+- [x] **Step 3: Add LLM judgement to schedule**
 
 In `_handle_schedule`, after `plan` is returned by `build_daily_schedule_plan`,
 call `run_runtime_command_judgement` with:
@@ -1517,7 +1517,7 @@ objective="Review the planned evidence-run schedule before operator use."
 
 Add `llm_judgement` and runtime metadata to the returned plan payload.
 
-- [ ] **Step 4: Convert legacy smoke commands**
+- [x] **Step 4: Convert legacy smoke commands**
 
 For `_handle_scan`, `_handle_research`, `_handle_backtest`, `_handle_paper`,
 `_handle_report`, `_handle_replay`, and `_handle_paper_sim_loop`, add a runtime
@@ -1539,7 +1539,7 @@ payload.update(runtime.metadata())
 Use command-specific refs such as `runtime:report`, `runtime:replay`, and
 `paper-sim-loop:<strategy_family>`.
 
-- [ ] **Step 5: Update tests for remaining product commands**
+- [x] **Step 5: Update tests for remaining product commands**
 
 For each affected CLI test, monkeypatch `build_required_real_llm_runtime` to
 return a `RealLLMRuntime` with a `RuntimeCommandJudgement` response unless the
@@ -1553,7 +1553,7 @@ assert payload["used_fake_llm"] is False
 assert payload["llm_judgement"] or payload["llm_interpretation"]
 ```
 
-- [ ] **Step 6: Run broad CLI tests**
+- [x] **Step 6: Run broad CLI tests**
 
 Run:
 
@@ -1563,7 +1563,7 @@ uv run --extra dev pytest tests/test_evidence_runner.py tests/test_scheduler_cli
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit remaining command conversion**
+- [x] **Step 7: Commit remaining command conversion**
 
 ```bash
 git add src/crypto_alpha_agent/cli.py src/crypto_alpha_agent/pipeline/evidence_runner.py tests

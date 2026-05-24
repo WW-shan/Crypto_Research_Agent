@@ -44,6 +44,7 @@ from crypto_alpha_agent.pipeline.ai_research_memo import build_ai_research_memo
 from crypto_alpha_agent.pipeline.evidence_runner import run_daily_evidence_pipeline
 from crypto_alpha_agent.pipeline.llm_judgements import (
     BootstrapInterpretation,
+    EvidenceRunInterpretation,
     LLMJudgementTask,
     RolloutReadinessNarrative,
     run_data_readiness_judgement,
@@ -175,7 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report_parser.add_argument("--events", required=True, type=_existing_event_path, help="Path to persisted event JSONL.")
     report_parser.add_argument("--date", required=True, type=_utc_date, help="UTC report date in YYYY-MM-DD format.")
-    report_parser.set_defaults(handler=_handle_report)
+    report_parser.set_defaults(handler=_handle_report, parser=report_parser)
 
     replay_parser = subparsers.add_parser(
         "replay",
@@ -183,7 +184,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     replay_parser.add_argument("--events", required=True, type=_existing_event_path, help="Path to persisted event JSONL.")
     replay_parser.add_argument("--date", type=_utc_date, help="Optional UTC report date in YYYY-MM-DD format.")
-    replay_parser.set_defaults(handler=_handle_replay)
+    replay_parser.set_defaults(handler=_handle_replay, parser=replay_parser)
 
     research_loop_parser = subparsers.add_parser(
         "research-loop",
@@ -1029,7 +1030,7 @@ def _add_dry_run_command(
         required=True,
         help="Required safety flag; performs only deterministic local work.",
     )
-    command_parser.set_defaults(handler=handler)
+    command_parser.set_defaults(handler=handler, parser=command_parser)
 
 
 def _base_payload(command: str) -> dict[str, Any]:
@@ -1081,6 +1082,34 @@ def _llm_provider_runtime_error(exc: LLMProviderError) -> LLMRuntimeError:
     )
 
 
+def _apply_runtime_command_judgement(
+    args: argparse.Namespace,
+    payload: dict[str, Any],
+    *,
+    command: str,
+    evidence_refs: list[str],
+    objective: str,
+) -> dict[str, Any]:
+    runtime: RealLLMRuntime = args.llm_runtime
+    try:
+        judgement = run_runtime_command_judgement(
+            runtime,
+            command=command,
+            facts=payload,
+            evidence_refs=evidence_refs,
+            objective=objective,
+        )
+    except LLMProviderError as exc:
+        args.parser.error(str(_llm_provider_runtime_error(exc)))
+        raise AssertionError("argparse parser.error should exit") from exc
+    except (LLMRuntimeError, ValueError) as exc:
+        args.parser.error(str(exc))
+        raise AssertionError("argparse parser.error should exit") from exc
+    payload["llm_judgement"] = judgement.model_dump(mode="json")
+    payload.update(runtime.metadata())
+    return payload
+
+
 def _handle_llm_health_check(_args: argparse.Namespace) -> dict[str, Any]:
     try:
         runtime = build_required_real_llm_runtime(role="research")
@@ -1103,17 +1132,24 @@ def _handle_llm_health_check(_args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-def _handle_scan(_args: argparse.Namespace) -> dict[str, Any]:
-    return {
+def _handle_scan(args: argparse.Namespace) -> dict[str, Any]:
+    payload = {
         **_base_payload("scan"),
         "signals_scanned": 0,
         "opportunities": [],
         "notes": ["llm-gated dry run only", "no market data provider calls"],
     }
+    return _apply_runtime_command_judgement(
+        args,
+        payload,
+        command="scan",
+        evidence_refs=["runtime:scan"],
+        objective="Review this command output under the LLM-native runtime policy.",
+    )
 
 
-def _handle_research(_args: argparse.Namespace) -> dict[str, Any]:
-    return {
+def _handle_research(args: argparse.Namespace) -> dict[str, Any]:
+    payload = {
         **_base_payload("research"),
         "hypotheses_generated": 0,
         "required_evidence": [
@@ -1122,10 +1158,17 @@ def _handle_research(_args: argparse.Namespace) -> dict[str, Any]:
             "risk approval before any paper action",
         ],
     }
+    return _apply_runtime_command_judgement(
+        args,
+        payload,
+        command="research",
+        evidence_refs=["runtime:research"],
+        objective="Review this command output under the LLM-native runtime policy.",
+    )
 
 
-def _handle_backtest(_args: argparse.Namespace) -> dict[str, Any]:
-    return {
+def _handle_backtest(args: argparse.Namespace) -> dict[str, Any]:
+    payload = {
         **_base_payload("backtest"),
         "result": {
             "net_return": 0.0,
@@ -1137,15 +1180,29 @@ def _handle_backtest(_args: argparse.Namespace) -> dict[str, Any]:
         },
         "artifact_refs": [],
     }
+    return _apply_runtime_command_judgement(
+        args,
+        payload,
+        command="backtest",
+        evidence_refs=["runtime:backtest"],
+        objective="Review this command output under the LLM-native runtime policy.",
+    )
 
 
-def _handle_paper(_args: argparse.Namespace) -> dict[str, Any]:
-    return {
+def _handle_paper(args: argparse.Namespace) -> dict[str, Any]:
+    payload = {
         **_base_payload("paper"),
         "orders_submitted": 0,
         "touched_real_capital": False,
         "constraints": ["paper account only", "no wallet access", "no exchange order routing"],
     }
+    return _apply_runtime_command_judgement(
+        args,
+        payload,
+        command="paper",
+        evidence_refs=["runtime:paper"],
+        objective="Review this command output under the LLM-native runtime policy.",
+    )
 
 
 def _handle_report(args: argparse.Namespace) -> dict[str, Any]:
@@ -1155,13 +1212,20 @@ def _handle_report(args: argparse.Namespace) -> dict[str, Any]:
         args.date,
         skipped_event_lines=loaded.skipped_count,
     )
-    return {
+    payload = {
         "command": "report",
         "event_path": str(args.events),
         "loaded_events": len(loaded.events),
         "skipped_event_lines": loaded.skipped_count,
         "report": report.model_dump(mode="json"),
     }
+    return _apply_runtime_command_judgement(
+        args,
+        payload,
+        command="report",
+        evidence_refs=["runtime:report"],
+        objective="Review this report output under the LLM-native runtime policy.",
+    )
 
 
 def _handle_replay(args: argparse.Namespace) -> dict[str, Any]:
@@ -1180,7 +1244,13 @@ def _handle_replay(args: argparse.Namespace) -> dict[str, Any]:
             skipped_event_lines=loaded.skipped_count,
         )
         payload["report"] = report.model_dump(mode="json")
-    return payload
+    return _apply_runtime_command_judgement(
+        args,
+        payload,
+        command="replay",
+        evidence_refs=["runtime:replay"],
+        objective="Review this replay output under the LLM-native runtime policy.",
+    )
 
 
 def _handle_research_loop(args: argparse.Namespace) -> dict[str, Any]:
@@ -1522,6 +1592,14 @@ def _handle_paper_sim_loop(args: argparse.Namespace) -> dict[str, Any]:
     }
     if args.report_out is not None:
         payload["report_artifact"] = str(args.report_out)
+    payload = _apply_runtime_command_judgement(
+        args,
+        payload,
+        command="paper-sim-loop",
+        evidence_refs=[f"paper-sim-loop:{args.strategy_family}"],
+        objective="Review this paper simulation output under the LLM-native runtime policy.",
+    )
+    if args.report_out is not None:
         args.report_out.parent.mkdir(parents=True, exist_ok=True)
         args.report_out.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
     return payload
@@ -1927,6 +2005,85 @@ def _handle_evidence_run(args: argparse.Namespace) -> dict[str, Any]:
                 allow_stopped_family=args.allow_stopped_family,
             )
 
+            evidence_refs = [
+                f"evidence-run:{run_id}",
+                *[f"step:{step.name}" for step in report.steps],
+            ]
+            try:
+                interpretation = runtime.structured_call(
+                    LLMJudgementTask(
+                        command="evidence-run",
+                        schema_name="EvidenceRunInterpretation",
+                        objective=(
+                            "Interpret evidence-run results and propose the next bounded experiment."
+                        ),
+                        facts=report.model_dump(mode="json"),
+                        evidence_refs=evidence_refs,
+                        constraints=[
+                            "Use only supplied evidence_refs.",
+                            "uses_real_capital must be false.",
+                            "live_order_routing must be false.",
+                        ],
+                    ),
+                    EvidenceRunInterpretation,
+                )
+                interpretation.validate_refs(set(evidence_refs))
+            except LLMProviderError as exc:
+                return _finalize_evidence_run_failure(
+                    args=args,
+                    run_id=run_id,
+                    strategy_families=strategy_families,
+                    paths=paths,
+                    started_at=started_at,
+                    reason_code="llm_provider_unavailable",
+                    failure=redacted_failure(
+                        str(exc),
+                        secrets=_evidence_run_secret_values(args),
+                    ),
+                    report=report,
+                    lock_exists=False,
+                    write_artifacts=False,
+                )
+            except LLMRuntimeError as exc:
+                return _finalize_evidence_run_failure(
+                    args=args,
+                    run_id=run_id,
+                    strategy_families=strategy_families,
+                    paths=paths,
+                    started_at=started_at,
+                    reason_code=exc.reason_code,
+                    failure=redacted_failure(
+                        str(exc),
+                        secrets=_evidence_run_secret_values(args),
+                    ),
+                    report=report,
+                    lock_exists=False,
+                    write_artifacts=False,
+                )
+            except ValueError as exc:
+                return _finalize_evidence_run_failure(
+                    args=args,
+                    run_id=run_id,
+                    strategy_families=strategy_families,
+                    paths=paths,
+                    started_at=started_at,
+                    reason_code="llm_interpretation_invalid",
+                    failure=redacted_failure(
+                        str(exc),
+                        secrets=_evidence_run_secret_values(args),
+                    ),
+                    report=report,
+                    lock_exists=False,
+                    write_artifacts=False,
+                )
+
+            report = report.model_copy(
+                update={
+                    "llm_interpretation": interpretation.model_dump(mode="json"),
+                    **runtime.metadata(),
+                }
+            )
+
             daily_evidence_report = build_daily_evidence_report(
                 db_path=args.db,
                 memory_path=args.memory,
@@ -2208,6 +2365,18 @@ def _build_evidence_run_manifest(
     lock_exists: bool,
 ) -> EvidenceRunManifest:
     report_payload = report.model_dump(mode="json") if report is not None else {}
+    llm_metadata = {
+        key: report_payload[key]
+        for key in (
+            "llm_provider",
+            "used_fake_llm",
+            "llm_role",
+            "llm_provider_verified",
+            "llm_model",
+            "llm_health_schema",
+        )
+        if report_payload.get(key) is not None
+    }
     artifacts = _evidence_run_artifacts(args, paths)
     run_started_at = report_payload.get("started_at", started_at.isoformat())
     return EvidenceRunManifest(
@@ -2227,6 +2396,8 @@ def _build_evidence_run_manifest(
         decision_reason_codes=report_payload.get("decision_reason_codes", []),
         reason_code=reason_code,
         failure=failure,
+        llm_interpretation=report_payload.get("llm_interpretation"),
+        **llm_metadata,
     )
 
 
@@ -2315,6 +2486,21 @@ def _build_evidence_run_payload(
     }
     if args.weekly_report_out is not None:
         payload["weekly_report_out"] = str(args.weekly_report_out)
+    if report_payload is not None:
+        llm_interpretation = report_payload.get("llm_interpretation")
+        if llm_interpretation is not None:
+            payload["llm_interpretation"] = llm_interpretation
+        for key in (
+            "llm_provider",
+            "used_fake_llm",
+            "llm_role",
+            "llm_provider_verified",
+            "llm_model",
+            "llm_health_schema",
+        ):
+            value = report_payload.get(key)
+            if value is not None:
+                payload[key] = value
     return payload
 
 
@@ -2666,6 +2852,7 @@ def _duplicate_key_value_keys(pairs: list[tuple[str, str]]) -> list[str]:
 
 
 def _handle_schedule(args: argparse.Namespace) -> dict[str, Any]:
+    runtime: RealLLMRuntime = args.llm_runtime
     try:
         plan = build_daily_schedule_plan(
             db_path=args.db,
@@ -2698,7 +2885,42 @@ def _handle_schedule(args: argparse.Namespace) -> dict[str, Any]:
         )
     except ValueError as exc:
         args.parser.error(str(exc))
-    return plan.model_dump(mode="json")
+    payload = plan.model_dump(mode="json")
+    schedule_ref = _schedule_plan_reference(payload)
+    payload["run_id"] = schedule_ref
+    try:
+        judgement = run_runtime_command_judgement(
+            runtime,
+            command="schedule",
+            facts=payload,
+            evidence_refs=[f"schedule:{schedule_ref}"],
+            objective="Review the planned evidence-run schedule before operator use.",
+        )
+    except LLMProviderError as exc:
+        args.parser.error(str(_llm_provider_runtime_error(exc)))
+        raise AssertionError("argparse parser.error should exit") from exc
+    except (LLMRuntimeError, ValueError) as exc:
+        args.parser.error(str(exc))
+        raise AssertionError("argparse parser.error should exit") from exc
+    payload["llm_judgement"] = judgement.model_dump(mode="json")
+    payload.update(runtime.metadata())
+    return payload
+
+
+def _schedule_plan_reference(payload: dict[str, Any]) -> str:
+    for command in payload.get("planned_commands", []):
+        if not isinstance(command, dict) or command.get("name") != "evidence-run":
+            continue
+        argv = command.get("argv", [])
+        if isinstance(argv, list) and "--run-id" in argv:
+            index = argv.index("--run-id")
+            if index + 1 < len(argv):
+                value = argv[index + 1]
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:12]
+    return f"schedule-plan-{digest}"
 
 
 if __name__ == "__main__":

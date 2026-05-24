@@ -6,6 +6,7 @@ import sys
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 
@@ -23,6 +24,26 @@ class _SmokeRuntime:
             "llm_role": self.role,
             "llm_model": "test-real-model",
         }
+
+    def structured_call(self, task: Any, output_model: type[Any]) -> Any:
+        from crypto_alpha_agent.llm.runtime import parse_structured_llm_json
+
+        evidence_refs = list(getattr(task, "evidence_refs", []) or ["runtime:test"])
+        schema_name = str(getattr(task, "schema_name", "RuntimeCommandJudgement"))
+        return parse_structured_llm_json(
+            json.dumps(
+                {
+                    "schema_name": schema_name,
+                    "decision": "add_data",
+                    "rationale": "Smoke command facts were reviewed by the test LLM runtime.",
+                    "evidence_refs": evidence_refs,
+                    "next_actions": ["Continue with research-only validation."],
+                    "uses_real_capital": False,
+                    "live_order_routing": False,
+                }
+            ),
+            output_model,
+        )
 
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
@@ -126,6 +147,10 @@ def test_cli_dry_run_commands_emit_machine_readable_json():
         assert payload["live_api_call_types"] == ["llm_health_check"]
         assert payload["live_market_api_calls"] is False
         assert payload["uses_real_capital"] is False
+        assert payload["llm_provider"] == "real"
+        assert payload["used_fake_llm"] is False
+        assert payload["llm_judgement"]["schema_name"] == "RuntimeCommandJudgement"
+        assert payload["llm_judgement"]["evidence_refs"] == [f"runtime:{command}"]
 
 
 def test_cli_report_generates_daily_report_from_event_jsonl(tmp_path):
@@ -143,6 +168,10 @@ def test_cli_report_generates_daily_report_from_event_jsonl(tmp_path):
     assert report["approvals"] == 1
     assert report["blocks"] == 1
     assert report["skipped_event_lines"] == 1
+    assert payload["llm_provider"] == "real"
+    assert payload["used_fake_llm"] is False
+    assert payload["llm_judgement"]["schema_name"] == "RuntimeCommandJudgement"
+    assert payload["llm_judgement"]["evidence_refs"] == ["runtime:report"]
 
 
 def test_cli_replay_counts_events_and_can_regenerate_report(tmp_path):
@@ -156,6 +185,10 @@ def test_cli_replay_counts_events_and_can_regenerate_report(tmp_path):
     assert counts["loaded_events"] == 3
     assert counts["skipped_event_lines"] == 1
     assert counts["event_type_counts"] == {"opportunity_scored": 1, "risk_guard": 2}
+    assert counts["llm_provider"] == "real"
+    assert counts["used_fake_llm"] is False
+    assert counts["llm_judgement"]["schema_name"] == "RuntimeCommandJudgement"
+    assert counts["llm_judgement"]["evidence_refs"] == ["runtime:replay"]
 
     replayed = _json_from_cli("replay", "--events", str(event_path), "--date", "2026-05-16")
 
