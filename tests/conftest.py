@@ -86,6 +86,49 @@ class _RequiredLLMTestLLM:
                     "live_order_routing": False,
                 }
             )
+        if task_type == "LLMJudgementTask":
+            evidence_refs = list(getattr(task, "evidence_refs", []) or ["runtime:test"])
+            schema_name = str(getattr(task, "schema_name", "RuntimeCommandJudgement"))
+            if schema_name == "SourceResearchJudgement":
+                return json.dumps(
+                    {
+                        "schema_name": "SourceResearchJudgement",
+                        "decision": "add_data",
+                        "rationale": "Source health needs another research-only check before promotion.",
+                        "evidence_refs": evidence_refs,
+                        "next_actions": ["Run another source probe with nonzero typed rows."],
+                        "uses_real_capital": False,
+                        "live_order_routing": False,
+                    }
+                )
+            if schema_name == "DataReadinessJudgement":
+                facts = getattr(task, "facts", {}) or {}
+                summary = facts.get("ingestion_summary", {}) if isinstance(facts, dict) else {}
+                mode = summary.get("mode") if isinstance(summary, dict) else None
+                missing_fields = [] if mode == "network_declared" else ["market_candle", "funding_rate"]
+                return json.dumps(
+                    {
+                        "schema_name": "DataReadinessJudgement",
+                        "decision": "research_ready" if not missing_fields else "add_data",
+                        "rationale": "Ingestion facts were reviewed by the structured test runtime.",
+                        "evidence_refs": evidence_refs,
+                        "missing_fields": missing_fields,
+                        "next_actions": ["Continue with research-only validation."],
+                        "uses_real_capital": False,
+                        "live_order_routing": False,
+                    }
+                )
+            return json.dumps(
+                {
+                    "schema_name": schema_name,
+                    "decision": "add_data",
+                    "rationale": "Command facts were reviewed by the structured test runtime.",
+                    "evidence_refs": evidence_refs,
+                    "next_actions": ["Continue with research-only validation."],
+                    "uses_real_capital": False,
+                    "live_order_routing": False,
+                }
+            )
         return "{}"
 
 
@@ -106,6 +149,11 @@ class _RequiredLLMTestRuntime:
             uses_real_capital=False,
             live_order_routing=False,
         )
+
+    def structured_call(self, task: Any, output_model: type[Any]) -> Any:
+        from crypto_alpha_agent.llm.runtime import parse_structured_llm_json
+
+        return parse_structured_llm_json(self.llm(task), output_model)
 
     def metadata(self) -> dict[str, Any]:
         return {

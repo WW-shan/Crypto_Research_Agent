@@ -242,6 +242,8 @@ def test_source_probe_cli_lists_targets(capsys):
     payload = json.loads(capsys.readouterr().out)
     assert exit_code == 0
     assert payload["command"] == "source-probe"
+    assert payload["llm_provider"] == "real"
+    assert payload["llm_judgement"]["schema_name"] == "SourceResearchJudgement"
     assert "binance_usdm_open_interest_history" in [
         target["target_id"] for target in payload["targets"]
     ]
@@ -271,6 +273,7 @@ def test_source_probe_cli_passes_proxy_environment(monkeypatch, capsys, tmp_path
 
     class DummyResult:
         exit_code = 0
+        target_id = "dexscreener_pairs"
 
         def model_dump(self, **_: object):
             return {"network_route": "proxy"}

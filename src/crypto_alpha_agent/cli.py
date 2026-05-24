@@ -42,6 +42,10 @@ from crypto_alpha_agent.observability.reports import generate_daily_report
 from crypto_alpha_agent.orchestrator import build_llm_research_graph
 from crypto_alpha_agent.pipeline.ai_research_memo import build_ai_research_memo
 from crypto_alpha_agent.pipeline.evidence_runner import run_daily_evidence_pipeline
+from crypto_alpha_agent.pipeline.llm_judgements import (
+    run_data_readiness_judgement,
+    run_source_research_judgement,
+)
 from crypto_alpha_agent.pipeline.evidence_run_ops import (
     EvidenceRunArtifact,
     EvidenceRunLock,
@@ -1250,7 +1254,7 @@ def _handle_research_loop(args: argparse.Namespace) -> dict[str, Any]:
                 "suggest_paper_action": False,
             }
         )
-    except LLMProviderError as exc:
+    except (LLMProviderError, LLMRuntimeError, ValueError) as exc:
         args.parser.error(str(exc))
         raise AssertionError("argparse parser.error should exit") from exc
     payload["llm_research_result"] = llm_state["llm_research_result"]
@@ -1348,6 +1352,7 @@ def _requires_funding_validation_parameters(required_record_types: tuple[str, ..
 
 
 def _handle_ingest(args: argparse.Namespace) -> dict[str, Any]:
+    runtime: RealLLMRuntime = args.llm_runtime
     ingestion = None
     if args.offline_check and args.source:
         args.parser.error("--offline-check cannot be combined with --source")
@@ -1392,20 +1397,43 @@ def _handle_ingest(args: argparse.Namespace) -> dict[str, Any]:
     }
     if ingestion is not None:
         payload["ingestion"] = ingestion.model_dump(mode="json")
+    try:
+        judgement = run_data_readiness_judgement(
+            runtime,
+            command="ingest",
+            ingestion_summary=payload,
+            evidence_refs=[f"ingest:{mode}"],
+        )
+    except (LLMProviderError, LLMRuntimeError, ValueError) as exc:
+        args.parser.error(str(exc))
+        raise AssertionError("argparse parser.error should exit") from exc
+    payload["llm_judgement"] = judgement.model_dump(mode="json")
+    payload.update(runtime.metadata())
     return payload
 
 
 def _handle_source_probe(args: argparse.Namespace) -> dict[str, Any]:
+    runtime: RealLLMRuntime = args.llm_runtime
     if args.list_targets:
+        targets = [target.model_dump(mode="json") for target in available_probe_targets()]
+        try:
+            judgement = run_source_research_judgement(
+                runtime,
+                command="source-probe",
+                source_health={"targets": targets},
+                evidence_refs=["source-health:list-targets"],
+            )
+        except (LLMProviderError, LLMRuntimeError, ValueError) as exc:
+            args.parser.error(str(exc))
+            raise AssertionError("argparse parser.error should exit") from exc
         return {
             "command": "source-probe",
-            "targets": [
-                target.model_dump(mode="json")
-                for target in available_probe_targets()
-            ],
+            "targets": targets,
+            "llm_judgement": judgement.model_dump(mode="json"),
             "uses_real_capital": False,
             "live_order_routing": False,
             "exit_code": 0,
+            **runtime.metadata(),
         }
     if args.db is None or args.target is None:
         args.parser.error("--db and --target are required unless --list-targets is provided")
@@ -1418,12 +1446,24 @@ def _handle_source_probe(args: argparse.Namespace) -> dict[str, Any]:
         env=dict(os.environ),
         credential_configured=args.credential_configured,
     )
+    try:
+        judgement = run_source_research_judgement(
+            runtime,
+            command="source-probe",
+            source_health=result.model_dump(mode="json"),
+            evidence_refs=[f"source-health:{result.target_id}"],
+        )
+    except (LLMProviderError, LLMRuntimeError, ValueError) as exc:
+        args.parser.error(str(exc))
+        raise AssertionError("argparse parser.error should exit") from exc
     return {
         "command": "source-probe",
         "result": result.model_dump(mode="json"),
+        "llm_judgement": judgement.model_dump(mode="json"),
         "uses_real_capital": False,
         "live_order_routing": False,
         "exit_code": result.exit_code,
+        **runtime.metadata(),
     }
 
 
