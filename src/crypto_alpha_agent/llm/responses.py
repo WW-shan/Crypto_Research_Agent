@@ -252,6 +252,8 @@ def _text_format_for_task(task: Any) -> dict[str, Any] | None:
                 ],
             },
         )
+    if task_type == "LLMJudgementTask":
+        return _judgement_text_format_for_task(task)
     return None
 
 
@@ -399,6 +401,135 @@ def _dedupe_strings(values: list[str]) -> list[str]:
     return deduped
 
 
+def _judgement_text_format_for_task(task: Any) -> dict[str, Any]:
+    schema_name = str(getattr(task, "schema_name", "")).strip()
+    return _json_schema_text_format(
+        schema_name or "RuntimeCommandJudgement",
+        _judgement_schema_for_name(schema_name),
+    )
+
+
+def _judgement_schema_for_name(schema_name: str) -> dict[str, Any]:
+    base = _judgement_base_schema(schema_name)
+    if schema_name == "SourceResearchJudgement":
+        return base
+    if schema_name == "DataReadinessJudgement":
+        schema = _clone_schema(base)
+        schema["properties"]["missing_fields"] = _string_list_schema(max_items=24)
+        schema["required"] = [*schema["required"], "missing_fields"]
+        return schema
+    if schema_name == "LLMHypothesisSet":
+        schema = _clone_schema(base)
+        schema["properties"]["hypotheses"] = {
+            "type": "array",
+            "maxItems": 8,
+            "items": {"type": "object", "additionalProperties": True},
+        }
+        schema["properties"]["critique"] = _string_list_schema(max_items=12)
+        schema["required"] = [*schema["required"], "hypotheses", "critique"]
+        return schema
+    if schema_name == "EvidenceRunInterpretation":
+        schema = _clone_schema(base)
+        schema["properties"]["blocked_reason_review"] = _string_list_schema(max_items=16)
+        schema["properties"]["next_experiment"] = {
+            "type": "object",
+            "additionalProperties": True,
+        }
+        schema["required"] = [
+            *schema["required"],
+            "blocked_reason_review",
+            "next_experiment",
+        ]
+        return schema
+    if schema_name == "GovernanceReview":
+        schema = _clone_schema(base)
+        schema["properties"]["family_actions"] = {
+            "type": "object",
+            "additionalProperties": {
+                "type": "string",
+                "enum": [
+                    "research_ready",
+                    "keep_collecting",
+                    "add_data",
+                    "redesign_validator",
+                    "stop",
+                    "owner_decision_review",
+                    "blocked",
+                ],
+            },
+        }
+        schema["required"] = [*schema["required"], "family_actions"]
+        return schema
+    if schema_name == "BootstrapInterpretation":
+        schema = _clone_schema(base)
+        schema["properties"]["historical_is_profit_proof"] = {
+            "type": "boolean",
+            "enum": [False],
+        }
+        schema["required"] = [
+            *schema["required"],
+            "historical_is_profit_proof",
+        ]
+        return schema
+    if schema_name == "RolloutReadinessNarrative":
+        schema = _clone_schema(base)
+        schema["properties"]["live_execution_enabled"] = {
+            "type": "boolean",
+            "enum": [False],
+        }
+        schema["required"] = [*schema["required"], "live_execution_enabled"]
+        return schema
+    return base
+
+
+def _judgement_base_schema(schema_name: str) -> dict[str, Any]:
+    schema_name_property: dict[str, Any] = {"type": "string"}
+    if schema_name:
+        schema_name_property["enum"] = [schema_name]
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "schema_name": schema_name_property,
+            "decision": {
+                "type": "string",
+                "enum": [
+                    "research_ready",
+                    "keep_collecting",
+                    "add_data",
+                    "redesign_validator",
+                    "stop",
+                    "owner_decision_review",
+                    "blocked",
+                ],
+            },
+            "rationale": {"type": "string"},
+            "evidence_refs": _string_list_schema(max_items=32),
+            "next_actions": _string_list_schema(max_items=12),
+            "uses_real_capital": {"type": "boolean", "enum": [False]},
+            "live_order_routing": {"type": "boolean", "enum": [False]},
+        },
+        "required": [
+            "schema_name",
+            "decision",
+            "rationale",
+            "evidence_refs",
+            "next_actions",
+            "uses_real_capital",
+            "live_order_routing",
+        ],
+    }
+
+
+def _clone_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": schema["type"],
+        "additionalProperties": schema["additionalProperties"],
+        "properties": dict(schema["properties"]),
+        "required": list(schema["required"]),
+    }
+
+
 def _schema_hint_for_task(task: Any) -> str:
     task_type = type(task).__name__
     if task_type == "ResearchTask":
@@ -457,5 +588,16 @@ def _schema_hint_for_task(task: Any) -> str:
             "capabilities including json_schema and research_only, "
             "uses_real_capital=false, and live_order_routing=false. Do not include "
             "extra fields."
+        )
+    if task_type == "LLMJudgementTask":
+        return (
+            "Schema instructions: return exactly one JSON object matching schema_name "
+            "from the task. Include schema_name, decision, rationale, evidence_refs "
+            "using only refs from the task, next_actions, uses_real_capital=false, "
+            "and live_order_routing=false. For DataReadinessJudgement include "
+            "missing_fields. For BootstrapInterpretation include "
+            "historical_is_profit_proof=false. For RolloutReadinessNarrative "
+            "include live_execution_enabled=false. Do not include extra fields or "
+            "unsupported evidence refs."
         )
     return "Schema instructions: return only a valid JSON object for the caller."

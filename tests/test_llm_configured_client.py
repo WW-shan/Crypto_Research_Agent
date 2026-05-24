@@ -15,6 +15,7 @@ from crypto_alpha_agent.pipeline.experiment_planner import (
     ExperimentPlannerMemoryContext,
     ExperimentPlannerTask,
 )
+from crypto_alpha_agent.pipeline.llm_judgements import LLMJudgementTask
 from crypto_alpha_agent.config import LLMSettings, build_configured_llm_settings
 from crypto_alpha_agent.llm import (
     LLMHealthCheckTask,
@@ -420,6 +421,30 @@ def test_responses_adapter_uses_json_schema_format_for_planner_task() -> None:
         "live_order_routing",
     }
     assert parameter_schema["additionalProperties"] is False
+
+
+def test_responses_adapter_uses_json_schema_format_for_judgement_task() -> None:
+    session = _FakeSession(_FakeResponse(payload={"output_text": "{}"}))
+    adapter = OpenAIResponsesAdapter(_settings(), session=session)
+    task = LLMJudgementTask(
+        command="source-probe",
+        schema_name="SourceResearchJudgement",
+        objective="Judge whether source is useful.",
+        facts={"source_health": {"target_id": "binance_usdm_open_interest_history"}},
+        evidence_refs=["source-health:binance_usdm_open_interest_history"],
+    )
+
+    adapter(task)
+
+    request_payload = session.calls[0]["json"]
+    text_format = request_payload["text"]["format"]
+
+    assert text_format["type"] == "json_schema"
+    assert text_format["name"] == "SourceResearchJudgement"
+    assert text_format["strict"] is True
+    assert text_format["schema"]["properties"]["schema_name"]["enum"] == [
+        "SourceResearchJudgement"
+    ]
 
 
 def test_responses_adapter_includes_health_check_schema_hint_for_runtime_task() -> None:

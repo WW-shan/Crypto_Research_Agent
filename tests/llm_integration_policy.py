@@ -85,11 +85,11 @@ def run_real_llm_cli_or_fail(
     *,
     capsys: pytest.CaptureFixture[str],
     settings: LLMSettings,
-    attempts: int = 2,
+    attempts: int = 3,
 ) -> int:
     for attempt in range(1, attempts + 1):
         try:
-            return command()
+            exit_code = command()
         except SystemExit as exc:
             captured = capsys.readouterr()
             assert_no_secret_leaks(
@@ -107,6 +107,25 @@ def run_real_llm_cli_or_fail(
                 "real LLM integration environment failure: "
                 f"CLI exited with status {exc.code}; provider output was redacted"
             )
+        if exit_code == 0:
+            return exit_code
+        captured = capsys.readouterr()
+        assert_no_secret_leaks(
+            text_surfaces={
+                "stdout": captured.out,
+                "stderr": captured.err,
+                "exit_code": str(exit_code),
+            },
+            path_surfaces=[],
+            settings=settings,
+        )
+        retry_surface = "\n".join([captured.out, captured.err, str(exit_code)])
+        if attempt < attempts and _is_retryable_real_llm_failure(retry_surface):
+            continue
+        pytest.fail(
+            "real LLM integration environment failure: "
+            f"CLI returned status {exit_code}; provider output was redacted"
+        )
     raise AssertionError("unreachable real LLM integration retry state")
 
 
@@ -115,7 +134,7 @@ def call_real_llm_or_fail(
     *,
     capsys: pytest.CaptureFixture[str],
     settings: LLMSettings,
-    attempts: int = 2,
+    attempts: int = 3,
 ) -> str:
     for attempt in range(1, attempts + 1):
         try:
