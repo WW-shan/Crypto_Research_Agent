@@ -6,6 +6,19 @@ from crypto_alpha_agent.pipeline.ai_research_memo import build_ai_research_memo
 
 
 def _planning_llm(_task):
+    task_type = type(_task).__name__
+    if task_type == "LLMJudgementTask":
+        return json.dumps(
+            {
+                "schema_name": "RuntimeCommandJudgement",
+                "decision": "add_data",
+                "rationale": "Research memo should be reviewed as a command artifact.",
+                "evidence_refs": list(_task.evidence_refs),
+                "next_actions": ["Continue research-only memo generation."],
+                "uses_real_capital": False,
+                "live_order_routing": False,
+            }
+        )
     return json.dumps(
         {
             "strategy_family": "funding_extremity_price_confirmation",
@@ -66,4 +79,6 @@ def test_ai_research_memo_cli_writes_markdown(capsys, tmp_path) -> None:
     assert payload["command"] == "ai-research-memo"
     assert payload["ai_research_memo_out"] == str(out)
     assert payload["memo"]["uses_real_capital"] is False
+    assert payload["llm_provider"] == "real"
+    assert payload["llm_judgement"]["schema_name"] == "RuntimeCommandJudgement"
     assert out.read_text(encoding="utf-8").startswith("# Weekly AI Research Memo")

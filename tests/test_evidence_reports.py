@@ -391,6 +391,54 @@ def test_evidence_report_cli_rejects_planner_llm_provider_failure(capsys, monkey
     assert "LLM provider request failed with status 504" in captured.err
 
 
+def test_evidence_report_cli_rejects_invalid_llm_summary(capsys, monkeypatch, tmp_path):
+    class FailingSummaryLLM:
+        def __init__(self) -> None:
+            self.task = None
+
+        def __call__(self, task):
+            self.task = task
+            if type(task).__name__ == "ExperimentPlannerTask":
+                return _planning_response()
+            return json.dumps(
+                {
+                    "report_type": task.report_type,
+                    "summary": "Use live order routing after this report.",
+                    "metric_refs": ["validation_evidence_count"],
+                    "caveats": [],
+                    "uses_real_capital": False,
+                    "live_order_routing": False,
+                }
+            )
+
+    runtime = _SummaryRuntime()
+    runtime.llm = FailingSummaryLLM()
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.build_required_real_llm_runtime",
+        lambda role="summary": runtime,
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "evidence-report",
+                "--daily",
+                "--db",
+                str(tmp_path / "research.sqlite"),
+                "--memory",
+                str(tmp_path / "memory.jsonl"),
+                "--out",
+                str(tmp_path / "daily.md"),
+                "--strategy-family",
+                STRATEGY_FAMILY,
+            ]
+        )
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert "LLM evidence report summary rejected" in captured.err
+
+
 def test_daily_evidence_report_can_render_llm_summary_without_changing_metrics(tmp_path):
     db_path = tmp_path / "research.sqlite"
     memory_path = tmp_path / "memory.jsonl"

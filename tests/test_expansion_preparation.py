@@ -290,6 +290,8 @@ def test_expansion_preparation_cli_writes_markdown_without_live_authority(capsys
     assert payload["command"] == "expansion-prep-report"
     assert payload["uses_real_capital"] is False
     assert payload["live_order_routing"] is False
+    assert payload["llm_provider"] == "real"
+    assert payload["llm_judgement"]["schema_name"] == "RuntimeCommandJudgement"
     assert payload["report"]["source_candidates"][0]["source_id"] == "binance_usdm_open_interest"
     assert payload["expansion_prep_report_out"] == str(out)
     assert "Phase 5 Expansion Preparation Report" in markdown

@@ -43,8 +43,12 @@ from crypto_alpha_agent.orchestrator import build_llm_research_graph
 from crypto_alpha_agent.pipeline.ai_research_memo import build_ai_research_memo
 from crypto_alpha_agent.pipeline.evidence_runner import run_daily_evidence_pipeline
 from crypto_alpha_agent.pipeline.llm_judgements import (
+    BootstrapInterpretation,
+    LLMJudgementTask,
+    RolloutReadinessNarrative,
     run_data_readiness_judgement,
     run_source_research_judgement,
+    run_runtime_command_judgement,
 )
 from crypto_alpha_agent.pipeline.evidence_run_ops import (
     EvidenceRunArtifact,
@@ -1524,6 +1528,7 @@ def _handle_paper_sim_loop(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _handle_rollout_review(args: argparse.Namespace) -> dict[str, Any]:
+    runtime: RealLLMRuntime = args.llm_runtime
     review = build_rollout_review_artifact(
         db_path=args.db,
         strategy_family=args.strategy_family,
@@ -1533,6 +1538,26 @@ def _handle_rollout_review(args: argparse.Namespace) -> dict[str, Any]:
         max_daily_loss_usd=args.max_daily_loss_usd,
     )
     payload = review.model_dump(mode="json")
+    try:
+        judgement = runtime.structured_call(
+            LLMJudgementTask(
+                command="rollout-review",
+                schema_name="RolloutReadinessNarrative",
+                objective="Explain rollout readiness without enabling live execution.",
+                facts=payload,
+                evidence_refs=[f"rollout:{args.strategy_family}"],
+                constraints=[
+                    "live_execution_enabled must be false",
+                    "uses_real_capital must be false",
+                    "live_order_routing must be false",
+                ],
+            ),
+            RolloutReadinessNarrative,
+        )
+        judgement.validate_refs({f"rollout:{args.strategy_family}"})
+    except (LLMProviderError, LLMRuntimeError, ValueError) as exc:
+        args.parser.error(str(exc))
+        raise AssertionError("argparse parser.error should exit") from exc
 
     if args.artifact_out is not None:
         payload["readiness_artifact_path"] = str(args.artifact_out)
@@ -1553,6 +1578,8 @@ def _handle_rollout_review(args: argparse.Namespace) -> dict[str, Any]:
             json.dumps(payload["evidence_package"], sort_keys=True) + "\n",
             encoding="utf-8",
         )
+    payload["llm_judgement"] = judgement.model_dump(mode="json")
+    payload.update(runtime.metadata())
     return payload
 
 
@@ -1646,11 +1673,29 @@ def _handle_evidence_report(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _handle_governance_report(args: argparse.Namespace) -> dict[str, Any]:
+    runtime: RealLLMRuntime = args.llm_runtime
     report = build_profit_governance_report(
         db_path=args.db,
         memory_path=args.memory,
         current_capital_usd=args.current_capital_usd,
     )
+    evidence_refs = [
+        f"governance:{row.strategy_family}"
+        for row in report.family_scoreboard
+    ] or ["governance:empty-scoreboard"]
+    try:
+        judgement = run_runtime_command_judgement(
+            runtime,
+            command="governance-report",
+            facts=report.model_dump(mode="json"),
+            evidence_refs=evidence_refs,
+            objective=(
+                "Explain the deterministic governance report without changing its actions."
+            ),
+        )
+    except (LLMProviderError, LLMRuntimeError, ValueError) as exc:
+        args.parser.error(str(exc))
+        raise AssertionError("argparse parser.error should exit") from exc
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(render_profit_governance_report_markdown(report), encoding="utf-8")
     return {
@@ -1659,10 +1704,13 @@ def _handle_governance_report(args: argparse.Namespace) -> dict[str, Any]:
         "report": report.model_dump(mode="json"),
         "uses_real_capital": False,
         "live_order_routing": False,
+        "llm_judgement": judgement.model_dump(mode="json"),
+        **runtime.metadata(),
     }
 
 
 def _handle_historical_bootstrap(args: argparse.Namespace) -> dict[str, Any]:
+    runtime: RealLLMRuntime = args.llm_runtime
     try:
         report = build_historical_bootstrap_report(
             db_path=args.db,
@@ -1687,6 +1735,29 @@ def _handle_historical_bootstrap(args: argparse.Namespace) -> dict[str, Any]:
         args.parser.error(str(exc))
         raise AssertionError("argparse parser.error should exit") from exc
 
+    try:
+        judgement = runtime.structured_call(
+            LLMJudgementTask(
+                command="historical-bootstrap",
+                schema_name="BootstrapInterpretation",
+                objective=(
+                    "Interpret bootstrap evidence while preserving that historical evidence is not profit proof."
+                ),
+                facts=report.model_dump(mode="json"),
+                evidence_refs=[f"bootstrap:{report.manifest.run_id}"],
+                constraints=[
+                    "historical_is_profit_proof must be false",
+                    "uses_real_capital must be false",
+                    "live_order_routing must be false",
+                ],
+            ),
+            BootstrapInterpretation,
+        )
+        judgement.validate_refs({f"bootstrap:{report.manifest.run_id}"})
+    except (LLMProviderError, LLMRuntimeError, ValueError) as exc:
+        args.parser.error(str(exc))
+        raise AssertionError("argparse parser.error should exit") from exc
+
     write_text_artifact(args.out, render_historical_bootstrap_markdown(report))
     payload = {
         "command": "historical-bootstrap",
@@ -1698,6 +1769,8 @@ def _handle_historical_bootstrap(args: argparse.Namespace) -> dict[str, Any]:
         "report": report.model_dump(mode="json"),
         "uses_real_capital": False,
         "live_order_routing": False,
+        "llm_judgement": judgement.model_dump(mode="json"),
+        **runtime.metadata(),
     }
     write_json_artifact(args.json_out, payload)
     write_json_artifact(args.manifest_out, report.manifest.model_dump(mode="json"))
@@ -1717,6 +1790,17 @@ def _handle_ai_research_memo(args: argparse.Namespace) -> dict[str, Any]:
     except LLMProviderError as exc:
         args.parser.error(str(exc))
         raise AssertionError("argparse parser.error should exit") from exc
+    try:
+        judgement = run_runtime_command_judgement(
+            runtime,
+            command="ai-research-memo",
+            facts=memo.model_dump(mode="json"),
+            evidence_refs=[f"ai-research-memo:{args.strategy_family or 'all'}"],
+            objective="Review the research memo under the LLM-native runtime policy.",
+        )
+    except (LLMProviderError, LLMRuntimeError, ValueError) as exc:
+        args.parser.error(str(exc))
+        raise AssertionError("argparse parser.error should exit") from exc
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(render_ai_research_memo_markdown(memo), encoding="utf-8")
     return {
@@ -1725,16 +1809,29 @@ def _handle_ai_research_memo(args: argparse.Namespace) -> dict[str, Any]:
         "memo": memo.model_dump(mode="json"),
         "uses_real_capital": False,
         "live_order_routing": False,
+        "llm_judgement": judgement.model_dump(mode="json"),
         **runtime.metadata(),
     }
 
 
 def _handle_expansion_prep_report(args: argparse.Namespace) -> dict[str, Any]:
+    runtime: RealLLMRuntime = args.llm_runtime
     report = build_expansion_preparation_report(
         db_path=args.db,
         memory_path=args.memory,
         current_capital_usd=args.current_capital_usd,
     )
+    try:
+        judgement = run_runtime_command_judgement(
+            runtime,
+            command="expansion-prep-report",
+            facts=report.model_dump(mode="json"),
+            evidence_refs=["expansion-prep:registry"],
+            objective="Review the expansion preparation report under the LLM-native runtime policy.",
+        )
+    except (LLMProviderError, LLMRuntimeError, ValueError) as exc:
+        args.parser.error(str(exc))
+        raise AssertionError("argparse parser.error should exit") from exc
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(render_expansion_preparation_markdown(report), encoding="utf-8")
     return {
@@ -1743,6 +1840,8 @@ def _handle_expansion_prep_report(args: argparse.Namespace) -> dict[str, Any]:
         "report": report.model_dump(mode="json"),
         "uses_real_capital": False,
         "live_order_routing": False,
+        "llm_judgement": judgement.model_dump(mode="json"),
+        **runtime.metadata(),
     }
 
 
@@ -1762,6 +1861,10 @@ def _apply_evidence_report_summary(
     except LLMProviderError as exc:
         args.parser.error(str(exc))
         raise AssertionError("argparse parser.error should exit") from exc
+    if not summary_result.accepted or summary_result.summary is None:
+        rejected_reason_codes = ",".join(summary_result.rejected_reason_codes) or "invalid_summary"
+        args.parser.error(f"LLM evidence report summary rejected: {rejected_reason_codes}")
+        raise AssertionError("argparse parser.error should exit")
 
     enriched_report = report.model_copy(
         update={

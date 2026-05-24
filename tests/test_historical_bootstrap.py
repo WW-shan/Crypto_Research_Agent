@@ -170,7 +170,10 @@ def test_historical_bootstrap_cli_writes_markdown_json_and_manifest(capsys, tmp_
     assert payload["manifest_out"] == str(manifest_out)
     assert payload["report"]["uses_real_capital"] is False
     assert payload["report"]["live_order_routing"] is False
+    assert payload["llm_provider"] == "real"
+    assert payload["llm_judgement"]["schema_name"] == "BootstrapInterpretation"
     assert json_payload["command"] == "historical-bootstrap"
+    assert json_payload["llm_judgement"]["schema_name"] == "BootstrapInterpretation"
     assert manifest["run_id"] == "phase7-cli"
     assert manifest["status"] == "success"
     assert manifest["network_route"] == "blocked"

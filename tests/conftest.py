@@ -118,6 +118,32 @@ class _RequiredLLMTestLLM:
                         "live_order_routing": False,
                     }
                 )
+            if schema_name == "BootstrapInterpretation":
+                return json.dumps(
+                    {
+                        "schema_name": "BootstrapInterpretation",
+                        "decision": "add_data",
+                        "rationale": "Historical bootstrap remains a bounded research interpretation.",
+                        "evidence_refs": evidence_refs,
+                        "next_actions": ["Continue with forward evidence collection."],
+                        "historical_is_profit_proof": False,
+                        "uses_real_capital": False,
+                        "live_order_routing": False,
+                    }
+                )
+            if schema_name == "RolloutReadinessNarrative":
+                return json.dumps(
+                    {
+                        "schema_name": "RolloutReadinessNarrative",
+                        "decision": "add_data",
+                        "rationale": "Rollout readiness remains a research-only review.",
+                        "evidence_refs": evidence_refs,
+                        "next_actions": ["Continue paper validation before any live execution review."],
+                        "live_execution_enabled": False,
+                        "uses_real_capital": False,
+                        "live_order_routing": False,
+                    }
+                )
             return json.dumps(
                 {
                     "schema_name": schema_name,

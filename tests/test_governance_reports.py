@@ -124,6 +124,8 @@ def test_governance_report_cli_writes_markdown_and_json(capsys, tmp_path):
     assert payload["governance_report_out"] == str(out)
     assert payload["report"]["uses_real_capital"] is False
     assert payload["report"]["live_order_routing"] is False
+    assert payload["llm_provider"] == "real"
+    assert payload["llm_judgement"]["schema_name"] == "RuntimeCommandJudgement"
     assert payload["report"]["monthly_owner_review"]["best_paper_strategy"] == GOOD_FAMILY
     assert markdown.startswith("# Profit Governance Report")
     assert "paper-only portfolio selector" in markdown.lower()

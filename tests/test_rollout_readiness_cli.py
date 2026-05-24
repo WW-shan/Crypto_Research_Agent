@@ -164,6 +164,8 @@ def test_rollout_review_cli_blocks_with_insufficient_closed_sample_and_skips_blo
     assert "insufficient_sample_size" in payload["blocked_reasons"]
     assert payload["uses_real_capital"] is False
     assert payload["live_order_routing"] is False
+    assert payload["llm_provider"] == "real"
+    assert payload["llm_judgement"]["schema_name"] == "RolloutReadinessNarrative"
     assert rollout["observation_count"] == 29
     assert "insufficient_sample_size" in rollout["reason_codes"]
     assert evidence_package["sample_size"] == 31
