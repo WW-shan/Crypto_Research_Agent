@@ -332,6 +332,33 @@ structured health check, and fails closed when credentials, provider
 availability, JSON schema compliance, or guard validation fail. The only
 runtime bypasses are `llm-health-check`, `--help`, and `--version`.
 
+## Owner Autonomy Target Reality Check
+
+The 2026-05-29 reality audit records a stricter interpretation of the owner's
+desired tool: it should eventually use LLM-native reasoning to find new
+opportunities, find new data sources, and iterate toward better research
+systems.
+
+Relative to the completed Phase 0 through Phase 13 roadmap, this broader owner
+autonomy target is not yet implemented in three areas:
+
+- autonomous code-writing loop;
+- autonomous new data source discovery outside the curated source-probe and
+  query catalogs;
+- closed auto-iteration loop that repeatedly turns evidence into the next
+  validated source, strategy, experiment, or code-change candidate.
+
+The current implementation does have bounded AI experiment planning,
+source-probe workflows, expansion-preparation reports, evidence runs,
+governance, and LLM-native command gates. Those are necessary inputs for the
+autonomy target, but they are not the same thing as self-coding or autonomous
+unknown-source discovery.
+
+Any next phase for this owner autonomy target must keep the existing LLM-native
+rule: if the real LLM connection, structured JSON schema validation, evidence
+reference validation, or guard validation fails, the command fails closed
+instead of reporting product success.
+
 #### Immediate Phase 0: Worktree And Configuration Closeout
 
 Goal: Start the next implementation from a clean, explainable local state.

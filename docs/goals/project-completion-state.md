@@ -161,11 +161,22 @@ evidence-grounded AI research planning, and profit governance review active:
 
 ## Known Remaining Gaps
 
-No current charter-compliant implementation gaps remain after Phase 13 is
-fully verified, committed, and pushed.
+The Phase 0 through Phase 13 charter-compliant evidence-factory roadmap is
+implemented, verified, committed, and pushed. The LLM-native runtime follow-up
+also removed deterministic-only product success paths.
 
-Future work is operational evidence collection, not another implementation
-phase in this roadmap:
+Reality audit: `docs/goals/project-reality-audit-2026-05-29.md` records that
+the owner's broader autonomy target is larger than the completed Phase 0
+through Phase 13 roadmap. Relative to that owner autonomy target, these
+implementation gaps remain:
+
+- autonomous code-writing loop;
+- autonomous new data source discovery beyond the curated source-probe and
+  query catalogs;
+- closed auto-iteration loop that turns fresh evidence into the next validated
+  source, strategy, experiment, or code-change candidate.
+
+Operational evidence collection also remains necessary:
 
 - collect ordinary public source data;
 - run daily `evidence-run`, evidence reports, AI memos, governance reports, and

@@ -464,6 +464,50 @@ def test_llm_native_runtime_contract_is_documented() -> None:
     assert spec_path.exists()
 
 
+def test_project_reality_audit_documents_phase_status_and_owner_target_gaps() -> None:
+    audit_path = ROOT / "docs" / "goals" / "project-reality-audit-2026-05-29.md"
+    state_path = ROOT / "docs" / "goals" / "project-completion-state.md"
+
+    audit = _read(audit_path).lower()
+    state = _read(state_path).lower()
+    roadmap = _read(DOC_PATHS["roadmap"]).lower()
+
+    _assert_contains(
+        audit,
+        [
+            "complete runtime flow",
+            "phase 0",
+            "phase 13",
+            "llm-native runtime",
+            "really implemented",
+            "remaining gaps",
+            "autonomous code-writing loop",
+            "autonomous new data source discovery",
+            "auto-iteration loop",
+            "30/60/90 out-of-sample",
+            "no live order routing",
+            "deterministic modules remain calculators and constraints",
+        ],
+    )
+    _assert_contains(
+        state,
+        [
+            "reality audit",
+            "owner autonomy target",
+            "autonomous code-writing loop",
+            "new data source discovery",
+        ],
+    )
+    _assert_contains(
+        roadmap,
+        [
+            "owner autonomy target reality check",
+            "not yet implemented",
+            "autonomous code-writing loop",
+        ],
+    )
+
+
 def test_roadmap_rollout_and_tiny_live_contracts_are_current() -> None:
     roadmap = _normalized(DOC_PATHS["roadmap"])
     rollout = _normalized(DOC_PATHS["rollout"])
