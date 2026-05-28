@@ -453,6 +453,17 @@ def test_runbook_documents_complete_operator_handoff() -> None:
     )
 
 
+def test_llm_native_runtime_contract_is_documented() -> None:
+    runbook = _read(DOC_PATHS["runbook"])
+    roadmap = _read(DOC_PATHS["roadmap"])
+    spec_path = ROOT / "docs" / "superpowers" / "specs" / "2026-05-24-llm-native-runtime-design.md"
+
+    assert "llm-health-check" in runbook
+    assert "--offline-only" not in runbook
+    assert "LLM-Native Runtime" in roadmap
+    assert spec_path.exists()
+
+
 def test_roadmap_rollout_and_tiny_live_contracts_are_current() -> None:
     roadmap = _normalized(DOC_PATHS["roadmap"])
     rollout = _normalized(DOC_PATHS["rollout"])

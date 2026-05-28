@@ -48,12 +48,12 @@ capital.
 No exchange keys, wallet private keys, RPC secrets, or live API credentials are
 required for the current operator workflow.
 
-Local LLM credentials are optional operator configuration for offline-only
-runs, but the real LLM paths use them for `plan-experiments`,
-`research-loop`, and `evidence-report` when those commands are not explicitly
-forced offline. Keep them in `.env` or the shell environment only, and never
-commit or paste the values into docs, reports, memory, logs, screenshots, or
-tests. The expected variable names are:
+The product runtime is LLM-native. Every product CLI command requires a
+configured real LLM and a passing structured health check before business work
+begins. The only bypasses are `llm-health-check`, `--help`, and `--version`.
+Keep LLM credentials in `.env` or the shell environment only, and never commit
+or paste the values into docs, reports, memory, logs, screenshots, or tests.
+The expected variable names are:
 
 ```env
 OPENAI_BASE_URL=
@@ -65,53 +65,55 @@ OPENAI_CODER_MODEL=
 OPENAI_FAST_MODEL=
 ```
 
-To smoke-test the configured LLM adapter without exposing secrets, run:
+To smoke-test the configured LLM adapter and runtime gate without exposing
+secrets, run:
 
 ```bash
+uv run --extra dev crypto-alpha-agent llm-health-check
+
 uv run --extra dev pytest \
   tests/test_llm_configured_client.py::test_real_configured_llm_smoke_returns_valid_research_proposal_without_secret_leaks \
   -q
 ```
 
-The smoke test prints no API key, provider URL, provider headers, or raw HTTP
-metadata. It validates only that the configured Responses-compatible endpoint
-can return schema-valid research-only JSON. If this test fails because the
-external provider is down or rejects the configured model, treat it as an
-integration environment failure and keep deterministic fake LLM tests for
-adversarial cases.
+These checks print no API key, provider URL, provider headers, or raw HTTP
+metadata. They validate that the configured Responses-compatible endpoint can
+return schema-valid research-only JSON. If they fail because credentials are
+missing, the external provider is down, the configured model rejects the task,
+or schema validation fails, the product runtime is not healthy.
 
-To run the CLI LLM paths explicitly in real mode, use `--no-offline-only`:
+Product commands use the real LLM runtime directly:
 
 ```bash
 uv run --extra dev crypto-alpha-agent plan-experiments \
   --db var/research.sqlite \
   --memory var/memory/evidence.jsonl \
-  --current-capital-usd 300 \
-  --no-offline-only
+  --current-capital-usd 300
 
 uv run --extra dev crypto-alpha-agent research-loop \
   --db var/research.sqlite \
-  --memory var/memory/evidence.jsonl \
-  --no-offline-only
+  --memory var/memory/evidence.jsonl
 
 uv run --extra dev crypto-alpha-agent evidence-report \
   --daily \
   --db var/research.sqlite \
   --memory var/memory/evidence.jsonl \
-  --out var/reports/daily.md \
-  --no-offline-only
+  --out var/reports/daily.md
 ```
 
-Use `--offline-only` when you want deterministic local behavior regardless of
-local credentials. In pytest runs, real LLM CLI paths are opt-in via
-`CRYPTO_ALPHA_AGENT_RUN_REAL_LLM_TESTS=1` so the standard regression suite stays
-deterministic.
+Deterministic modules still normalize data, validate schemas, compute source
+quality, run strategy validators, simulate paper outcomes, model costs, enforce
+risk guards, redact secrets, and preserve evidence ledgers. They are
+calculators and constraints inside the LLM-native flow; they do not define a
+successful product run without the real LLM runtime.
 
 ### Real LLM Test Policy
 
-Local owner-directed development should run the real positive LLM integration
-tests when credentials are configured. They cover the adapter smoke path,
-`plan-experiments`, `research-loop`, and `evidence-report`:
+Core acceptance tests call the configured real LLM and fail when credentials,
+provider availability, JSON schema compliance, or guard validation fail. They
+cover the adapter smoke path, health check, source probe, ingest, planning,
+research loop, evidence report, governance report, historical bootstrap, and
+rollout review:
 
 ```bash
 uv run --extra dev pytest \
@@ -120,10 +122,10 @@ uv run --extra dev pytest \
   -q
 ```
 
-In CI or shared automation, set `CRYPTO_ALPHA_AGENT_RUN_REAL_LLM_TESTS=1`
-explicitly before running real provider tests. Without that opt-in, real LLM
-integration tests skip rather than consuming credentials or network budget.
-For deterministic local regression without real provider calls, run:
+CI that runs the standard suite must provide valid real LLM configuration or
+expect the real LLM acceptance tests to fail.
+For local deterministic guard regression without real provider calls, run a
+deliberately filtered non-product test pass:
 
 ```bash
 uv run --extra dev pytest -m "not llm_integration" -q
@@ -365,8 +367,7 @@ The normal operator baseline is:
      --memory var/memory/evidence.jsonl \
      --strategy-family funding_extremity_price_confirmation \
      --max-proposals 3 \
-     --current-capital-usd 300 \
-     --offline-only
+     --current-capital-usd 300
    ```
 
 5. Generate the weekly AI research memo:

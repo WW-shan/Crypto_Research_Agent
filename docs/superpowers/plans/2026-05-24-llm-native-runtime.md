@@ -1678,7 +1678,7 @@ git commit -m "test: require real llm acceptance"
 - Add: `docs/goals/phase-reports/2026-05-24-llm-native-runtime-completion-report.md`
 - Test: `tests/test_documentation_contract.py`
 
-- [ ] **Step 1: Update runbook**
+- [x] **Step 1: Update runbook**
 
 Replace sections that say real LLM tests are optional or skipped with:
 
@@ -1693,7 +1693,7 @@ provider availability, JSON schema compliance, or guard validation fail.
 
 Remove examples using `--offline-only` or `--no-offline-only`.
 
-- [ ] **Step 2: Update roadmap**
+- [x] **Step 2: Update roadmap**
 
 Add a new section:
 
@@ -1706,7 +1706,7 @@ modeling, risk limits, and audit logs, but product success requires real LLM
 judgement plus deterministic guard validation.
 ```
 
-- [ ] **Step 3: Update completion state**
+- [x] **Step 3: Update completion state**
 
 In `docs/goals/project-completion-state.md`, add a current state note:
 
@@ -1716,7 +1716,7 @@ The active next project line changes the runtime target: product commands must
 be LLM-native and must not succeed through deterministic-only fallback.
 ```
 
-- [ ] **Step 4: Add phase report**
+- [x] **Step 4: Add phase report**
 
 Create `docs/goals/phase-reports/2026-05-24-llm-native-runtime-completion-report.md` with:
 
@@ -1744,7 +1744,7 @@ MEV, premium RPC, private infrastructure, or speed-edge strategies.
 
 Update the verification list with actual results after implementation.
 
-- [ ] **Step 5: Update documentation contract tests**
+- [x] **Step 5: Update documentation contract tests**
 
 In `tests/test_documentation_contract.py`, add assertions that:
 
@@ -1753,7 +1753,7 @@ In `tests/test_documentation_contract.py`, add assertions that:
 - `docs/roadmap.md` mentions `LLM-Native Runtime`.
 - The LLM-native design spec path exists.
 
-- [ ] **Step 6: Run docs tests**
+- [x] **Step 6: Run docs tests**
 
 Run:
 
@@ -1763,7 +1763,7 @@ uv run --extra dev pytest tests/test_documentation_contract.py -q
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit docs**
+- [x] **Step 7: Commit docs**
 
 ```bash
 git add docs/runbook.md docs/roadmap.md docs/goals/project-completion-state.md docs/goals/phase-reports/2026-05-24-llm-native-runtime-completion-report.md tests/test_documentation_contract.py

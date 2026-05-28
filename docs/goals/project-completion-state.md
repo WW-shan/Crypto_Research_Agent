@@ -101,6 +101,10 @@ round.
 
 ## Current Project Target
 
+The prior Phase 13 completion state described a deterministic evidence factory.
+The active next project line changes the runtime target: product commands must
+be LLM-native and must not succeed through deterministic-only fallback.
+
 The evidence factory now has execution-realistic paper simulation,
 evidence-grounded AI research planning, and profit governance review active:
 

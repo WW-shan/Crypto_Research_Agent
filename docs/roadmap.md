@@ -320,6 +320,18 @@ the evidence factory. Phase 12 is now complete, and Phase 7 now provides the
 historical bootstrap workflow that starts the future out-of-sample evidence
 campaign. Phase 13 is the ongoing report and artifact review loop.
 
+## LLM-Native Runtime
+
+The project no longer treats LLM usage as optional for product commands.
+Deterministic code remains the source of calculation, schema validation, cost
+modeling, risk limits, and audit logs, but product success requires real LLM
+judgement plus deterministic guard validation.
+
+Every product CLI path now builds a configured real LLM runtime, runs a
+structured health check, and fails closed when credentials, provider
+availability, JSON schema compliance, or guard validation fail. The only
+runtime bypasses are `llm-health-check`, `--help`, and `--version`.
+
 #### Immediate Phase 0: Worktree And Configuration Closeout
 
 Goal: Start the next implementation from a clean, explainable local state.
@@ -380,9 +392,9 @@ Required implementation:
   - coder/validator-design: `OPENAI_CODER_MODEL` falling back to
     `OPENAI_MODEL`;
   - report/summary: `OPENAI_FAST_MODEL` falling back to `OPENAI_MODEL`.
-- Treat real LLM as the default operator path once credentials are configured.
-  Keep explicit `--no-llm`, `--offline-only`, or test injection hooks only for
-  disabled/offline runs and deterministic safety tests.
+- Treat the configured real LLM as required for product commands. Test
+  injection hooks are limited to deterministic guard tests and cannot define
+  product success.
 - Redact credentials from all exceptions, logs, memory records, reports,
   scheduler plans, and test output.
 - Expected file areas:
@@ -455,12 +467,11 @@ Completed behavior:
 - `research-loop` can invoke the configured research LLM through the existing
   LangGraph LLM research graph and write only metadata/hash/length status for
   raw responses.
-- `evidence-report` can invoke the configured fast summary model to add an
-  optional `LLM Narrative Summary` section without changing deterministic
-  validation, paper, memory, source-health, or cost metrics.
-- `--offline-only` keeps deterministic behavior, while `--no-offline-only`
-  requires a configured real LLM and fails closed if local credentials are
-  missing.
+- `evidence-report` invokes the configured fast summary model to add an
+  `LLM Narrative Summary` section without changing deterministic validation,
+  paper, memory, source-health, or cost metrics.
+- Product CLI commands require a configured real LLM and fail closed if local
+  credentials, provider availability, structured JSON, or guard validation fail.
 - No live trading, wallet-key access, exchange order routing, MEV, premium RPC,
   or speed-edge execution path was added.
 
@@ -471,9 +482,9 @@ deterministic adversarial tests for safety boundaries.
 
 Testing policy:
 
-- Positive integration and smoke tests should use the real configured LLM when
-  credentials are available. This includes real `plan-experiments`, real
-  research proposal generation, and real report-summary paths.
+- Positive integration and smoke tests use the real configured LLM. This
+  includes real `plan-experiments`, real research proposal generation, real
+  report-summary paths, and core product command acceptance.
 - Do not skip real LLM calls merely to save token budget during local
   development when the owner has requested real-model testing.
 - Keep a small set of fake/injected LLM tests for cases that real models cannot
@@ -483,8 +494,7 @@ Testing policy:
   must be rejected by guards.
 - Any test that uses a real LLM must assert that the API key and base URL are
   not copied into stdout, stderr, memory, reports, or generated artifacts.
-- CI may remain fake/offline unless the operator explicitly provides local
-  credentials and enables real LLM integration tests.
+- CI that runs product acceptance must provide valid real LLM credentials.
 
 Completion standard:
 
@@ -502,10 +512,12 @@ Phase 3 completion record: implemented by
 Completed behavior:
 
 - Real LLM integration tests now cover the configured adapter smoke path,
-  `plan-experiments`, `research-loop`, and `evidence-report`.
-- Real LLM tests are marked as both `integration` and `llm_integration`, run
-  locally when credentials are configured, and require
-  `CRYPTO_ALPHA_AGENT_RUN_REAL_LLM_TESTS=1` in CI/shared automation.
+  `llm-health-check`, `source-probe`, `ingest`, `plan-experiments`,
+  `research-loop`, `evidence-report`, `governance-report`,
+  `historical-bootstrap`, and `rollout-review`.
+- Real LLM product tests are marked as `integration`, `llm_integration`, and
+  `core_acceptance`; they fail rather than skip when real LLM configuration or
+  provider behavior is invalid.
 - A reusable secret scanner covers stdout, stderr, memory JSONL, Markdown/JSON
   reports, generated artifacts, run manifests, and staged diffs without
   printing matched secret values.
@@ -532,8 +544,8 @@ Infrastructure flow:
 3. Run deterministic validation.
 4. Run paper simulation.
 5. Write memory.
-6. Generate daily report with optional LLM summary.
-7. Generate weekly report with optional LLM summary.
+6. Generate daily report with required LLM summary.
+7. Generate weekly report with required LLM summary.
 
 Required implementation:
 
