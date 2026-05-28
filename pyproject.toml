@@ -36,4 +36,5 @@ addopts = "--strict-markers"
 markers = [
     "integration: tests that call configured external services",
     "llm_integration: tests that call the configured real LLM provider",
+    "core_acceptance: product runtime tests that must use the configured real LLM",
 ]

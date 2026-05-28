@@ -1813,6 +1813,7 @@ def _handle_historical_bootstrap(args: argparse.Namespace) -> dict[str, Any]:
         args.parser.error(str(exc))
         raise AssertionError("argparse parser.error should exit") from exc
 
+    evidence_refs = _historical_bootstrap_evidence_refs(report)
     try:
         judgement = runtime.structured_call(
             LLMJudgementTask(
@@ -1822,7 +1823,7 @@ def _handle_historical_bootstrap(args: argparse.Namespace) -> dict[str, Any]:
                     "Interpret bootstrap evidence while preserving that historical evidence is not profit proof."
                 ),
                 facts=report.model_dump(mode="json"),
-                evidence_refs=[f"bootstrap:{report.manifest.run_id}"],
+                evidence_refs=evidence_refs,
                 constraints=[
                     "historical_is_profit_proof must be false",
                     "uses_real_capital must be false",
@@ -1831,7 +1832,7 @@ def _handle_historical_bootstrap(args: argparse.Namespace) -> dict[str, Any]:
             ),
             BootstrapInterpretation,
         )
-        judgement.validate_refs({f"bootstrap:{report.manifest.run_id}"})
+        judgement.validate_refs(set(evidence_refs))
     except (LLMProviderError, LLMRuntimeError, ValueError) as exc:
         args.parser.error(str(exc))
         raise AssertionError("argparse parser.error should exit") from exc
@@ -1853,6 +1854,22 @@ def _handle_historical_bootstrap(args: argparse.Namespace) -> dict[str, Any]:
     write_json_artifact(args.json_out, payload)
     write_json_artifact(args.manifest_out, report.manifest.model_dump(mode="json"))
     return payload
+
+
+def _historical_bootstrap_evidence_refs(report: Any) -> list[str]:
+    refs: list[str] = []
+    seen: set[str] = set()
+
+    def add(ref: str) -> None:
+        if ref and ref not in seen:
+            seen.add(ref)
+            refs.append(ref)
+
+    add(f"bootstrap:{report.manifest.run_id}")
+    for result in report.strategy_results:
+        for ref in result.evidence_refs:
+            add(ref)
+    return refs
 
 
 def _handle_ai_research_memo(args: argparse.Namespace) -> dict[str, Any]:

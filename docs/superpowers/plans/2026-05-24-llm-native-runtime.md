@@ -1579,7 +1579,7 @@ git commit -m "feat: require llm for product commands"
 - Modify: `tests/test_real_llm_integration_policy.py`
 - Modify: `tests/test_real_llm_test_policy_contract.py`
 
-- [ ] **Step 1: Add marker**
+- [x] **Step 1: Add marker**
 
 In `pyproject.toml`, add:
 
@@ -1587,7 +1587,7 @@ In `pyproject.toml`, add:
 "core_acceptance: product runtime tests that must use the configured real LLM",
 ```
 
-- [ ] **Step 2: Replace skip helper**
+- [x] **Step 2: Replace skip helper**
 
 In `tests/llm_integration_policy.py`, replace `configured_llm_settings_or_skip`
 with:
@@ -1602,7 +1602,7 @@ def configured_llm_settings_or_fail(role: LLMRole = "research") -> LLMSettings:
 Remove CI skip behavior. Keep retry logic for transient provider failures, but
 the final outcome remains test failure.
 
-- [ ] **Step 3: Update real LLM tests**
+- [x] **Step 3: Update real LLM tests**
 
 In `tests/test_real_llm_integration_policy.py`:
 
@@ -1625,7 +1625,7 @@ assert payload["llm_provider"] == "real"
 assert payload["used_fake_llm"] is False
 ```
 
-- [ ] **Step 4: Update policy contract**
+- [x] **Step 4: Update policy contract**
 
 In `tests/test_real_llm_test_policy_contract.py`, add:
 
@@ -1638,7 +1638,7 @@ def test_core_acceptance_marker_is_registered() -> None:
 Add a source scan that fails if core acceptance tests call
 `configured_llm_settings_or_skip`.
 
-- [ ] **Step 5: Run real LLM policy tests**
+- [x] **Step 5: Run real LLM policy tests**
 
 Run:
 
@@ -1649,7 +1649,7 @@ uv run --extra dev pytest tests/test_real_llm_test_policy_contract.py tests/llm_
 Expected: PASS for policy contract. `tests/llm_integration_policy.py` is a
 helper module and may report no collected tests.
 
-- [ ] **Step 6: Run real LLM acceptance tests**
+- [x] **Step 6: Run real LLM acceptance tests**
 
 Run:
 
@@ -1661,7 +1661,7 @@ Expected: PASS only when real LLM configuration is valid. Missing key, timeout,
 provider failure, invalid JSON, schema failure, guard rejection, fake LLM usage,
 or missing real metadata fails the test run.
 
-- [ ] **Step 7: Commit real LLM policy**
+- [x] **Step 7: Commit real LLM policy**
 
 ```bash
 git add pyproject.toml tests/llm_integration_policy.py tests/test_real_llm_integration_policy.py tests/test_real_llm_test_policy_contract.py

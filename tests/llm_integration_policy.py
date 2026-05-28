@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -18,17 +17,10 @@ from crypto_alpha_agent.security.secret_scan import (
 )
 
 
-def configured_llm_settings_or_skip(role: LLMRole = "research") -> LLMSettings:
-    if os.environ.get("CI") and os.environ.get("CRYPTO_ALPHA_AGENT_RUN_REAL_LLM_TESTS") != "1":
-        pytest.skip("real LLM integration tests are disabled in CI unless explicitly opted in")
-    settings = build_configured_llm_settings(role=role, required=False)
-    if settings is None:
-        pytest.skip("real LLM credentials are not configured")
+def configured_llm_settings_or_fail(role: LLMRole = "research") -> LLMSettings:
+    settings = build_configured_llm_settings(role=role, required=True)
+    assert settings is not None
     return settings
-
-
-def enable_real_llm_cli_for_pytest(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CRYPTO_ALPHA_AGENT_RUN_REAL_LLM_TESTS", "1")
 
 
 def secret_values_for_settings(settings: LLMSettings) -> dict[str, str]:

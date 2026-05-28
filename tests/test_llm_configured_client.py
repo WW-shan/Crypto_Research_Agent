@@ -27,7 +27,7 @@ from crypto_alpha_agent.llm.redaction import redact_text
 from llm_integration_policy import (
     assert_no_secret_leaks,
     call_real_llm_or_fail,
-    configured_llm_settings_or_skip,
+    configured_llm_settings_or_fail,
 )
 
 
@@ -532,7 +532,7 @@ def test_build_configured_llm_returns_adapter_when_settings_exist(
 def test_real_configured_llm_smoke_returns_valid_research_proposal_without_secret_leaks(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    settings = configured_llm_settings_or_skip("research")
+    settings = configured_llm_settings_or_fail("research")
 
     llm = build_configured_llm(role="research", required=True)
     assert llm is not None

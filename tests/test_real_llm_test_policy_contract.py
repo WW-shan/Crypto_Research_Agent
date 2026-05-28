@@ -10,7 +10,24 @@ def test_real_llm_policy_markers_are_registered() -> None:
 
     assert "integration: tests that call configured external services" in pyproject
     assert "llm_integration: tests that call the configured real LLM provider" in pyproject
+    assert "core_acceptance: product runtime tests that must use the configured real LLM" in pyproject
     assert "--strict-markers" in pyproject
+
+
+def test_real_llm_acceptance_tests_do_not_use_skip_helper() -> None:
+    path = Path("tests/test_real_llm_integration_policy.py")
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    offenders = []
+    for node in ast.walk(ast.parse(text)):
+        if not isinstance(node, ast.FunctionDef) or not _has_marker(node, "core_acceptance"):
+            continue
+        source = "\n".join(lines[node.lineno - 1 : node.end_lineno])
+        if "configured_llm_settings_or_skip" in source:
+            offenders.append(node.name)
+
+    assert offenders == []
 
 
 @dataclass(frozen=True)
@@ -122,3 +139,11 @@ def _test_decorator_source(path: Path, function_name: str) -> str:
                 ast.get_source_segment(text, decorator) or "" for decorator in node.decorator_list
             )
     raise AssertionError(f"{function_name} not found in {path}")
+
+
+def _has_marker(node: ast.FunctionDef, marker_name: str) -> bool:
+    for decorator in node.decorator_list:
+        text = ast.unparse(decorator)
+        if text == f"pytest.mark.{marker_name}":
+            return True
+    return False
