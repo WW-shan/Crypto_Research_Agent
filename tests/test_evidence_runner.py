@@ -703,6 +703,7 @@ def test_evidence_run_cli_fails_closed_when_llm_interpretation_fails(
     report_out = tmp_path / "daily.md"
     json_out = tmp_path / "payload.json"
     manifest_out = tmp_path / "manifest.json"
+    failed_marker_out = tmp_path / "failed.json"
 
     exit_code = main(
         [
@@ -717,6 +718,8 @@ def test_evidence_run_cli_fails_closed_when_llm_interpretation_fails(
             str(json_out),
             "--manifest-out",
             str(manifest_out),
+            "--failed-marker-out",
+            str(failed_marker_out),
             "--allow-network",
             "--symbol",
             "BTC/USDT",
@@ -736,8 +739,14 @@ def test_evidence_run_cli_fails_closed_when_llm_interpretation_fails(
     assert payload["reason_code"] == "schema_validation_failed"
     assert "llm_interpretation" not in payload
     assert not report_out.exists()
-    assert not json_out.exists()
-    assert not manifest_out.exists()
+    assert json_out.exists()
+    assert manifest_out.exists()
+    assert failed_marker_out.exists()
+    assert json.loads(json_out.read_text(encoding="utf-8"))["status"] == "failed"
+    manifest = json.loads(manifest_out.read_text(encoding="utf-8"))
+    marker = json.loads(failed_marker_out.read_text(encoding="utf-8"))
+    assert manifest["reason_code"] == "schema_validation_failed"
+    assert marker["reason_code"] == "schema_validation_failed"
 
 
 def test_evidence_run_cli_lock_contention_writes_failed_marker(tmp_path, capsys):

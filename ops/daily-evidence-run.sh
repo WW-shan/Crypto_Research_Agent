@@ -6,6 +6,18 @@ cd "$REPO"
 
 # Default command is intentionally literal for auditability: docker compose.
 compose_cmd=(${CRYPTO_ALPHA_AGENT_COMPOSE:-docker compose})
+proxy_env_args=()
+if [[ -n "${CRYPTO_ALPHA_AGENT_DOCKER_PROXY:-}" ]]; then
+  proxy_env_args=(
+    -e "HTTP_PROXY=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+    -e "HTTPS_PROXY=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+    -e "ALL_PROXY=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+    -e "http_proxy=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+    -e "https_proxy=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+    -e "all_proxy=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+    -e "CRYPTO_ALPHA_AGENT_PROXY=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+  )
+fi
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 day="$(date -u +%F)"
@@ -49,7 +61,12 @@ mkdir -p \
   "$(dirname "$stderr_log")"
 
 command=(
-  "${compose_cmd[@]}" run --rm crypto-alpha-agent evidence-run
+)
+command+=("${compose_cmd[@]}" run --rm)
+if ((${#proxy_env_args[@]} > 0)); then
+  command+=("${proxy_env_args[@]}")
+fi
+command+=(crypto-alpha-agent evidence-run
   --db "$db_path"
   --memory "$memory_path"
   --report-out "$report_out"

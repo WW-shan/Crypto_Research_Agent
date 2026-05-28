@@ -76,6 +76,20 @@ CRYPTO_ALPHA_AGENT_LIMIT=200
 CRYPTO_ALPHA_AGENT_CURRENT_CAPITAL_USD=300
 ```
 
+If the VPS or local Docker Desktop must reach public APIs through a host proxy,
+set the container-facing proxy to the Docker host name, not `127.0.0.1` inside
+the container:
+
+```env
+CRYPTO_ALPHA_AGENT_DOCKER_PROXY=http://host.docker.internal:<proxy-port>
+```
+
+The Compose service includes `host.docker.internal:host-gateway`; the wrapper
+scripts pass this value as `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and
+`CRYPTO_ALPHA_AGENT_PROXY` to `docker compose run`. When running commands
+directly on the host without Docker, point `HTTP_PROXY` at the host-bound proxy
+address used by the operator.
+
 ## Build And Smoke Test
 
 Install Docker and the Compose plugin on the VPS, then build:

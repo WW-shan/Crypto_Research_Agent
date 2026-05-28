@@ -103,6 +103,8 @@ def test_docker_runtime_keeps_secrets_out_of_image_and_mounts_state() -> None:
         "env_file:",
         ".env",
         "./var:/app/var",
+        "extra_hosts:",
+        "host.docker.internal:host-gateway",
     ]:
         assert expected in compose
     assert "docker.sock" not in compose
@@ -114,6 +116,8 @@ def test_daily_wrapper_runs_evidence_run_with_artifact_contract() -> None:
     for expected in [
         "set -euo pipefail",
         "docker compose",
+        "CRYPTO_ALPHA_AGENT_DOCKER_PROXY",
+        "HTTP_PROXY",
         "run",
         "--rm",
         "crypto-alpha-agent",
@@ -129,6 +133,27 @@ def test_daily_wrapper_runs_evidence_run_with_artifact_contract() -> None:
         "CRYPTO_ALPHA_AGENT_DRY_RUN",
     ]:
         assert expected in script
+
+
+def test_daily_wrapper_can_pass_host_proxy_to_container() -> None:
+    result = subprocess.run(
+        ["bash", "ops/daily-evidence-run.sh"],
+        check=False,
+        cwd=ROOT,
+        env={
+            "CRYPTO_ALPHA_AGENT_DRY_RUN": "1",
+            "CRYPTO_ALPHA_AGENT_DOCKER_PROXY": "http://host.docker.internal:10808",
+        },
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "DRY RUN:" in result.stdout
+    assert "-e HTTP_PROXY=http://host.docker.internal:10808" in result.stdout
+    assert "-e HTTPS_PROXY=http://host.docker.internal:10808" in result.stdout
+    assert "-e ALL_PROXY=http://host.docker.internal:10808" in result.stdout
 
 
 def test_weekly_wrapper_runs_governance_memo_and_iteration_cycle() -> None:

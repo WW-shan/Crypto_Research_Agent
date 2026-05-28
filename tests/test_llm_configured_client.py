@@ -15,11 +15,11 @@ from crypto_alpha_agent.pipeline.experiment_planner import (
     ExperimentPlannerMemoryContext,
     ExperimentPlannerTask,
 )
+from crypto_alpha_agent.pipeline.llm_judgements import LLMJudgementTask
 from crypto_alpha_agent.pipeline.iteration_controller import (
     IterationControllerInput,
     IterationControllerTask,
 )
-from crypto_alpha_agent.pipeline.llm_judgements import LLMJudgementTask
 from crypto_alpha_agent.config import LLMSettings, build_configured_llm_settings
 from crypto_alpha_agent.llm import (
     LLMHealthCheckTask,
@@ -501,6 +501,42 @@ def test_responses_adapter_uses_json_schema_format_for_iteration_controller_task
     assert candidate_schema["properties"]["source_probe_targets"]["minItems"] == 0
     assert candidate_schema["properties"]["target_files"]["minItems"] == 0
     assert candidate_schema["properties"]["direct_code_write_authorized"]["enum"] == [False]
+
+
+def test_responses_adapter_uses_strict_schema_for_evidence_run_interpretation() -> None:
+    session = _FakeSession(_FakeResponse(payload={"output_text": "{}"}))
+    adapter = OpenAIResponsesAdapter(_settings(), session=session)
+    task = LLMJudgementTask(
+        command="evidence-run",
+        schema_name="EvidenceRunInterpretation",
+        objective="Interpret evidence-run results.",
+        facts={"status": "failed", "steps": []},
+        evidence_refs=["evidence-run:test", "step:ingest_ccxt_core"],
+        constraints=["uses_real_capital must be false."],
+    )
+
+    adapter(task)
+
+    request_payload = session.calls[0]["json"]
+    text_format = request_payload["text"]["format"]
+    schema = text_format["schema"]
+    next_experiment_schema = schema["properties"]["next_experiment"]
+
+    assert text_format["type"] == "json_schema"
+    assert text_format["name"] == "EvidenceRunInterpretation"
+    assert text_format["strict"] is True
+    assert schema["additionalProperties"] is False
+    assert next_experiment_schema["additionalProperties"] is False
+    assert "experiment_type" in next_experiment_schema["properties"]
+    assert "required_data_fields" in next_experiment_schema["properties"]
+    assert "stop_conditions" in next_experiment_schema["properties"]
+    assert set(next_experiment_schema["required"]) == {
+        "strategy_family",
+        "experiment_type",
+        "rationale",
+        "required_data_fields",
+        "stop_conditions",
+    }
 
 
 def test_responses_adapter_uses_json_schema_format_for_judgement_task() -> None:

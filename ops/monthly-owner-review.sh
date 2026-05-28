@@ -6,6 +6,18 @@ cd "$REPO"
 
 # Default command is intentionally literal for auditability: docker compose.
 compose_cmd=(${CRYPTO_ALPHA_AGENT_COMPOSE:-docker compose})
+proxy_env_args=()
+if [[ -n "${CRYPTO_ALPHA_AGENT_DOCKER_PROXY:-}" ]]; then
+  proxy_env_args=(
+    -e "HTTP_PROXY=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+    -e "HTTPS_PROXY=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+    -e "ALL_PROXY=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+    -e "http_proxy=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+    -e "https_proxy=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+    -e "all_proxy=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+    -e "CRYPTO_ALPHA_AGENT_PROXY=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+  )
+fi
 
 if [[ -z "${CRYPTO_ALPHA_AGENT_REVIEW_FAMILY:-}" ]]; then
   echo "CRYPTO_ALPHA_AGENT_REVIEW_FAMILY is required for monthly rollout-review." >&2
@@ -30,7 +42,12 @@ mkdir -p \
   "$log_dir"
 
 command=(
-  "${compose_cmd[@]}" run --rm crypto-alpha-agent rollout-review
+)
+command+=("${compose_cmd[@]}" run --rm)
+if ((${#proxy_env_args[@]} > 0)); then
+  command+=("${proxy_env_args[@]}")
+fi
+command+=(crypto-alpha-agent rollout-review
   --db "$db_path"
   --strategy-family "$strategy_family"
   --artifact-out "$artifact_out"

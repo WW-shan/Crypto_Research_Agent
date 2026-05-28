@@ -530,10 +530,7 @@ def _judgement_schema_for_name(schema_name: str) -> dict[str, Any]:
     if schema_name == "EvidenceRunInterpretation":
         schema = _clone_schema(base)
         schema["properties"]["blocked_reason_review"] = _string_list_schema(max_items=16)
-        schema["properties"]["next_experiment"] = {
-            "type": "object",
-            "additionalProperties": True,
-        }
+        schema["properties"]["next_experiment"] = _evidence_run_next_experiment_schema()
         schema["required"] = [
             *schema["required"],
             "blocked_reason_review",
@@ -579,6 +576,27 @@ def _judgement_schema_for_name(schema_name: str) -> dict[str, Any]:
         schema["required"] = [*schema["required"], "live_execution_enabled"]
         return schema
     return base
+
+
+def _evidence_run_next_experiment_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "strategy_family": {"type": ["string", "null"]},
+            "experiment_type": {"type": "string"},
+            "rationale": {"type": "string"},
+            "required_data_fields": _string_list_schema(min_items=0, max_items=24),
+            "stop_conditions": _string_list_schema(min_items=0, max_items=12),
+        },
+        "required": [
+            "strategy_family",
+            "experiment_type",
+            "rationale",
+            "required_data_fields",
+            "stop_conditions",
+        ],
+    }
 
 
 def _judgement_base_schema(schema_name: str) -> dict[str, Any]:

@@ -50,10 +50,18 @@ class LLMHypothesisSet(_EvidenceBackedJudgement):
     critique: list[str] = Field(default_factory=list, max_length=12)
 
 
+class EvidenceRunNextExperiment(_JudgementModel):
+    strategy_family: str | None = None
+    experiment_type: str = Field(min_length=1, max_length=120)
+    rationale: str = Field(min_length=1, max_length=800)
+    required_data_fields: list[str] = Field(default_factory=list, max_length=24)
+    stop_conditions: list[str] = Field(default_factory=list, max_length=12)
+
+
 class EvidenceRunInterpretation(_EvidenceBackedJudgement):
     schema_name: Literal["EvidenceRunInterpretation"]
     blocked_reason_review: list[str] = Field(default_factory=list, max_length=16)
-    next_experiment: dict[str, Any] | None = None
+    next_experiment: EvidenceRunNextExperiment
 
 
 class GovernanceReview(_EvidenceBackedJudgement):

@@ -2123,7 +2123,6 @@ def _handle_evidence_run(args: argparse.Namespace) -> dict[str, Any]:
                     ),
                     report=report,
                     lock_exists=False,
-                    write_artifacts=False,
                 )
             except LLMRuntimeError as exc:
                 return _finalize_evidence_run_failure(
@@ -2139,7 +2138,6 @@ def _handle_evidence_run(args: argparse.Namespace) -> dict[str, Any]:
                     ),
                     report=report,
                     lock_exists=False,
-                    write_artifacts=False,
                 )
             except ValueError as exc:
                 return _finalize_evidence_run_failure(
@@ -2155,7 +2153,6 @@ def _handle_evidence_run(args: argparse.Namespace) -> dict[str, Any]:
                     ),
                     report=report,
                     lock_exists=False,
-                    write_artifacts=False,
                 )
 
             report = report.model_copy(

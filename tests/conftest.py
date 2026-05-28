@@ -155,6 +155,9 @@ class _RequiredLLMTestLLM:
                         "next_experiment": {
                             "strategy_family": "funding_extremity_price_confirmation",
                             "experiment_type": "collect_more_walk_forward_data",
+                            "rationale": "Continue collecting forward evidence before changing strategy parameters.",
+                            "required_data_fields": ["ohlcv", "funding_rate"],
+                            "stop_conditions": ["Stop if paper outcomes remain negative after costs."],
                         },
                         "next_actions": ["Continue with bounded paper validation."],
                         "uses_real_capital": False,

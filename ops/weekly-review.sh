@@ -6,6 +6,18 @@ cd "$REPO"
 
 # Default command is intentionally literal for auditability: docker compose.
 compose_cmd=(${CRYPTO_ALPHA_AGENT_COMPOSE:-docker compose})
+proxy_env_args=()
+if [[ -n "${CRYPTO_ALPHA_AGENT_DOCKER_PROXY:-}" ]]; then
+  proxy_env_args=(
+    -e "HTTP_PROXY=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+    -e "HTTPS_PROXY=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+    -e "ALL_PROXY=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+    -e "http_proxy=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+    -e "https_proxy=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+    -e "all_proxy=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+    -e "CRYPTO_ALPHA_AGENT_PROXY=${CRYPTO_ALPHA_AGENT_DOCKER_PROXY}"
+  )
+fi
 
 week="$(date -u +%G-W%V)"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -37,7 +49,12 @@ mkdir -p \
   "$log_dir"
 
 governance_command=(
-  "${compose_cmd[@]}" run --rm crypto-alpha-agent governance-report
+)
+governance_command+=("${compose_cmd[@]}" run --rm)
+if ((${#proxy_env_args[@]} > 0)); then
+  governance_command+=("${proxy_env_args[@]}")
+fi
+governance_command+=(crypto-alpha-agent governance-report
   --db "$db_path"
   --memory "$memory_path"
   --out "$governance_out"
@@ -45,7 +62,12 @@ governance_command=(
 )
 
 memo_command=(
-  "${compose_cmd[@]}" run --rm crypto-alpha-agent ai-research-memo
+)
+memo_command+=("${compose_cmd[@]}" run --rm)
+if ((${#proxy_env_args[@]} > 0)); then
+  memo_command+=("${proxy_env_args[@]}")
+fi
+memo_command+=(crypto-alpha-agent ai-research-memo
   --db "$db_path"
   --memory "$memory_path"
   --out "$memo_out"
@@ -54,7 +76,12 @@ memo_command=(
 )
 
 iteration_command=(
-  "${compose_cmd[@]}" run --rm crypto-alpha-agent iteration-cycle
+)
+iteration_command+=("${compose_cmd[@]}" run --rm)
+if ((${#proxy_env_args[@]} > 0)); then
+  iteration_command+=("${proxy_env_args[@]}")
+fi
+iteration_command+=(crypto-alpha-agent iteration-cycle
   --db "$db_path"
   --memory "$memory_path"
   --out "$iteration_out"
