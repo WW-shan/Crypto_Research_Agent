@@ -5,6 +5,7 @@ from crypto_alpha_agent.pipeline.expansion_preparation import ExpansionPreparati
 from crypto_alpha_agent.pipeline.evidence_reports import DailyEvidenceReport, WeeklyEvidenceReport
 from crypto_alpha_agent.pipeline.governance_reports import ProfitGovernanceReport
 from crypto_alpha_agent.pipeline.historical_bootstrap import HistoricalBootstrapReport
+from crypto_alpha_agent.pipeline.iteration_controller import IterationCycleReport
 from crypto_alpha_agent.pipeline.research_loop import ResearchLoopReport
 
 
@@ -751,6 +752,70 @@ def render_historical_bootstrap_markdown(report: HistoricalBootstrapReport) -> s
             f"Memory path: {_escape_text(report.manifest.memory_path)}",
         ]
     )
+    return "\n".join(lines) + "\n"
+
+
+def render_iteration_cycle_markdown(report: IterationCycleReport) -> str:
+    lines = [
+        "# Iteration Cycle Report",
+        "",
+        "## Safety",
+        f"LLM required: {_bool_text(report.llm_required)}",
+        f"Auto executes changes: {_bool_text(report.auto_executes_changes)}",
+        f"Scheduler executes commands: {_bool_text(report.scheduler_executes_commands)}",
+        f"Real capital: {_bool_text(report.uses_real_capital)}",
+        f"Live order routing: {_bool_text(report.live_order_routing)}",
+        "",
+        "## Decision",
+        f"Accepted: {_bool_text(report.accepted)}",
+        f"Cycle id: {_escape_text(report.cycle_id)}",
+        f"Current capital: {report.current_capital_usd:g} USD",
+        f"Strategy family: {_escape_text(report.strategy_family or 'all')}",
+        f"Rejected reason codes: {_escape_text(', '.join(report.rejected_reason_codes) or 'none')}",
+        "",
+        "## Context Counts",
+        f"Research evidence refs: {report.research_evidence_ref_count:g}",
+        f"Source candidates: {report.source_candidate_count:g}",
+        f"Strategy candidates: {report.strategy_candidate_count:g}",
+        f"Governance families: {report.governance_family_count:g}",
+        "",
+        "## Evidence Refs",
+    ]
+    lines.extend(_bullet_lines(report.evidence_refs))
+    lines.extend(["", "## Candidates"])
+    if not report.candidates:
+        lines.append("No safe iteration candidates accepted.")
+        return "\n".join(lines) + "\n"
+
+    for index, candidate in enumerate(report.candidates, start=1):
+        lines.extend(
+            [
+                f"### {index}. {_escape_text(candidate.title)}",
+                f"Kind: {_escape_text(candidate.kind)}",
+                f"Risk: {_escape_text(candidate.risk_level)}",
+                f"Human review required: {_bool_text(candidate.human_review_required)}",
+                f"Direct code write authorized: {_bool_text(candidate.direct_code_write_authorized)}",
+                f"Uses real capital: {_bool_text(candidate.uses_real_capital)}",
+                f"Live order routing: {_bool_text(candidate.live_order_routing)}",
+                f"Expected value: {_escape_text(candidate.expected_value)}",
+                f"Rationale: {_escape_text(candidate.rationale)}",
+                "Evidence refs:",
+            ]
+        )
+        lines.extend(_bullet_lines(candidate.evidence_refs))
+        lines.extend(["Required tests:"])
+        lines.extend(_bullet_lines(candidate.required_tests))
+        lines.extend(["Next actions:"])
+        lines.extend(_bullet_lines(candidate.next_actions))
+        if candidate.target_files:
+            lines.extend(["Target files:"])
+            lines.extend(_bullet_lines(candidate.target_files))
+        if candidate.source_discovery_queries:
+            lines.extend(["Source discovery queries:"])
+            lines.extend(_bullet_lines(candidate.source_discovery_queries))
+        if candidate.source_probe_targets:
+            lines.extend(["Source probe targets:"])
+            lines.extend(_bullet_lines(candidate.source_probe_targets))
     return "\n".join(lines) + "\n"
 
 

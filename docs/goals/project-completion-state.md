@@ -6,98 +6,63 @@ round.
 
 ## Current Round
 
-- Round: 14
-- Status: Phase 13 Continuous Research Review And Reporting complete,
-  verified, committed, and pushed
-- Started: 2026-05-24
-- Completed: 2026-05-24
-- Active slice: Phase 13: Continuous Research Review And Reporting
+- Round: 15
+- Status: Phase 14 LLM-Native Autonomous Iteration Controller complete and
+  verified in the implementation worktree
+- Started: 2026-05-29
+- Completed: 2026-05-29
+- Active slice: Phase 14: LLM-Native Autonomous Iteration Controller
 - Active plan source:
-  `docs/superpowers/plans/2026-05-24-phase-13-continuous-research-review.md`
+  `docs/superpowers/plans/2026-05-29-phase-14-llm-native-autonomous-iteration-controller.md`
 - Phase report:
-  `docs/goals/phase-reports/2026-05-24-phase-13-continuous-research-review-completion-report.md`
+  `docs/goals/phase-reports/2026-05-29-phase-14-llm-native-autonomous-iteration-controller-completion-report.md`
 
 ## Completed This Round
 
-- Ran Phase 13 Smart Search deep research for decision journals, trading
-  journal review cadence, strategy scorecards, stop/keep/redesign/add-data
-  decision framing, and the limits of backtesting versus forward paper testing.
-  Search evidence is under `/tmp/smart-search-evidence/20260524-phase13-review/`.
-- Verified local feasibility in an isolated worktree:
-  - existing report builders already produce daily evidence reports, weekly
-    evidence reports, AI research memos, profit governance scoreboards,
-    stopped-family ledgers, historical bootstrap reports, and rollout/tiny-live
-    disabled-execution artifacts;
-  - Phase 13 required committed review reports and decision records, not new
-    product code;
-  - local generated artifacts under ignored `var/` paths could be reviewed
-    without staging report outputs or databases.
-- Added a Phase 13 design spec and implementation plan as process
-  documentation for the documentation-only approach.
-- Added daily, weekly, and monthly review reports under
-  `docs/goals/research-reviews/`.
-- Added `docs/goals/decision-records/2026-05-24-phase-13-decision-log.md` with
-  one owner-facing status for each registered family.
+- Ran Phase 14 Smart Search research for structured LLM outputs, AI agent
+  guardrails, prompt-injection risk, GitHub Actions hardening, and agent
+  evaluation. Search evidence is under
+  `/tmp/smart-search-evidence/20260529-phase14-autonomous-iteration/`.
+- Added the Phase 14 design spec and implementation plan.
+- Added `build_iteration_cycle_report`, strict `IterationCandidate` models,
+  and deterministic rejection for uncited evidence refs, direct code-write
+  authority, missing required tests, missing source probe plans, live capital,
+  live order routing, and charter violations.
+- Added `render_iteration_cycle_markdown`.
+- Added the `iteration-cycle` CLI command with fixed planning LLM role,
+  Markdown artifact output, JSON artifact output, runtime metadata, and
+  `auto_executes_changes=false`.
+- Updated `docs/roadmap.md`, `docs/runbook.md`, and this state file to record
+  that the first safe autonomy increment exists while the autonomous
+  code-writing loop remains proposal-only and autonomous new data source
+  discovery remains probe-gated.
 - Added this round's Phase completion report.
-- Updated `docs/roadmap.md` and this state file to record that the current
-  charter-compliant roadmap has no remaining implementation gaps after Phase
-  13, while future value depends on operating the evidence campaign over time.
 
 ## Verification Evidence
 
 - Smart Search evidence:
   - `smart-search doctor --format json` returned `ok=true`.
-  - `00-deep-plan.json`, `01-search.json`, and fetched source notes
-    `02` through `05` are stored under the Phase 13 evidence directory.
-  - External findings supported decision journals, daily/weekly/monthly
-    trading review cadence, multi-metric strategy scorecards, and treating
-    backtesting as due diligence rather than profit proof.
-- Baseline feasibility:
-  isolated worktree `uv run --extra dev pytest -q` passed with 912 tests, 4
-  skipped, and 2 warnings before Phase 13 edits.
-- Local review evidence commands:
-  - `governance-report` against empty local ledgers exited 0 and classified all
-    six registered families as `add_data`.
-  - `historical-bootstrap` against empty local ledgers exited 0, kept
-    `network_route=blocked`, recorded `network_not_allowed` source steps, and
-    preserved `future_evidence_run_observations_only`.
-  - `evidence-report --daily --offline-only` exited 0 with
-    `no_validation_evidence`, `no_paper_evidence`, `no_memory_records`,
-    `data_quality_issues`, `next_experiments`, and `collect_more_data`.
-  - `evidence-report --weekly --offline-only` exited 0 with
-    `no_family_evidence` and `collect_more_data`.
-  - `ai-research-memo` exited 0 with bounded registered-validator proposals
-    and safe flags.
-  - SQLite inspection of the ignored local database found
-    `paper_outcomes=0`, `validation_evidence=0`, and three `source_health`
-    rows. The configured memory path was referenced by reports but no
-    `var/phase13/memory.jsonl` file was created because there were no memory
-    records.
-- Final deterministic full verification before staging:
-  `uv run --extra dev pytest -q` passed with 912 tests and 4 skipped in the
-  isolated worktree without local LLM credentials.
-- Final main-worktree deterministic verification after state-sync edits:
-  `CI=1 uv run --extra dev pytest -q` passed with 912 tests and 4 skipped.
-- A plain main-worktree `uv run --extra dev pytest -q` detected ignored local
-  `.env` LLM credentials and ran real LLM integration tests. One external
-  provider-dependent test failed because the provider returned
-  `invalid_proposal_schema`; this is recorded as a non-gating real LLM
-  integration signal under the project policy that full completion must not
-  depend on flaky external providers.
+  - `00-doctor.json`, `01-deep-plan.json`, `02-search-agent-safety.json`, and
+    fetched source notes `03` through `08` are stored under the Phase 14
+    evidence directory.
+  - One OpenAI guardrails URL fetch failed, so the design used the available
+    OpenAI, OWASP, and GitHub evidence already captured locally.
+- Baseline worktree verification before Phase 14 code edits:
+  `uv run --extra dev pytest -q` passed with 958 tests.
+- TDD RED checks were observed for the missing controller module, missing
+  Markdown renderer, missing CLI command, and missing Phase 14 documentation
+  contract.
+- Focused Phase 14 verification:
+  `uv run --extra dev pytest tests/test_iteration_controller.py tests/test_iteration_cycle_cli.py tests/test_documentation_contract.py -q`
+  passed with 16 tests.
+- Full verification:
+  `uv run --extra dev pytest -q` passed with 965 tests.
 - `uv run --extra dev ruff check .` passed.
 - `git diff --check` passed.
-- Staged file review:
-  `git diff --cached --name-only` listed only the nine Phase 13 documentation
-  files.
-- `git diff --cached --check` passed.
-- `git diff --cached --no-ext-diff --unified=0` was inspected; it contained
-  only Phase 13 docs, no generated `var/` reports, databases, `.env` contents,
-  or secrets.
-- Staged secret scan:
-  `uv run python -m crypto_alpha_agent.security.secret_scan --staged --fail-on-empty-with-untracked`
-  returned `[]`.
-- Phase 13 artifact commit: `9ca8966 docs: add phase 13 review records`.
-- Final state synchronization commit: `docs: finalize phase 13 state`.
+- Staged review before commit is required to include `git diff --cached
+  --check`, `git diff --cached --name-only`, `git diff --cached --no-ext-diff
+  --unified=0`, and
+  `uv run python -m crypto_alpha_agent.security.secret_scan --staged --fail-on-empty-with-untracked`.
 
 ## Current Project Target
 
@@ -170,11 +135,16 @@ the owner's broader autonomy target is larger than the completed Phase 0
 through Phase 13 roadmap. Relative to that owner autonomy target, these
 implementation gaps remain:
 
-- autonomous code-writing loop;
-- autonomous new data source discovery beyond the curated source-probe and
-  query catalogs;
-- closed auto-iteration loop that turns fresh evidence into the next validated
-  source, strategy, experiment, or code-change candidate.
+- `iteration-cycle` now starts the closed auto-iteration loop by asking the
+  configured real planning LLM for strict `IterationCandidate` records and
+  guarding them against uncited evidence, missing tests, missing source probes,
+  direct code-write authority, live capital, and live order routing.
+- autonomous code-writing loop remains proposal-only;
+- autonomous new data source discovery remains probe-gated beyond the curated
+  source-probe and query catalogs;
+- accepted iteration candidates still require human review and separate TDD
+  implementation before any source, strategy, experiment, or code-change
+  candidate can become product code.
 
 Operational evidence collection also remains necessary:
 
@@ -237,3 +207,4 @@ If work continues after Phase 13:
 | 12 | 2026-05-24 | Phase 12 profit evidence review and portfolio governance | focused Phase 12 tests 28 passed; pytest 898 passed, 4 skipped; ruff passed; diff check passed; path secret scan returned [] | `e89e008 feat: add profit governance report` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 13 | 2026-05-24 | Phase 7 final evidence campaign after factory buildout | focused Phase 7 tests 59 passed; pytest 912 passed, 4 skipped; ruff passed; diff and staged secret checks passed | `feat: add historical bootstrap campaign` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 14 | 2026-05-24 | Phase 13 continuous research review and reporting | deterministic pytest 912 passed, 4 skipped; ruff passed; diff and staged secret checks passed; local real LLM provider test failed schema and is non-gating | `9ca8966 docs: add phase 13 review records` plus final state sync | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 15 | 2026-05-29 | Phase 14 LLM-native autonomous iteration controller | focused Phase 14 tests 16 passed; pytest 965 passed; ruff passed; diff check passed; staged secret scan required before commit | Phase 14 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |

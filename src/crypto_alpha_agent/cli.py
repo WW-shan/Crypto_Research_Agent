@@ -69,11 +69,13 @@ from crypto_alpha_agent.pipeline.evidence_reports import (
 from crypto_alpha_agent.pipeline.expansion_preparation import build_expansion_preparation_report
 from crypto_alpha_agent.pipeline.governance_reports import build_profit_governance_report
 from crypto_alpha_agent.pipeline.historical_bootstrap import build_historical_bootstrap_report
+from crypto_alpha_agent.pipeline.iteration_controller import build_iteration_cycle_report
 from crypto_alpha_agent.pipeline.markdown import (
     render_ai_research_memo_markdown,
     render_daily_evidence_report_markdown,
     render_expansion_preparation_markdown,
     render_historical_bootstrap_markdown,
+    render_iteration_cycle_markdown,
     render_profit_governance_report_markdown,
     render_research_loop_markdown,
     render_weekly_evidence_report_markdown,
@@ -469,6 +471,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Operator capital profile used to cap paper notional.",
     )
     plan_experiments_parser.set_defaults(handler=_handle_plan_experiments, parser=plan_experiments_parser)
+
+    iteration_cycle_parser = subparsers.add_parser(
+        "iteration-cycle",
+        help="Ask the LLM for guarded next iteration candidates without executing changes.",
+    )
+    iteration_cycle_parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite research data store.")
+    iteration_cycle_parser.add_argument("--memory", required=True, type=Path, help="Path to the JSONL memory store.")
+    iteration_cycle_parser.add_argument("--out", required=True, type=Path, help="Path for the Markdown iteration report.")
+    iteration_cycle_parser.add_argument("--json-out", required=True, type=Path, help="Path for the machine-readable payload JSON.")
+    iteration_cycle_parser.add_argument("--strategy-family", help="Optional registered strategy family to focus.")
+    iteration_cycle_parser.add_argument(
+        "--current-capital-usd",
+        type=_non_negative_finite_float,
+        default=300.0,
+        help="Operator capital profile used for research constraints.",
+    )
+    iteration_cycle_parser.add_argument(
+        "--max-candidates",
+        type=_positive_int,
+        default=5,
+        help="Maximum LLM iteration candidates to accept after deterministic guards.",
+    )
+    iteration_cycle_parser.set_defaults(handler=_handle_iteration_cycle, parser=iteration_cycle_parser)
 
     evidence_report_parser = subparsers.add_parser(
         "evidence-report",
@@ -1046,7 +1071,7 @@ def _base_payload(command: str) -> dict[str, Any]:
 
 
 def _llm_role_for_command(command: str) -> LLMRole:
-    if command in {"plan-experiments", "schedule"}:
+    if command in {"plan-experiments", "iteration-cycle", "schedule"}:
         return "planning"
     if command in {
         "evidence-report",
@@ -1697,6 +1722,43 @@ def _handle_plan_experiments(args: argparse.Namespace) -> dict[str, Any]:
     response_metadata = result.__dict__.get("_response_metadata")
     if response_metadata is not None:
         payload["llm_response_metadata"] = response_metadata
+    return payload
+
+
+def _handle_iteration_cycle(args: argparse.Namespace) -> dict[str, Any]:
+    runtime: RealLLMRuntime = args.llm_runtime
+    try:
+        report = build_iteration_cycle_report(
+            db_path=args.db,
+            memory_path=args.memory,
+            llm=runtime.llm,
+            strategy_family=args.strategy_family,
+            current_capital_usd=args.current_capital_usd,
+            max_candidates=args.max_candidates,
+        )
+    except (LLMProviderError, LLMRuntimeError, ValueError) as exc:
+        args.parser.error(str(exc))
+        raise AssertionError("argparse parser.error should exit") from exc
+
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(render_iteration_cycle_markdown(report), encoding="utf-8")
+    payload = {
+        "command": "iteration-cycle",
+        "iteration_cycle_report_out": str(args.out),
+        "json_out": str(args.json_out),
+        "report": report.model_dump(mode="json"),
+        "accepted": report.accepted,
+        "llm_required": report.llm_required,
+        "auto_executes_changes": report.auto_executes_changes,
+        "scheduler_executes_commands": report.scheduler_executes_commands,
+        "uses_real_capital": False,
+        "live_order_routing": False,
+        **runtime.metadata(),
+    }
+    response_metadata = report.__dict__.get("_response_metadata")
+    if response_metadata is not None:
+        payload["llm_response_metadata"] = response_metadata
+    write_json_artifact(args.json_out, payload)
     return payload
 
 

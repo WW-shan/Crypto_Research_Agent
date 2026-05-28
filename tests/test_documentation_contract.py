@@ -343,6 +343,21 @@ def test_documented_representative_cli_examples_parse(tmp_path) -> None:
             "300",
         ],
         [
+            "iteration-cycle",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--memory",
+            str(tmp_path / "memory.jsonl"),
+            "--out",
+            str(tmp_path / "iteration-cycle.md"),
+            "--json-out",
+            str(tmp_path / "iteration-cycle.json"),
+            "--current-capital-usd",
+            "300",
+            "--max-candidates",
+            "3",
+        ],
+        [
             "rollout-review",
             "--db",
             str(db_path),
@@ -504,6 +519,37 @@ def test_project_reality_audit_documents_phase_status_and_owner_target_gaps() ->
             "owner autonomy target reality check",
             "not yet implemented",
             "autonomous code-writing loop",
+        ],
+    )
+
+
+def test_phase14_iteration_cycle_contract_is_documented() -> None:
+    phase_report_path = (
+        ROOT
+        / "docs"
+        / "goals"
+        / "phase-reports"
+        / "2026-05-29-phase-14-llm-native-autonomous-iteration-controller-completion-report.md"
+    )
+    state_path = ROOT / "docs" / "goals" / "project-completion-state.md"
+
+    assert phase_report_path.exists()
+    docs = "\n".join(
+        [
+            _combined_docs(),
+            _normalized(state_path),
+            _normalized(phase_report_path),
+        ]
+    )
+
+    _assert_contains(
+        docs,
+        [
+            "iteration-cycle",
+            "IterationCandidate",
+            "autonomous code-writing loop remains proposal-only",
+            "autonomous new data source discovery remains probe-gated",
+            "auto_executes_changes=false",
         ],
     )
 

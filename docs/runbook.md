@@ -90,6 +90,13 @@ uv run --extra dev crypto-alpha-agent plan-experiments \
   --memory var/memory/evidence.jsonl \
   --current-capital-usd 300
 
+uv run --extra dev crypto-alpha-agent iteration-cycle \
+  --db var/research.sqlite \
+  --memory var/memory/evidence.jsonl \
+  --out var/reports/iteration/iteration-cycle.md \
+  --json-out var/reports/iteration/iteration-cycle.json \
+  --current-capital-usd 300
+
 uv run --extra dev crypto-alpha-agent research-loop \
   --db var/research.sqlite \
   --memory var/memory/evidence.jsonl
@@ -385,7 +392,27 @@ The normal operator baseline is:
    create paper outcomes, bypass registered validators, route orders, or use
    live execution.
 
-6. If a strategy has at least 30 paper observations and clean walk-forward
+6. Run the guarded LLM-native iteration cycle:
+
+   ```bash
+   uv run --extra dev crypto-alpha-agent iteration-cycle \
+     --db var/research.sqlite \
+     --memory var/memory/evidence.jsonl \
+     --out var/reports/iteration/2026-W21-iteration-cycle.md \
+     --json-out var/reports/iteration/2026-W21-iteration-cycle.json \
+     --current-capital-usd 300 \
+     --max-candidates 5
+   ```
+
+   The command emits strict `IterationCandidate` records from the configured
+   real planning LLM and then applies deterministic guards. It is a review
+   artifact only: `auto_executes_changes=false`, autonomous code-writing loop
+   remains proposal-only, and autonomous new data source discovery remains
+   probe-gated through source discovery queries and `source-probe` targets. It
+   cannot write code, run tests, promote a `ProductionResearchSource`, place
+   orders, or schedule its own next command.
+
+7. If a strategy has at least 30 paper observations and clean walk-forward
    evidence, build a review artifact without enabling live execution:
 
    ```bash
@@ -398,7 +425,7 @@ The normal operator baseline is:
      --evidence-package-out var/rollout/funding-extremity/evidence-package.json
    ```
 
-7. Preserve the evidence package and readiness artifact for tiny-live review.
+8. Preserve the evidence package and readiness artifact for tiny-live review.
    A passing review artifact is not permission to trade.
 
 ## Historical Bootstrap Workflow

@@ -64,6 +64,8 @@ Implemented:
   - Product-level `evidence-run` locking, run manifests, JSON payloads, latest
     pointers, failed-run markers, and source-health network-route recording.
   - `plan-experiments` for bounded operator-facing experiment planning.
+  - `iteration-cycle` for LLM-native, evidence-cited next-iteration
+    candidates that remain review-only and write no code.
   - `evidence-report` daily and weekly Markdown builders.
   - `governance-report` profit governance Markdown builder with family
     scoreboards, stopped-family ledger, paper-only portfolio selector, and
@@ -339,20 +341,34 @@ desired tool: it should eventually use LLM-native reasoning to find new
 opportunities, find new data sources, and iterate toward better research
 systems.
 
-Relative to the completed Phase 0 through Phase 13 roadmap, this broader owner
-autonomy target is not yet implemented in three areas:
+Phase 14 adds the first LLM-native autonomous iteration controller:
+`iteration-cycle`. It builds the AI research context, expansion-preparation
+facts, and profit-governance facts, asks the configured real planning LLM for
+strict `IterationCandidate` JSON, and then applies deterministic guards for
+evidence refs, required tests, source probe plans, direct-code-write authority,
+real capital, live routing, and charter safety.
 
-- autonomous code-writing loop;
-- autonomous new data source discovery outside the curated source-probe and
-  query catalogs;
-- closed auto-iteration loop that repeatedly turns evidence into the next
-  validated source, strategy, experiment, or code-change candidate.
+This is a safe autonomy increment, not full self-improvement. The full owner
+autonomy target is not yet implemented. The command records
+`auto_executes_changes=false`, does not execute generated code, does not
+promote data sources, does not run scheduler jobs, and cannot report product
+success if the real LLM gate or structured output validation fails.
+
+Relative to the completed Phase 0 through Phase 14 roadmap, this broader owner
+autonomy target still has these gaps:
+
+- autonomous code-writing loop remains proposal-only;
+- autonomous new data source discovery remains probe-gated outside the curated
+  source-probe and query catalogs;
+- closed auto-iteration loop is started by `iteration-cycle`, but repeated
+  execution, evidence re-ingestion, and implementation of accepted candidates
+  still require human review and separate TDD work.
 
 The current implementation does have bounded AI experiment planning,
 source-probe workflows, expansion-preparation reports, evidence runs,
-governance, and LLM-native command gates. Those are necessary inputs for the
-autonomy target, but they are not the same thing as self-coding or autonomous
-unknown-source discovery.
+governance, LLM-native command gates, and guarded iteration candidates. Those
+are necessary inputs for the autonomy target, but they are not the same thing
+as self-coding or autonomous unknown-source discovery.
 
 Any next phase for this owner autonomy target must keep the existing LLM-native
 rule: if the real LLM connection, structured JSON schema validation, evidence
