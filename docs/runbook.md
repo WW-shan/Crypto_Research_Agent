@@ -43,6 +43,29 @@ capital.
    logs in `var/log/`, locks in `var/locks/`, and rollout artifacts in
    `var/rollout/`.
 
+### VPS Docker Operations
+
+For unattended VPS operation, use the Docker Compose plus host `systemd` timer
+layer documented in `docs/vps-deployment.md`. Docker Compose builds the fixed
+runtime and mounts `./var:/app/var`; systemd timers call short-lived wrappers
+instead of turning the agent into an internal daemon.
+
+The standard timers are:
+
+- `crypto-alpha-daily.timer` for daily `evidence-run`.
+- `crypto-alpha-weekly.timer` for `governance-report`,
+  `ai-research-memo`, and `iteration-cycle`.
+- `crypto-alpha-monthly.timer` for owner `rollout-review` packages.
+- `crypto-alpha-backup.timer` for SQLite, memory, reports, and manifest
+  backups.
+
+Run `docker compose run --rm crypto-alpha-agent llm-health-check` before
+enabling timers. If the real LLM connection, structured schema response, or
+runtime gate fails, leave the timers stopped. Expected VPS latest outputs
+include `var/reports/daily/latest.md`,
+`var/reports/iteration/latest.json`, and `var/run-manifests/latest.json`.
+Secrets remain in local `.env`; `.env stays outside git`.
+
 ## Environment
 
 No exchange keys, wallet private keys, RPC secrets, or live API credentials are

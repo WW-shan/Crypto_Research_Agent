@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Crypto Alpha Agent daily var backup
+
+[Timer]
+OnCalendar=*-*-* 04:15:00 UTC
+Persistent=true
+RandomizedDelaySec=15m
+Unit=crypto-alpha-backup.service
+
+[Install]
+WantedBy=timers.target

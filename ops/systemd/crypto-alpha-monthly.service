@@ -1,0 +1,11 @@
+[Unit]
+Description=Crypto Alpha Agent monthly owner rollout review
+Wants=docker.service network-online.target
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/crypto-alpha-agent
+Environment=CRYPTO_ALPHA_AGENT_REPO=/opt/crypto-alpha-agent
+Environment=CRYPTO_ALPHA_AGENT_REVIEW_FAMILY=funding_extremity_price_confirmation
+ExecStart=/opt/crypto-alpha-agent/ops/monthly-owner-review.sh

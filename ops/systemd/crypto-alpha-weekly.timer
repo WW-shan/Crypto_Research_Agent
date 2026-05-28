@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Crypto Alpha Agent weekly governance and iteration review
+
+[Timer]
+OnCalendar=Mon *-*-* 02:15:00 UTC
+Persistent=true
+RandomizedDelaySec=20m
+Unit=crypto-alpha-weekly.service
+
+[Install]
+WantedBy=timers.target

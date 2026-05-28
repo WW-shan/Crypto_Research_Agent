@@ -1,0 +1,13 @@
+services:
+  crypto-alpha-agent:
+    build:
+      context: .
+    image: crypto-alpha-agent:local
+    env_file:
+      - .env
+    working_dir: /app
+    volumes:
+      - ./var:/app/var
+      - ./.env:/app/.env:ro
+    command: ["--help"]
+    restart: "no"

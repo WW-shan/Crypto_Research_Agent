@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Crypto Alpha Agent daily evidence collection
+
+[Timer]
+OnCalendar=*-*-* 01:15:00 UTC
+Persistent=true
+RandomizedDelaySec=10m
+Unit=crypto-alpha-daily.service
+
+[Install]
+WantedBy=timers.target

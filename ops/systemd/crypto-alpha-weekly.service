@@ -1,0 +1,10 @@
+[Unit]
+Description=Crypto Alpha Agent weekly LLM-native research review
+Wants=docker.service network-online.target
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/crypto-alpha-agent
+Environment=CRYPTO_ALPHA_AGENT_REPO=/opt/crypto-alpha-agent
+ExecStart=/opt/crypto-alpha-agent/ops/weekly-review.sh

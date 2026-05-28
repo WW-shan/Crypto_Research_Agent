@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Crypto Alpha Agent monthly owner review package
+
+[Timer]
+OnCalendar=*-*-01 03:15:00 UTC
+Persistent=true
+RandomizedDelaySec=30m
+Unit=crypto-alpha-monthly.service
+
+[Install]
+WantedBy=timers.target

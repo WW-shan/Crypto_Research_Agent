@@ -75,6 +75,9 @@ Implemented:
     governance classification, and 30/60/90 evidence targets.
   - `rollout-review` CLI that preserves the strategy-specific evidence package.
   - External operator-controlled scheduling handoff documented in the runbook.
+  - VPS-ready Docker Compose runtime, ops shell wrappers, and host `systemd`
+    timers for unattended daily evidence runs, weekly reviews, monthly owner
+    review packages, and backups.
 
 Current limits that remain outside the completed safe research-loop milestone:
 
@@ -83,10 +86,12 @@ Current limits that remain outside the completed safe research-loop milestone:
   library is future expansion, not a blocker for the first milestone.
 - The LLM loop is opt-in and constrained to research contracts; it is not a
   substitute for historical validation or paper evidence.
-- The scheduler remains operator-controlled and dry-run only, but the runbook
-  now documents a complete scheduling handoff for `evidence-run`.
-- External scheduler remains operator-controlled even though the runbook now
-  documents complete scheduling handoff details for `evidence-run`.
+- Scheduler planning remains operator-controlled and dry-run only, while the
+  VPS operations layer now provides host-controlled Docker Compose jobs through
+  systemd timers. There is still no internal daemon and no autonomous live
+  execution.
+  External scheduler remains operator-controlled; the complete scheduling handoff
+  now includes Docker Compose wrappers and systemd timers.
 - Paper simulation, outcome ledger, evidence reporting, and memory feedback are
   operational. Longer paper evidence collection is still required before any
   tiny-live review can even be considered.
@@ -374,6 +379,41 @@ Any next phase for this owner autonomy target must keep the existing LLM-native
 rule: if the real LLM connection, structured JSON schema validation, evidence
 reference validation, or guard validation fails, the command fails closed
 instead of reporting product success.
+
+### Phase 15: VPS Docker Operations Runtime
+
+Goal: Make the LLM-native evidence factory runnable on a VPS without changing
+the charter or adding live execution.
+
+Delivered:
+
+- Added a Dockerfile and `docker-compose.yml` for a repeatable Python 3.12,
+  `uv`, non-root application runtime.
+- Added `.dockerignore` rules that keep `.env`, local databases, worktrees,
+  virtualenvs, caches, logs, and `var/` artifacts out of the image build
+  context.
+- Added ops wrappers for daily `evidence-run`, weekly `governance-report`,
+  weekly `ai-research-memo`, weekly `iteration-cycle`, monthly
+  `rollout-review`, and backup jobs.
+- Added systemd service/timer units:
+  `crypto-alpha-daily.timer`, `crypto-alpha-weekly.timer`,
+  `crypto-alpha-monthly.timer`, and `crypto-alpha-backup.timer`.
+- Added `docs/vps-deployment.md` with build, LLM health check, dry-run,
+  timer installation, artifact, log, failure, backup, and update guidance.
+
+Completion standard:
+
+- VPS operation remains external and host-controlled: Docker Compose supplies
+  the runtime; systemd supplies the schedule.
+- The daily job updates `var/reports/daily/latest.md` and
+  `var/run-manifests/latest.json`; the weekly job updates
+  `var/reports/iteration/latest.json`.
+- A failed `llm-health-check` or product command-level LLM gate means the
+  scheduled job fails closed instead of counting as project success.
+- `iteration-cycle` still records `auto_executes_changes=false`; accepted
+  candidates require human review and separate TDD implementation.
+- No wallet-key access, order routing, live execution, or live capital is
+  introduced.
 
 #### Immediate Phase 0: Worktree And Configuration Closeout
 

@@ -17,6 +17,7 @@ DOC_PATHS = {
     "tiny_live": ROOT / "docs" / "tiny-live-readiness.md",
     "source_coverage": ROOT / "docs" / "source-coverage-matrix.md",
     "source_query_catalog": ROOT / "docs" / "source-query-catalog.md",
+    "vps": ROOT / "docs" / "vps-deployment.md",
 }
 
 
@@ -64,6 +65,11 @@ def test_operator_workflow_contract_is_documented_across_docs() -> None:
             "replay",
             "cron",
             "systemd",
+            "docker compose",
+            "crypto-alpha-daily.timer",
+            "var/reports/iteration/latest.json",
+            "failed marker",
+            "auto_executes_changes=false",
             "log paths",
             "run locking",
             "idempotency",
@@ -549,6 +555,33 @@ def test_phase14_iteration_cycle_contract_is_documented() -> None:
             "IterationCandidate",
             "autonomous code-writing loop remains proposal-only",
             "autonomous new data source discovery remains probe-gated",
+            "auto_executes_changes=false",
+        ],
+    )
+
+
+def test_vps_docker_operations_contract_is_documented() -> None:
+    vps = _read(DOC_PATHS["vps"])
+    docs = "\n".join([_combined_docs(), vps.lower()])
+
+    _assert_contains(
+        docs,
+        [
+            "Docker Compose",
+            "systemd",
+            "crypto-alpha-daily.timer",
+            "crypto-alpha-weekly.timer",
+            "crypto-alpha-monthly.timer",
+            "crypto-alpha-backup.timer",
+            "var/research.sqlite",
+            "var/memory/evidence.jsonl",
+            "var/reports/daily/latest.md",
+            "var/reports/iteration/latest.json",
+            "var/run-manifests/latest.json",
+            "failed marker",
+            ".env stays outside git",
+            "llm-health-check",
+            "no live order routing",
             "auto_executes_changes=false",
         ],
     )

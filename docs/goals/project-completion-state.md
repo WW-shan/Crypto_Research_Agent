@@ -6,59 +6,59 @@ round.
 
 ## Current Round
 
-- Round: 15
-- Status: Phase 14 LLM-Native Autonomous Iteration Controller complete and
-  verified in the implementation worktree
+- Round: 16
+- Status: Phase 15 VPS Docker Operations Runtime complete and verified in the
+  implementation worktree
 - Started: 2026-05-29
 - Completed: 2026-05-29
-- Active slice: Phase 14: LLM-Native Autonomous Iteration Controller
+- Active slice: Phase 15: VPS Docker Operations Runtime
 - Active plan source:
-  `docs/superpowers/plans/2026-05-29-phase-14-llm-native-autonomous-iteration-controller.md`
+  `docs/superpowers/plans/2026-05-29-phase-15-vps-docker-operations-runtime.md`
 - Phase report:
-  `docs/goals/phase-reports/2026-05-29-phase-14-llm-native-autonomous-iteration-controller-completion-report.md`
+  `docs/goals/phase-reports/2026-05-29-phase-15-vps-docker-operations-runtime-completion-report.md`
 
 ## Completed This Round
 
-- Ran Phase 14 Smart Search research for structured LLM outputs, AI agent
-  guardrails, prompt-injection risk, GitHub Actions hardening, and agent
-  evaluation. Search evidence is under
-  `/tmp/smart-search-evidence/20260529-phase14-autonomous-iteration/`.
-- Added the Phase 14 design spec and implementation plan.
-- Added `build_iteration_cycle_report`, strict `IterationCandidate` models,
-  and deterministic rejection for uncited evidence refs, direct code-write
-  authority, missing required tests, missing source probe plans, live capital,
-  live order routing, and charter violations.
-- Added `render_iteration_cycle_markdown`.
-- Added the `iteration-cycle` CLI command with fixed planning LLM role,
-  Markdown artifact output, JSON artifact output, runtime metadata, and
-  `auto_executes_changes=false`.
-- Updated `docs/roadmap.md`, `docs/runbook.md`, and this state file to record
-  that the first safe autonomy increment exists while the autonomous
-  code-writing loop remains proposal-only and autonomous new data source
-  discovery remains probe-gated.
+- Added the Phase 15 design spec and implementation plan for the recommended
+  VPS operations shape: Docker Compose runtime plus host systemd timers.
+- Added `Dockerfile`, `.dockerignore`, and `docker-compose.yml` for a
+  repeatable Python 3.12/uv runtime that keeps `.env`, local worktrees,
+  virtualenvs, caches, logs, databases, and `var/` artifacts out of the image.
+- Added ops wrappers for daily `evidence-run`, weekly `governance-report`,
+  weekly `ai-research-memo`, weekly `iteration-cycle`, monthly
+  `rollout-review`, backups, and systemd unit installation.
+- Added systemd one-shot services and timers:
+  `crypto-alpha-daily.timer`, `crypto-alpha-weekly.timer`,
+  `crypto-alpha-monthly.timer`, and `crypto-alpha-backup.timer`.
+- Added `docs/vps-deployment.md` with VPS build, `.env`, LLM health check,
+  dry-run, timer installation, outputs, logs, failed marker, backup, update,
+  and safety-boundary instructions.
+- Updated docs contracts, roadmap, runbook, and this state file so the
+  operator workflow records that unattended collection is host-controlled and
+  still LLM-native.
 - Added this round's Phase completion report.
 
 ## Verification Evidence
 
-- Smart Search evidence:
-  - `smart-search doctor --format json` returned `ok=true`.
-  - `00-doctor.json`, `01-deep-plan.json`, `02-search-agent-safety.json`, and
-    fetched source notes `03` through `08` are stored under the Phase 14
-    evidence directory.
-  - One OpenAI guardrails URL fetch failed, so the design used the available
-    OpenAI, OWASP, and GitHub evidence already captured locally.
-- Baseline worktree verification before Phase 14 code edits:
-  `uv run --extra dev pytest -q` passed with 958 tests.
-- TDD RED checks were observed for the missing controller module, missing
-  Markdown renderer, missing CLI command, and missing Phase 14 documentation
-  contract.
-- Focused Phase 14 verification:
-  `uv run --extra dev pytest tests/test_iteration_controller.py tests/test_iteration_cycle_cli.py tests/test_documentation_contract.py -q`
-  passed with 16 tests.
+- Baseline worktree verification before Phase 15 code edits:
+  `uv run --extra dev pytest -q` passed with 968 tests.
+- TDD RED check was observed for missing VPS ops files:
+  `uv run --extra dev pytest tests/test_vps_ops.py -q` failed with missing
+  Docker, ops, systemd, and VPS deployment documentation artifacts.
+- Docker-only intermediate verification showed Docker runtime tests passing
+  while ops/systemd/docs tests still failed, then ops and systemd checks were
+  brought green incrementally.
+- A dry-run compatibility regression was reproduced on macOS bash 3:
+  `ops/weekly-review.sh` failed on `declare -n`; a portable dry-run test was
+  added before replacing the nameref usage.
+- Focused Phase 15 verification:
+  `uv run --extra dev pytest tests/test_vps_ops.py tests/test_documentation_contract.py -q`
+  passed with 19 tests, then the portable dry-run regression test brought the
+  focused contract total to 24 passing checks.
 - Full verification:
-  `uv run --extra dev pytest -q` passed with 965 tests.
-- `uv run --extra dev ruff check .` passed.
-- `git diff --check` passed.
+  `uv run --extra dev pytest -q` passed with 982 tests.
+- `uv run --extra dev ruff check .`, `git diff --check`, staged diff checks,
+  and staged secret scan are required before commit.
 - Staged review before commit is required to include `git diff --cached
   --check`, `git diff --cached --name-only`, `git diff --cached --no-ext-diff
   --unified=0`, and
@@ -108,6 +108,9 @@ evidence-grounded AI research planning, and profit governance review active:
   packages, AI memos, strategy scoreboards, stopped-family ledgers, and
   finished artifacts, then record explicit family and major-cycle decisions
   tied to evidence references instead of AI narrative.
+- Phase 15 VPS operations layer that runs the LLM-native evidence factory as
+  host-controlled Docker Compose jobs scheduled by systemd timers, with durable
+  `var/` mounts, latest pointers, failed markers, logs, and backups.
 
 ## Known Hard Boundaries
 
@@ -126,9 +129,10 @@ evidence-grounded AI research planning, and profit governance review active:
 
 ## Known Remaining Gaps
 
-The Phase 0 through Phase 13 charter-compliant evidence-factory roadmap is
-implemented, verified, committed, and pushed. The LLM-native runtime follow-up
-also removed deterministic-only product success paths.
+The Phase 0 through Phase 15 charter-compliant evidence-factory roadmap is
+implemented and verified in the current worktree. The LLM-native runtime
+follow-up removed deterministic-only product success paths, and Phase 15 adds
+the VPS Docker/systemd operations layer for unattended evidence collection.
 
 Reality audit: `docs/goals/project-reality-audit-2026-05-29.md` records that
 the owner's broader autonomy target is larger than the completed Phase 0
@@ -139,6 +143,9 @@ implementation gaps remain:
   configured real planning LLM for strict `IterationCandidate` records and
   guarding them against uncited evidence, missing tests, missing source probes,
   direct code-write authority, live capital, and live order routing.
+- VPS unattended operation is now available through Docker Compose and systemd
+  timers, but it only repeats the existing LLM-native evidence/report/review
+  jobs and does not create an internal daemon or live execution path.
 - autonomous code-writing loop remains proposal-only;
 - autonomous new data source discovery remains probe-gated beyond the curated
   source-probe and query catalogs;
@@ -208,3 +215,4 @@ If work continues after Phase 13:
 | 13 | 2026-05-24 | Phase 7 final evidence campaign after factory buildout | focused Phase 7 tests 59 passed; pytest 912 passed, 4 skipped; ruff passed; diff and staged secret checks passed | `feat: add historical bootstrap campaign` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 14 | 2026-05-24 | Phase 13 continuous research review and reporting | deterministic pytest 912 passed, 4 skipped; ruff passed; diff and staged secret checks passed; local real LLM provider test failed schema and is non-gating | `9ca8966 docs: add phase 13 review records` plus final state sync | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 15 | 2026-05-29 | Phase 14 LLM-native autonomous iteration controller | focused Phase 14 tests 16 passed; pytest 965 passed; ruff passed; diff check passed; staged secret scan required before commit | Phase 14 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 16 | 2026-05-29 | Phase 15 VPS Docker operations runtime | focused VPS/docs contracts 24 passed; pytest 982 passed; final ruff, diff, staged diff, and staged secret checks required before commit | Phase 15 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
