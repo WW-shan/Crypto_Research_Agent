@@ -193,7 +193,7 @@ def build_iteration_cycle_report(
             response_metadata=response_metadata,
         )
 
-    rejected_reason_codes = list(batch.rejected_reason_codes)
+    rejected_reason_codes: list[str] = []
     if batch.uses_real_capital:
         rejected_reason_codes.append("live_capital_requested")
     if batch.live_order_routing:

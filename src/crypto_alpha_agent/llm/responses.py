@@ -227,6 +227,34 @@ def _text_format_for_task(task: Any) -> dict[str, Any] | None:
                 ],
             },
         )
+    if task_type == "IterationControllerTask":
+        return _json_schema_text_format(
+            "IterationCandidateBatch",
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "candidates": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": _iteration_max_candidates(task),
+                        "items": _iteration_candidate_schema(),
+                    },
+                    "rejected_reason_codes": _string_list_schema(
+                        min_items=0,
+                        max_items=32,
+                    ),
+                    "uses_real_capital": {"type": "boolean", "enum": [False]},
+                    "live_order_routing": {"type": "boolean", "enum": [False]},
+                },
+                "required": [
+                    "candidates",
+                    "rejected_reason_codes",
+                    "uses_real_capital",
+                    "live_order_routing",
+                ],
+            },
+        )
     if task_type == "LLMHealthCheckTask":
         return _json_schema_text_format(
             "LLMHealthCheckResult",
@@ -336,6 +364,77 @@ def _experiment_proposal_payload_schema(task: Any) -> dict[str, Any]:
             "live_order_routing",
         ],
     }
+
+
+def _iteration_candidate_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "kind": {
+                "type": "string",
+                "enum": [
+                    "new_data_source",
+                    "new_strategy_validator",
+                    "validator_change",
+                    "experiment_parameter_change",
+                    "code_change_request",
+                ],
+            },
+            "title": {"type": "string"},
+            "rationale": {"type": "string"},
+            "evidence_refs": _string_list_schema(min_items=1, max_items=12),
+            "expected_value": {"type": "string"},
+            "risk_level": {
+                "type": "string",
+                "enum": ["low", "medium", "high", "blocked"],
+            },
+            "next_actions": _string_list_schema(min_items=1, max_items=12),
+            "required_tests": _string_list_schema(min_items=1, max_items=12),
+            "required_data_fields": _string_list_schema(min_items=1, max_items=24),
+            "source_discovery_queries": _string_list_schema(
+                min_items=0,
+                max_items=8,
+            ),
+            "source_probe_targets": _string_list_schema(
+                min_items=0,
+                max_items=8,
+            ),
+            "strategy_family": {"type": ["string", "null"]},
+            "target_files": _string_list_schema(min_items=0, max_items=12),
+            "human_review_required": {"type": "boolean", "enum": [True]},
+            "direct_code_write_authorized": {"type": "boolean", "enum": [False]},
+            "uses_real_capital": {"type": "boolean", "enum": [False]},
+            "live_order_routing": {"type": "boolean", "enum": [False]},
+        },
+        "required": [
+            "kind",
+            "title",
+            "rationale",
+            "evidence_refs",
+            "expected_value",
+            "risk_level",
+            "next_actions",
+            "required_tests",
+            "required_data_fields",
+            "source_discovery_queries",
+            "source_probe_targets",
+            "strategy_family",
+            "target_files",
+            "human_review_required",
+            "direct_code_write_authorized",
+            "uses_real_capital",
+            "live_order_routing",
+        ],
+    }
+
+
+def _iteration_max_candidates(task: Any) -> int:
+    controller_input = getattr(task, "controller_input", None)
+    value = getattr(controller_input, "max_candidates", 5)
+    if isinstance(value, int) and 1 <= value <= 10:
+        return value
+    return 5
 
 
 def _planner_schema_values(task: Any) -> dict[str, Any]:
@@ -580,6 +679,27 @@ def _schema_hint_for_task(task: Any) -> str:
             "caveats. Do not write phrases containing live, order, routing, "
             "capital, or execution in summary or caveats; say research-only and "
             "public-data-only instead."
+        )
+    if task_type == "IterationControllerTask":
+        return (
+            "Schema instructions: return exactly one IterationCandidateBatch JSON "
+            "object with candidates, rejected_reason_codes, uses_real_capital=false, "
+            "and live_order_routing=false. Each IterationCandidate must contain "
+            "exactly these fields: kind, title, rationale, evidence_refs, "
+            "expected_value, risk_level, next_actions, required_tests, "
+            "required_data_fields, source_discovery_queries, source_probe_targets, "
+            "strategy_family, target_files, human_review_required, "
+            "direct_code_write_authorized, uses_real_capital, and "
+            "live_order_routing. Use only kind values from allowed_candidate_kinds. "
+            "Use only evidence_refs from the task evidence_refs list. Set "
+            "human_review_required=true, direct_code_write_authorized=false, "
+            "uses_real_capital=false, and live_order_routing=false. For "
+            "new_data_source, include at least one string in source_discovery_queries "
+            "or source_probe_targets. For code_change_request, include target_files "
+            "and required_tests. Do not include candidate_id, candidate_kind, "
+            "tool_refs, provider, feed, source_id, discovery_queries, "
+            "acceptance_criteria, preconditions, validator_scope, proposed_parameters, "
+            "or any other extra fields."
         )
     if task_type == "LLMHealthCheckTask":
         return (

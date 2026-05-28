@@ -57,6 +57,20 @@ def test_iteration_cycle_accepts_safe_code_change_request(tmp_path):
     assert result.candidates[0].direct_code_write_authorized is False
 
 
+def test_iteration_cycle_does_not_trust_llm_rejected_reason_codes(tmp_path):
+    result = build_iteration_cycle_report(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        llm=lambda task: _llm_response(
+            rejected_reason_codes=["llm_supplied_context_note"]
+        ),
+        current_capital_usd=300,
+    )
+
+    assert result.accepted is True
+    assert result.rejected_reason_codes == []
+
+
 def test_iteration_cycle_rejects_unknown_evidence_refs(tmp_path):
     result = build_iteration_cycle_report(
         db_path=tmp_path / "research.sqlite",

@@ -1744,10 +1744,12 @@ def _handle_iteration_cycle(args: argparse.Namespace) -> dict[str, Any]:
     args.out.write_text(render_iteration_cycle_markdown(report), encoding="utf-8")
     payload = {
         "command": "iteration-cycle",
+        "exit_code": 0 if report.accepted else 2,
         "iteration_cycle_report_out": str(args.out),
         "json_out": str(args.json_out),
         "report": report.model_dump(mode="json"),
         "accepted": report.accepted,
+        "reason_code": None if report.accepted else "iteration_cycle_rejected",
         "llm_required": report.llm_required,
         "auto_executes_changes": report.auto_executes_changes,
         "scheduler_executes_commands": report.scheduler_executes_commands,

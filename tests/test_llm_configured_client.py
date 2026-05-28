@@ -15,6 +15,10 @@ from crypto_alpha_agent.pipeline.experiment_planner import (
     ExperimentPlannerMemoryContext,
     ExperimentPlannerTask,
 )
+from crypto_alpha_agent.pipeline.iteration_controller import (
+    IterationControllerInput,
+    IterationControllerTask,
+)
 from crypto_alpha_agent.pipeline.llm_judgements import LLMJudgementTask
 from crypto_alpha_agent.config import LLMSettings, build_configured_llm_settings
 from crypto_alpha_agent.llm import (
@@ -419,6 +423,84 @@ def test_responses_adapter_uses_json_schema_format_for_planner_task() -> None:
         "live_order_routing",
     }
     assert parameter_schema["additionalProperties"] is False
+
+
+def test_responses_adapter_uses_json_schema_format_for_iteration_controller_task() -> None:
+    session = _FakeSession(_FakeResponse(payload={"output_text": "{}"}))
+    adapter = OpenAIResponsesAdapter(_settings(), session=session)
+    task = IterationControllerTask(
+        task_id="iteration-controller:schema-format",
+        objective="Plan guarded next iteration candidates.",
+        controller_input=IterationControllerInput(
+            db_path="research.sqlite",
+            memory_path="memory.jsonl",
+            strategy_family=None,
+            current_capital_usd=300.0,
+            max_candidates=5,
+        ),
+        research_context={},
+        expansion_preparation={},
+        profit_governance={},
+        evidence_refs=[
+            "goal:owner_autonomy_target",
+            "source_catalog:expansion_candidates",
+        ],
+        allowed_candidate_kinds=[
+            "new_data_source",
+            "code_change_request",
+        ],
+        constraints=[],
+        allowed_tools=["source_probe_catalog", "charter_guard"],
+    )
+
+    adapter(task)
+
+    request_payload = session.calls[0]["json"]
+    prompt = str(request_payload["input"])
+    text_format = request_payload["text"]["format"]
+    candidate_schema = text_format["schema"]["properties"]["candidates"]["items"]
+
+    assert "IterationCandidate" in prompt
+    assert "candidate_kind" in prompt
+    assert text_format["type"] == "json_schema"
+    assert text_format["name"] == "IterationCandidateBatch"
+    assert text_format["strict"] is True
+    assert text_format["schema"]["additionalProperties"] is False
+    assert text_format["schema"]["properties"]["rejected_reason_codes"]["minItems"] == 0
+    assert candidate_schema["additionalProperties"] is False
+    assert "candidate_kind" not in candidate_schema["properties"]
+    assert "discovery_queries" not in candidate_schema["properties"]
+    assert set(candidate_schema["required"]) == {
+        "kind",
+        "title",
+        "rationale",
+        "evidence_refs",
+        "expected_value",
+        "risk_level",
+        "next_actions",
+        "required_tests",
+        "required_data_fields",
+        "source_discovery_queries",
+        "source_probe_targets",
+        "strategy_family",
+        "target_files",
+        "human_review_required",
+        "direct_code_write_authorized",
+        "uses_real_capital",
+        "live_order_routing",
+    }
+    assert candidate_schema["properties"]["kind"]["enum"] == [
+        "new_data_source",
+        "new_strategy_validator",
+        "validator_change",
+        "experiment_parameter_change",
+        "code_change_request",
+    ]
+    assert candidate_schema["properties"]["required_tests"]["minItems"] == 1
+    assert candidate_schema["properties"]["source_discovery_queries"]["minItems"] == 0
+    assert candidate_schema["properties"]["source_probe_targets"]["minItems"] == 0
+    assert candidate_schema["properties"]["target_files"]["minItems"] == 0
+    assert candidate_schema["properties"]["direct_code_write_authorized"]["enum"] == [False]
 
 
 def test_responses_adapter_uses_json_schema_format_for_judgement_task() -> None:

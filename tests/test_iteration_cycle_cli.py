@@ -67,6 +67,28 @@ def _iteration_response() -> str:
     )
 
 
+def _invalid_iteration_response() -> str:
+    return json.dumps(
+        {
+            "candidates": [
+                {
+                    "candidate_kind": "new_data_source",
+                    "title": "Probe source with legacy field names",
+                    "rationale": "This deliberately does not match IterationCandidate.",
+                    "evidence_refs": ["goal:owner_autonomy_target"],
+                    "tool_refs": ["source-probe"],
+                    "discovery_queries": ["public derivatives open interest API"],
+                    "source_probe_targets": [{"target": "binance_usdm_open_interest_history"}],
+                    "human_review_required": True,
+                    "direct_code_write_authorized": False,
+                    "uses_real_capital": False,
+                    "live_order_routing": False,
+                }
+            ]
+        }
+    )
+
+
 def test_iteration_cycle_cli_writes_markdown_and_json(
     capsys,
     monkeypatch,
@@ -123,3 +145,44 @@ def test_iteration_cycle_cli_writes_markdown_and_json(
     assert persisted_payload["command"] == "iteration-cycle"
     assert "# Iteration Cycle Report" in markdown
     assert "Direct code write authorized: false" in markdown
+
+
+def test_iteration_cycle_cli_fails_when_llm_schema_is_rejected(
+    capsys,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    runtime = _IterationRuntime(_invalid_iteration_response(), role="planning")
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.build_required_real_llm_runtime",
+        lambda *, role: runtime,
+    )
+    markdown_path = tmp_path / "iteration-cycle.md"
+    json_path = tmp_path / "iteration-cycle.json"
+
+    exit_code = main(
+        [
+            "iteration-cycle",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--memory",
+            str(tmp_path / "memory.jsonl"),
+            "--out",
+            str(markdown_path),
+            "--json-out",
+            str(json_path),
+            "--current-capital-usd",
+            "300",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 2
+    assert payload["exit_code"] == 2
+    assert payload["reason_code"] == "iteration_cycle_rejected"
+    assert payload["report"]["accepted"] is False
+    assert payload["report"]["rejected_reason_codes"] == ["invalid_llm_schema"]
+    assert json_path.exists()
+    assert markdown_path.exists()
