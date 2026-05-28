@@ -108,7 +108,7 @@ Modify:
 - Modify: `src/crypto_alpha_agent/llm/__init__.py`
 - Test: `tests/test_llm_native_runtime.py`
 
-- [ ] **Step 1: Write failing runtime tests**
+- [x] **Step 1: Write failing runtime tests**
 
 Add `tests/test_llm_native_runtime.py`:
 
@@ -189,7 +189,7 @@ def test_build_required_real_llm_runtime_fails_when_env_missing(tmp_path: Path) 
         build_required_real_llm_runtime(env_file=env_path, role="research")
 ```
 
-- [ ] **Step 2: Run failing runtime tests**
+- [x] **Step 2: Run failing runtime tests**
 
 Run:
 
@@ -199,7 +199,7 @@ uv run --extra dev pytest tests/test_llm_native_runtime.py -q
 
 Expected: FAIL because `crypto_alpha_agent.llm.runtime` does not exist.
 
-- [ ] **Step 3: Implement runtime module**
+- [x] **Step 3: Implement runtime module**
 
 Create `src/crypto_alpha_agent/llm/runtime.py`:
 
@@ -322,7 +322,7 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"invalid JSON constant: {value}")
 ```
 
-- [ ] **Step 4: Add required builder in config**
+- [x] **Step 4: Add required builder in config**
 
 Modify `src/crypto_alpha_agent/config.py`:
 
@@ -349,7 +349,7 @@ def build_required_real_llm(
 Keep `build_configured_llm_settings` for low-level configuration tests. Product
 CLI code will stop importing `build_configured_llm`.
 
-- [ ] **Step 5: Export runtime API**
+- [x] **Step 5: Export runtime API**
 
 Modify `src/crypto_alpha_agent/llm/__init__.py`:
 
@@ -366,7 +366,7 @@ from crypto_alpha_agent.llm.runtime import (
 
 Add these names to `__all__`.
 
-- [ ] **Step 6: Run runtime tests**
+- [x] **Step 6: Run runtime tests**
 
 Run:
 
@@ -376,7 +376,7 @@ uv run --extra dev pytest tests/test_llm_native_runtime.py -q
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit runtime layer**
+- [x] **Step 7: Commit runtime layer**
 
 ```bash
 git add src/crypto_alpha_agent/config.py src/crypto_alpha_agent/llm/__init__.py src/crypto_alpha_agent/llm/runtime.py tests/test_llm_native_runtime.py
@@ -391,7 +391,7 @@ git commit -m "feat: add required llm runtime"
 - Modify: `src/crypto_alpha_agent/llm/responses.py`
 - Test: `tests/test_cli_llm_native_gate.py`
 
-- [ ] **Step 1: Write failing CLI gate tests**
+- [x] **Step 1: Write failing CLI gate tests**
 
 Add `tests/test_cli_llm_native_gate.py`:
 
@@ -473,7 +473,7 @@ def test_offline_only_argument_is_removed(capsys: pytest.CaptureFixture[str], tm
     assert "unrecognized arguments: --offline-only" in captured.err
 ```
 
-- [ ] **Step 2: Run failing CLI gate tests**
+- [x] **Step 2: Run failing CLI gate tests**
 
 Run:
 
@@ -483,7 +483,7 @@ uv run --extra dev pytest tests/test_cli_llm_native_gate.py -q
 
 Expected: FAIL because `llm-health-check` and the global LLM gate do not exist.
 
-- [ ] **Step 3: Add CLI version and health command**
+- [x] **Step 3: Add CLI version and health command**
 
 In `src/crypto_alpha_agent/cli.py`, import runtime:
 
@@ -511,7 +511,7 @@ llm_health_parser = subparsers.add_parser(
 llm_health_parser.set_defaults(handler=_handle_llm_health_check, llm_gate_bypass=True)
 ```
 
-- [ ] **Step 4: Replace main with fail-closed global gate**
+- [x] **Step 4: Replace main with fail-closed global gate**
 
 Update `main()`:
 
@@ -561,7 +561,7 @@ def _llm_preflight_failure_payload(command: str, exc: LLMRuntimeError) -> dict[s
     }
 ```
 
-- [ ] **Step 5: Add health-check handler**
+- [x] **Step 5: Add health-check handler**
 
 Add to `src/crypto_alpha_agent/cli.py`:
 
@@ -593,7 +593,7 @@ def _handle_llm_health_check(_args: argparse.Namespace) -> dict[str, Any]:
     }
 ```
 
-- [ ] **Step 6: Remove offline-only parser helper**
+- [x] **Step 6: Remove offline-only parser helper**
 
 Delete the function named `_add_offline_only_llm_argument` from
 `src/crypto_alpha_agent/cli.py`.
@@ -601,7 +601,7 @@ Delete the function named `_add_offline_only_llm_argument` from
 Remove all calls to `_add_offline_only_llm_argument` and remove the
 `--offline-only` block from `plan-experiments`.
 
-- [ ] **Step 7: Remove `_resolve_llm_for_cli`**
+- [x] **Step 7: Remove `_resolve_llm_for_cli`**
 
 Delete `_resolve_llm_for_cli`. Product handlers will read:
 
@@ -609,7 +609,7 @@ Delete `_resolve_llm_for_cli`. Product handlers will read:
 runtime: RealLLMRuntime = args.llm_runtime
 ```
 
-- [ ] **Step 8: Add response hint for health task**
+- [x] **Step 8: Add response hint for health task**
 
 In `src/crypto_alpha_agent/llm/responses.py`, add before the default hint:
 
@@ -623,7 +623,7 @@ if task_type == "LLMHealthCheckTask":
     )
 ```
 
-- [ ] **Step 9: Run CLI gate tests**
+- [x] **Step 9: Run CLI gate tests**
 
 Run:
 
@@ -633,7 +633,7 @@ uv run --extra dev pytest tests/test_cli_llm_native_gate.py -q
 
 Expected: PASS.
 
-- [ ] **Step 10: Commit CLI gate**
+- [x] **Step 10: Commit CLI gate**
 
 ```bash
 git add src/crypto_alpha_agent/cli.py src/crypto_alpha_agent/llm/responses.py tests/test_cli_llm_native_gate.py
@@ -648,7 +648,7 @@ git commit -m "feat: require llm runtime for cli"
 - Modify: `src/crypto_alpha_agent/llm/responses.py`
 - Test: `tests/test_llm_native_judgements.py`
 
-- [ ] **Step 1: Write failing judgement tests**
+- [x] **Step 1: Write failing judgement tests**
 
 Add `tests/test_llm_native_judgements.py`:
 
@@ -725,7 +725,7 @@ def test_data_readiness_judgement_schema_is_strict() -> None:
         )
 ```
 
-- [ ] **Step 2: Run failing judgement tests**
+- [x] **Step 2: Run failing judgement tests**
 
 Run:
 
@@ -735,7 +735,7 @@ uv run --extra dev pytest tests/test_llm_native_judgements.py -q
 
 Expected: FAIL because `pipeline.llm_judgements` does not exist.
 
-- [ ] **Step 3: Implement judgement module**
+- [x] **Step 3: Implement judgement module**
 
 Create `src/crypto_alpha_agent/pipeline/llm_judgements.py`:
 
@@ -897,7 +897,7 @@ def _default_constraints() -> list[str]:
     ]
 ```
 
-- [ ] **Step 4: Add response hint for judgement task**
+- [x] **Step 4: Add response hint for judgement task**
 
 In `src/crypto_alpha_agent/llm/responses.py`, add:
 
@@ -913,7 +913,7 @@ if task_type == "LLMJudgementTask":
     )
 ```
 
-- [ ] **Step 5: Run judgement tests**
+- [x] **Step 5: Run judgement tests**
 
 Run:
 
@@ -923,7 +923,7 @@ uv run --extra dev pytest tests/test_llm_native_judgements.py -q
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit judgement schemas**
+- [x] **Step 6: Commit judgement schemas**
 
 ```bash
 git add src/crypto_alpha_agent/pipeline/llm_judgements.py src/crypto_alpha_agent/llm/responses.py tests/test_llm_native_judgements.py
@@ -939,7 +939,7 @@ git commit -m "feat: add llm judgement schemas"
 - Modify: `tests/test_ai_experiment_planner.py`
 - Modify: `tests/test_cli_research_loop.py`
 
-- [ ] **Step 1: Write failing planner requirement test**
+- [x] **Step 1: Write failing planner requirement test**
 
 In `tests/test_ai_experiment_planner.py`, add:
 
@@ -956,7 +956,7 @@ def test_plan_experiments_requires_llm(tmp_path):
         )
 ```
 
-- [ ] **Step 2: Run focused planner test**
+- [x] **Step 2: Run focused planner test**
 
 Run:
 
@@ -966,7 +966,7 @@ uv run --extra dev pytest tests/test_ai_experiment_planner.py::test_plan_experim
 
 Expected: FAIL because `llm` is currently optional.
 
-- [ ] **Step 3: Change planner signature**
+- [x] **Step 3: Change planner signature**
 
 In `src/crypto_alpha_agent/pipeline/experiment_planner.py`, change:
 
@@ -986,7 +986,7 @@ def plan_next_experiments(
 Remove `offline_only` from `ExperimentPlannerInput` and from all constructor
 calls.
 
-- [ ] **Step 4: Delete deterministic fallback branch**
+- [x] **Step 4: Delete deterministic fallback branch**
 
 In `plan_next_experiments`, replace the current conditional branch that chooses
 between `_plan_with_llm` and `_fallback_proposals`
@@ -1010,7 +1010,7 @@ Keep `_fallback_proposals` only if deterministic unit tests import it directly.
 If no direct import exists, delete `_fallback_proposals` and tests that assert
 offline planner success.
 
-- [ ] **Step 5: Update CLI plan handler**
+- [x] **Step 5: Update CLI plan handler**
 
 In `_handle_plan_experiments`, replace runtime resolution with:
 
@@ -1032,7 +1032,7 @@ except LLMProviderError as exc:
 
 Add `**runtime.metadata()` to the payload and remove `llm_metadata`.
 
-- [ ] **Step 6: Delete offline planner tests**
+- [x] **Step 6: Delete offline planner tests**
 
 Remove or rewrite tests whose purpose is deterministic product success, including:
 
@@ -1042,7 +1042,7 @@ test_plan_experiments_offline_only_skips_configured_llm
 
 Replace with CLI parser tests asserting `--offline-only` is rejected.
 
-- [ ] **Step 7: Run planner tests**
+- [x] **Step 7: Run planner tests**
 
 Run:
 
@@ -1052,7 +1052,7 @@ uv run --extra dev pytest tests/test_ai_experiment_planner.py tests/test_cli_llm
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit planner conversion**
+- [x] **Step 8: Commit planner conversion**
 
 ```bash
 git add src/crypto_alpha_agent/pipeline/experiment_planner.py src/crypto_alpha_agent/cli.py tests/test_ai_experiment_planner.py tests/test_cli_llm_native_gate.py
@@ -1067,7 +1067,7 @@ git commit -m "feat: require llm experiment planning"
 - Modify: `tests/test_source_probe.py`
 - Modify: `tests/test_cli_ingest.py`
 
-- [ ] **Step 1: Write source-probe CLI judgement test**
+- [x] **Step 1: Write source-probe CLI judgement test**
 
 In `tests/test_source_probe.py`, add:
 
@@ -1097,7 +1097,7 @@ def test_source_probe_payload_requires_llm_judgement(monkeypatch, tmp_path, caps
 Define `_runtime_with_judgement` in the test module using `RealLLMRuntime` and
 `CapturingLLM` from `tests/test_llm_native_runtime.py`.
 
-- [ ] **Step 2: Write ingest CLI judgement test**
+- [x] **Step 2: Write ingest CLI judgement test**
 
 In `tests/test_cli_ingest.py`, add:
 
@@ -1126,7 +1126,7 @@ def test_ingest_offline_check_requires_llm_data_readiness(monkeypatch, tmp_path,
     assert payload["llm_provider"] == "real"
 ```
 
-- [ ] **Step 3: Run failing source/ingest tests**
+- [x] **Step 3: Run failing source/ingest tests**
 
 Run:
 
@@ -1136,7 +1136,7 @@ uv run --extra dev pytest tests/test_source_probe.py::test_source_probe_payload_
 
 Expected: FAIL because handlers do not call judgement helpers.
 
-- [ ] **Step 4: Add source-probe judgement to handler**
+- [x] **Step 4: Add source-probe judgement to handler**
 
 In `_handle_source_probe`, after building the target list or probe result, call:
 
@@ -1164,7 +1164,7 @@ Add to returned payload:
 **runtime.metadata(),
 ```
 
-- [ ] **Step 5: Add ingest judgement to handler**
+- [x] **Step 5: Add ingest judgement to handler**
 
 In `_handle_ingest`, after deterministic payload construction and before
 return:
@@ -1182,7 +1182,7 @@ payload["llm_judgement"] = judgement.model_dump(mode="json")
 payload.update(runtime.metadata())
 ```
 
-- [ ] **Step 6: Run source/ingest tests**
+- [x] **Step 6: Run source/ingest tests**
 
 Run:
 
@@ -1193,7 +1193,7 @@ uv run --extra dev pytest tests/test_source_probe.py tests/test_cli_ingest.py -q
 Expected: PASS after updating older assertions to expect `llm_provider=real`
 where CLI product commands are exercised.
 
-- [ ] **Step 7: Commit source/ingest conversion**
+- [x] **Step 7: Commit source/ingest conversion**
 
 ```bash
 git add src/crypto_alpha_agent/cli.py tests/test_source_probe.py tests/test_cli_ingest.py
@@ -1209,7 +1209,7 @@ git commit -m "feat: require llm source and ingest judgements"
 - Modify: `tests/test_cli_research_loop.py`
 - Modify: `tests/test_evidence_reports.py`
 
-- [ ] **Step 1: Write failing research-loop required LLM test**
+- [x] **Step 1: Write failing research-loop required LLM test**
 
 In `tests/test_cli_research_loop.py`, update the existing LLM CLI test to remove
 `--no-offline-only` and assert:
@@ -1223,7 +1223,7 @@ assert payload["llm_research_result"]["accepted"] is True
 Add a missing-runtime test that monkeypatches `build_required_real_llm_runtime`
 to raise `LLMRuntimeError` and asserts `side_effects_started=false`.
 
-- [ ] **Step 2: Write failing evidence-report summary test**
+- [x] **Step 2: Write failing evidence-report summary test**
 
 In `tests/test_evidence_reports.py`, update the report CLI LLM test to assert:
 
@@ -1239,7 +1239,7 @@ payload["llm_summary_accepted"] is False
 payload["llm_mode"] == "offline_only"
 ```
 
-- [ ] **Step 3: Run focused tests**
+- [x] **Step 3: Run focused tests**
 
 Run:
 
@@ -1249,7 +1249,7 @@ uv run --extra dev pytest tests/test_cli_research_loop.py tests/test_evidence_re
 
 Expected: FAIL because the handlers still allow no LLM.
 
-- [ ] **Step 4: Force research-loop LLM graph**
+- [x] **Step 4: Force research-loop LLM graph**
 
 In `_handle_research_loop`, remove `_resolve_llm_for_cli` calls. Use:
 
@@ -1271,7 +1271,7 @@ payload.update(runtime.metadata())
 
 Delete the `if llm is not None` guard.
 
-- [ ] **Step 5: Force evidence-report LLM summary**
+- [x] **Step 5: Force evidence-report LLM summary**
 
 Change `_apply_evidence_report_summary` signature:
 
@@ -1296,7 +1296,7 @@ if not summary_result.accepted or summary_result.summary is None:
 Update `_handle_evidence_report` to pass `runtime=args.llm_runtime` and include
 `**runtime.metadata()`.
 
-- [ ] **Step 6: Run research/report tests**
+- [x] **Step 6: Run research/report tests**
 
 Run:
 
@@ -1306,7 +1306,7 @@ uv run --extra dev pytest tests/test_cli_research_loop.py tests/test_evidence_re
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit research/report conversion**
+- [x] **Step 7: Commit research/report conversion**
 
 ```bash
 git add src/crypto_alpha_agent/cli.py src/crypto_alpha_agent/agents/report_summarizer.py tests/test_cli_research_loop.py tests/test_evidence_reports.py
@@ -1325,7 +1325,7 @@ git commit -m "feat: require llm research and report flows"
 - Modify: `tests/test_rollout_review.py`
 - Modify: `tests/test_ai_research_memo.py`
 
-- [ ] **Step 1: Add governance LLM judgement in CLI**
+- [x] **Step 1: Add governance LLM judgement in CLI**
 
 In `_handle_governance_report`, after deterministic `report` is built:
 
@@ -1346,7 +1346,7 @@ judgement = run_runtime_command_judgement(
 
 Add `llm_judgement` and runtime metadata to payload.
 
-- [ ] **Step 2: Add bootstrap LLM judgement**
+- [x] **Step 2: Add bootstrap LLM judgement**
 
 In `_handle_historical_bootstrap`, after `report` is built and before writes:
 
@@ -1373,7 +1373,7 @@ judgement.validate_refs({"bootstrap:" + report.manifest.run_id})
 
 Add the judgement to payload and JSON artifact.
 
-- [ ] **Step 3: Add rollout LLM narrative**
+- [x] **Step 3: Add rollout LLM narrative**
 
 In `_handle_rollout_review`, after deterministic `review`:
 
@@ -1400,7 +1400,7 @@ judgement.validate_refs({f"rollout:{args.strategy_family}"})
 
 Add the judgement to output artifacts.
 
-- [ ] **Step 4: Add memo and expansion judgements**
+- [x] **Step 4: Add memo and expansion judgements**
 
 For `_handle_ai_research_memo` and `_handle_expansion_prep_report`, call
 `run_runtime_command_judgement` with evidence refs:
@@ -1412,7 +1412,7 @@ For `_handle_ai_research_memo` and `_handle_expansion_prep_report`, call
 
 Add `llm_judgement` and runtime metadata to payloads.
 
-- [ ] **Step 5: Update tests**
+- [x] **Step 5: Update tests**
 
 For each command test, monkeypatch `build_required_real_llm_runtime` to return a
 `RealLLMRuntime` backed by `CapturingLLM` with the expected schema:
@@ -1432,7 +1432,7 @@ For each command test, monkeypatch `build_required_real_llm_runtime` to return a
 Use `BootstrapInterpretation` and `RolloutReadinessNarrative` schemas for the
 bootstrap and rollout tests.
 
-- [ ] **Step 6: Run converted command tests**
+- [x] **Step 6: Run converted command tests**
 
 Run:
 
@@ -1442,7 +1442,7 @@ uv run --extra dev pytest tests/test_governance_reports.py tests/test_historical
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit governance/bootstrap/rollout conversion**
+- [x] **Step 7: Commit governance/bootstrap/rollout conversion**
 
 ```bash
 git add src/crypto_alpha_agent/cli.py src/crypto_alpha_agent/pipeline/governance_reports.py src/crypto_alpha_agent/pipeline/historical_bootstrap.py tests/test_governance_reports.py tests/test_historical_bootstrap.py tests/test_rollout_review.py tests/test_ai_research_memo.py
