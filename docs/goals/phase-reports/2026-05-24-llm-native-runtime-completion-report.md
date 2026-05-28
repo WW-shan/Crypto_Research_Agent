@@ -32,15 +32,22 @@ product command succeed without real LLM participation.
 
 ## Verification
 
+- `uv run --extra dev pytest tests/test_llm_native_runtime.py tests/test_cli_llm_native_gate.py tests/test_llm_native_judgements.py -q`
+  - Result: `24 passed in 0.62s`.
 - `uv run --extra dev pytest tests/test_real_llm_test_policy_contract.py tests/llm_integration_policy.py -q`
   - Result: `3 passed`.
 - `uv run --extra dev pytest tests/test_real_llm_integration_policy.py -q`
-  - Result: `9 passed in 570.26s`.
+  - Result: `9 passed in 314.86s`.
 - `uv run --extra dev pytest tests/test_llm_configured_client.py::test_real_configured_llm_smoke_returns_valid_research_proposal_without_secret_leaks -q`
   - Result: `1 passed`.
 - `uv run --extra dev pytest -q`
-  - Result: `956 passed in 154.15s`.
-- `uv run --extra dev ruff check pyproject.toml src/crypto_alpha_agent/cli.py tests/llm_integration_policy.py tests/test_llm_configured_client.py tests/test_real_llm_integration_policy.py tests/test_real_llm_test_policy_contract.py`
+  - Result: `957 passed in 157.53s`.
+- `uv run --extra dev ruff check .`
   - Result: passed.
 - `git diff --check`
   - Result: passed.
+- `rg -n "offline_only|--offline-only|--no-offline-only|llm is None|llm=None|required=False|skip\\(\"real LLM|deterministic local mode|offline_no_config|pytest_offline_default" src tests docs`
+  - Result: no current product-path matches. Remaining matches are historical
+    plans/reports/design notes describing removed behavior, parser rejection
+    tests proving removed flags are rejected, and config unit tests for missing
+    optional settings.

@@ -1776,7 +1776,7 @@ git commit -m "docs: document llm-native runtime"
 
 - No planned code changes.
 
-- [ ] **Step 1: Run focused LLM-native tests**
+- [x] **Step 1: Run focused LLM-native tests**
 
 Run:
 
@@ -1786,7 +1786,7 @@ uv run --extra dev pytest tests/test_llm_native_runtime.py tests/test_cli_llm_na
 
 Expected: PASS.
 
-- [ ] **Step 2: Run real LLM acceptance**
+- [x] **Step 2: Run real LLM acceptance**
 
 Run:
 
@@ -1796,7 +1796,7 @@ uv run --extra dev pytest tests/test_real_llm_integration_policy.py -q
 
 Expected: PASS with valid real LLM credentials. Failure is blocking.
 
-- [ ] **Step 3: Run full regression**
+- [x] **Step 3: Run full regression**
 
 Run:
 
@@ -1806,7 +1806,7 @@ uv run --extra dev pytest -q
 
 Expected: PASS. Real LLM failures are not skipped.
 
-- [ ] **Step 4: Run lint**
+- [x] **Step 4: Run lint**
 
 Run:
 
@@ -1816,7 +1816,7 @@ uv run --extra dev ruff check .
 
 Expected: PASS.
 
-- [ ] **Step 5: Run whitespace check**
+- [x] **Step 5: Run whitespace check**
 
 Run:
 
@@ -1826,7 +1826,7 @@ git diff --check
 
 Expected: no output.
 
-- [ ] **Step 6: Check for optional LLM product paths**
+- [x] **Step 6: Check for optional LLM product paths**
 
 Run:
 
@@ -1837,7 +1837,7 @@ rg -n "offline_only|--offline-only|--no-offline-only|llm is None|llm=None|requir
 Expected: no product-path matches. Matches are allowed only in historical phase
 reports or design documents that describe removed behavior.
 
-- [ ] **Step 7: Check git status**
+- [x] **Step 7: Check git status**
 
 Run:
 
@@ -1847,7 +1847,7 @@ git status --short
 
 Expected: clean or only intentional final documentation edits.
 
-- [ ] **Step 8: Record verification results and commit**
+- [x] **Step 8: Record verification results and commit**
 
 If Task 11 changed the completion report with actual verification results:
 
