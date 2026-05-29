@@ -13,6 +13,8 @@ or governance product workflow.
 
 - Added `.github/workflows/publish-container.yml` to publish
   `ghcr.io/ww-shan/crypto-alpha-agent` from the repository `Dockerfile`.
+- The workflow publishes `linux/amd64` and `linux/arm64` manifests so VPS
+  hosts and local Apple Silicon Docker Desktop can pull the same tag.
 - Default branch pushes publish `:main` and immutable `:sha-<commit>` tags;
   version tags publish matching GHCR tags.
 - Updated `docker-compose.yml` so the service defaults to

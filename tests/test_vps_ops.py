@@ -130,6 +130,7 @@ def test_github_actions_publishes_container_to_ghcr() -> None:
         "type=ref,event=tag",
         "docker/build-push-action",
         "push: true",
+        "platforms: linux/amd64,linux/arm64",
     ]:
         assert expected in workflow
 

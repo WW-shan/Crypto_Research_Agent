@@ -23,6 +23,7 @@ round.
   publishing.
 - Added `.github/workflows/publish-container.yml` to publish
   `ghcr.io/ww-shan/crypto-alpha-agent` from the repository `Dockerfile`.
+- Published container tags include `linux/amd64` and `linux/arm64` manifests.
 - Changed `docker-compose.yml` to default to
   `ghcr.io/ww-shan/crypto-alpha-agent:main` while preserving
   `CRYPTO_ALPHA_AGENT_IMAGE=crypto-alpha-agent:local` for explicit local
