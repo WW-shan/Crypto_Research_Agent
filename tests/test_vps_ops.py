@@ -99,7 +99,9 @@ def test_docker_runtime_keeps_secrets_out_of_image_and_mounts_state() -> None:
         assert expected in dockerfile
 
     for expected in [
-        "crypto-alpha-agent:",
+        "${CRYPTO_ALPHA_AGENT_IMAGE:-ghcr.io/ww-shan/crypto-alpha-agent:main}",
+        "build:",
+        "context: .",
         "env_file:",
         ".env",
         "./var:/app/var",
@@ -108,6 +110,37 @@ def test_docker_runtime_keeps_secrets_out_of_image_and_mounts_state() -> None:
     ]:
         assert expected in compose
     assert "docker.sock" not in compose
+
+
+def test_github_actions_publishes_container_to_ghcr() -> None:
+    workflow = read_text(".github/workflows/publish-container.yml")
+
+    for expected in [
+        "ghcr.io/ww-shan/crypto-alpha-agent",
+        "permissions:",
+        "contents: read",
+        "packages: write",
+        "docker/login-action",
+        "registry: ghcr.io",
+        "password: ${{ secrets.GITHUB_TOKEN }}",
+        "docker/metadata-action",
+        "type=raw,value=main",
+        "type=sha,prefix=sha-",
+        "type=ref,event=tag",
+        "docker/build-push-action",
+        "push: true",
+    ]:
+        assert expected in workflow
+
+    for forbidden in [
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
+        "GHCR_PAT",
+        "GHCR_TOKEN",
+        "CR_PAT",
+        "docker.sock",
+    ]:
+        assert forbidden not in workflow
 
 
 def test_daily_wrapper_runs_evidence_run_with_artifact_contract() -> None:
@@ -235,7 +268,12 @@ def test_vps_deployment_doc_documents_outputs_and_boundaries() -> None:
 
     for expected in [
         "Docker Compose",
+        "ghcr.io/ww-shan/crypto-alpha-agent:main",
         "systemd",
+        "docker compose pull crypto-alpha-agent",
+        "docker compose run --rm crypto-alpha-agent llm-health-check",
+        "docker login ghcr.io",
+        "CRYPTO_ALPHA_AGENT_IMAGE=crypto-alpha-agent:local",
         "crypto-alpha-daily.timer",
         "var/research.sqlite",
         "var/memory/evidence.jsonl",

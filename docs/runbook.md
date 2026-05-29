@@ -46,9 +46,12 @@ capital.
 ### VPS Docker Operations
 
 For unattended VPS operation, use the Docker Compose plus host `systemd` timer
-layer documented in `docs/vps-deployment.md`. Docker Compose builds the fixed
-runtime and mounts `./var:/app/var`; systemd timers call short-lived wrappers
-instead of turning the agent into an internal daemon.
+layer documented in `docs/vps-deployment.md`. Docker Compose pulls
+`ghcr.io/ww-shan/crypto-alpha-agent:main` by default and mounts
+`./var:/app/var`; systemd timers call short-lived wrappers instead of turning
+the agent into an internal daemon. Local development and local soak runs can
+set `CRYPTO_ALPHA_AGENT_IMAGE=crypto-alpha-agent:local` before
+`docker compose build` to use the current working tree.
 
 The standard timers are:
 

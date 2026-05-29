@@ -45,6 +45,17 @@ class _PlannerLLM:
         return self.response
 
 
+class _SequencePlannerLLM:
+    def __init__(self, responses: list[str]) -> None:
+        self.responses = responses
+        self.tasks: list[Any] = []
+
+    def __call__(self, task):
+        self.tasks.append(task)
+        index = min(len(self.tasks) - 1, len(self.responses) - 1)
+        return self.responses[index]
+
+
 def _planner_response(*, threshold_abs: float = 0.001, hold_bars: int = 2) -> str:
     return json.dumps(
         {
@@ -337,6 +348,35 @@ def test_planner_rejects_sparse_llm_proposal_schema(tmp_path):
 
     assert result.accepted is False
     assert "invalid_proposal_schema" in result.rejected_reason_codes
+
+
+def test_planner_retries_structural_proposal_schema_failures(tmp_path):
+    llm = _SequencePlannerLLM(
+        [
+            json.dumps(
+                {
+                    "proposals": [
+                        {
+                            "strategy_family": "funding_extremity_price_confirmation",
+                            "parameter_changes": {"threshold_abs": 0.001, "hold_bars": 2},
+                        }
+                    ]
+                }
+            ),
+            json.dumps({"proposals": [_strict_llm_experiment_payload()]}),
+        ]
+    )
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        llm=llm,
+        current_capital_usd=300.0,
+    )
+
+    assert result.accepted is True
+    assert len(result.proposals) == 1
+    assert len(llm.tasks) == 2
 
 
 def test_planner_rejects_nonexistent_evidence_ref(tmp_path):

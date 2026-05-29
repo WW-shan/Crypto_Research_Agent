@@ -27,6 +27,14 @@ _DEGRADED_MARKERS = {
     "fee_killed_edge",
     "negative_expectancy",
 }
+_PLANNER_OUTPUT_ATTEMPTS = 3
+_RETRYABLE_PLANNER_REJECTION_CODES = {
+    "invalid_llm_response_type",
+    "invalid_json",
+    "invalid_shape",
+    "invalid_proposal_schema",
+    "no_safe_registered_proposals",
+}
 _FAMILY_SPECIFIC_EVIDENCE_REQUIRED = {"funding_open_interest_crowding"}
 _SUPPORTED_GAP_REFS = {"gap:collect_more_walk_forward_data"}
 
@@ -245,6 +253,39 @@ def _plan_with_llm(
     duplicate_signatures: set[str],
     research_context: AIResearchContext,
 ) -> ExperimentPlannerResult:
+    last_result: ExperimentPlannerResult | None = None
+    for _attempt in range(_PLANNER_OUTPUT_ATTEMPTS):
+        result = _plan_with_llm_attempt(
+            planner_input,
+            batch_id=batch_id,
+            llm=llm,
+            validation_evidence=validation_evidence,
+            paper_evidence=paper_evidence,
+            degraded_families=degraded_families,
+            blocked_parameter_sets=blocked_parameter_sets,
+            duplicate_signatures=duplicate_signatures,
+            research_context=research_context,
+        )
+        if result.accepted or not _should_retry_planner_output(result):
+            return result
+        last_result = result
+    if last_result is None:
+        raise AssertionError("unreachable planner retry state")
+    return last_result
+
+
+def _plan_with_llm_attempt(
+    planner_input: ExperimentPlannerInput,
+    *,
+    batch_id: str,
+    llm: PlannerLLM,
+    validation_evidence: list[ValidationEvidence],
+    paper_evidence: list[PaperEvidencePackage],
+    degraded_families: list[str],
+    blocked_parameter_sets: dict[str, list[dict[str, Any]]],
+    duplicate_signatures: set[str],
+    research_context: AIResearchContext,
+) -> ExperimentPlannerResult:
     task = _planner_task(
         planner_input,
         batch_id=batch_id,
@@ -379,6 +420,13 @@ def _plan_with_llm(
     if partial_rejected_reason_codes:
         result.__dict__["_partial_rejected_reason_codes"] = partial_rejected_reason_codes
     return result
+
+
+def _should_retry_planner_output(result: ExperimentPlannerResult) -> bool:
+    if result.proposals or result.strategy_template_proposals:
+        return False
+    reason_codes = set(result.rejected_reason_codes)
+    return bool(reason_codes) and reason_codes.issubset(_RETRYABLE_PLANNER_REJECTION_CODES)
 
 
 def _should_skip_without_family_evidence(

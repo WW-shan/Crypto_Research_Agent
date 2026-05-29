@@ -2,7 +2,8 @@
 
 This is the recommended unattended operations shape for a VPS:
 
-- Docker Compose provides a repeatable Python 3.12 and `uv` runtime.
+- Docker Compose pulls the GHCR-published Python 3.12 and `uv` runtime by
+  default.
 - Host `systemd` timers decide when short-lived jobs run.
 - The agent still has no internal daemon and no live trading authority.
 - Secrets stay in host-local environment files; `.env stays outside git`.
@@ -90,19 +91,36 @@ scripts pass this value as `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and
 directly on the host without Docker, point `HTTP_PROXY` at the host-bound proxy
 address used by the operator.
 
-## Build And Smoke Test
+## Image And Smoke Test
 
-Install Docker and the Compose plugin on the VPS, then build:
+Install Docker and the Compose plugin on the VPS. The default service image is
+`ghcr.io/ww-shan/crypto-alpha-agent:main`; pull it before enabling timers:
 
 ```bash
 cd /opt/crypto-alpha-agent
-docker compose build
+docker compose pull crypto-alpha-agent
 docker compose run --rm crypto-alpha-agent llm-health-check
+```
+
+If the GHCR package is private, authenticate on the VPS with a host-local
+GitHub token that has package read access:
+
+```bash
+docker login ghcr.io -u <github-user>
 ```
 
 If the LLM connection test fails, stop here. The scheduled jobs should not run
 until the real LLM provider, model names, credentials, and schema-compatible
 responses are healthy.
+
+For local development or a local one-day soak that must use the current working
+tree instead of the published GHCR image, override the image explicitly:
+
+```bash
+CRYPTO_ALPHA_AGENT_IMAGE=crypto-alpha-agent:local docker compose build
+CRYPTO_ALPHA_AGENT_IMAGE=crypto-alpha-agent:local \
+  docker compose run --rm crypto-alpha-agent llm-health-check
+```
 
 Dry-run the wrappers before enabling timers:
 
@@ -204,7 +222,7 @@ cd /opt/crypto-alpha-agent
 systemctl stop crypto-alpha-daily.timer crypto-alpha-weekly.timer \
   crypto-alpha-monthly.timer crypto-alpha-backup.timer
 git pull --ff-only
-docker compose build
+docker compose pull crypto-alpha-agent
 docker compose run --rm crypto-alpha-agent llm-health-check
 systemctl start crypto-alpha-daily.timer crypto-alpha-weekly.timer \
   crypto-alpha-monthly.timer crypto-alpha-backup.timer

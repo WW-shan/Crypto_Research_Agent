@@ -7,6 +7,19 @@ from pydantic import BaseModel, ConfigDict, Field
 from crypto_alpha_agent.llm.runtime import RealLLMRuntime
 
 JudgementDecision = Literal[
+    "useful_for_research",
+    "not_ready",
+    "ready_for_offline_research",
+    "research_only",
+    "research_ready",
+    "keep_collecting",
+    "add_data",
+    "redesign_validator",
+    "stop",
+    "owner_decision_review",
+    "blocked",
+]
+GovernanceActionDecision = Literal[
     "research_ready",
     "keep_collecting",
     "add_data",
@@ -66,7 +79,7 @@ class EvidenceRunInterpretation(_EvidenceBackedJudgement):
 
 class GovernanceReview(_EvidenceBackedJudgement):
     schema_name: Literal["GovernanceReview"]
-    family_actions: dict[str, JudgementDecision] = Field(default_factory=dict)
+    family_actions: dict[str, GovernanceActionDecision] = Field(default_factory=dict)
 
 
 class BootstrapInterpretation(_EvidenceBackedJudgement):

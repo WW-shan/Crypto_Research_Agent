@@ -7,6 +7,7 @@ import pytest
 from crypto_alpha_agent.config import LLMSettings
 from crypto_alpha_agent.llm.runtime import RealLLMRuntime
 from crypto_alpha_agent.pipeline.llm_judgements import (
+    BootstrapInterpretation,
     DataReadinessJudgement,
     SourceResearchJudgement,
     run_source_research_judgement,
@@ -85,3 +86,45 @@ def test_data_readiness_judgement_schema_is_strict() -> None:
                 "extra": "not allowed",
             }
         )
+
+
+def test_judgements_accept_context_specific_research_decisions() -> None:
+    source = SourceResearchJudgement.model_validate(
+        {
+            "schema_name": "SourceResearchJudgement",
+            "decision": "useful_for_research",
+            "rationale": "The listed target can support public-data research.",
+            "evidence_refs": ["source-health:list-targets"],
+            "next_actions": ["Probe the target before using it in paper evidence."],
+            "uses_real_capital": False,
+            "live_order_routing": False,
+        }
+    )
+    readiness = DataReadinessJudgement.model_validate(
+        {
+            "schema_name": "DataReadinessJudgement",
+            "decision": "ready_for_offline_research",
+            "rationale": "Offline check created storage but did not ingest typed rows.",
+            "evidence_refs": ["ingest:offline_check"],
+            "missing_fields": ["market_candle", "funding_rate"],
+            "next_actions": ["Collect the missing public datasets first."],
+            "uses_real_capital": False,
+            "live_order_routing": False,
+        }
+    )
+    bootstrap = BootstrapInterpretation.model_validate(
+        {
+            "schema_name": "BootstrapInterpretation",
+            "decision": "research_only",
+            "rationale": "Historical bootstrap is useful context but not profit proof.",
+            "evidence_refs": ["historical-bootstrap:run"],
+            "next_actions": ["Continue with forward paper observations."],
+            "historical_is_profit_proof": False,
+            "uses_real_capital": False,
+            "live_order_routing": False,
+        }
+    )
+
+    assert source.decision == "useful_for_research"
+    assert readiness.decision == "ready_for_offline_research"
+    assert bootstrap.decision == "research_only"

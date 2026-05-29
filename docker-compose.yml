@@ -2,7 +2,7 @@ services:
   crypto-alpha-agent:
     build:
       context: .
-    image: crypto-alpha-agent:local
+    image: ${CRYPTO_ALPHA_AGENT_IMAGE:-ghcr.io/ww-shan/crypto-alpha-agent:main}
     env_file:
       - .env
     working_dir: /app

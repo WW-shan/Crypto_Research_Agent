@@ -16,6 +16,7 @@ from crypto_alpha_agent.llm.runtime import (
     build_required_real_llm_runtime,
     parse_structured_llm_json,
 )
+from crypto_alpha_agent.pipeline.llm_judgements import SourceResearchJudgement
 
 
 class CapturingLLM:
@@ -32,6 +33,17 @@ class CapturingLLM:
     def __call__(self, task):
         self.calls.append(task)
         return self.response
+
+
+class SequenceLLM(CapturingLLM):
+    def __init__(self, responses: list[str]) -> None:
+        super().__init__(responses[-1])
+        self.responses = responses
+
+    def __call__(self, task):
+        self.calls.append(task)
+        index = min(len(self.calls) - 1, len(self.responses) - 1)
+        return self.responses[index]
 
 
 def test_parse_structured_llm_json_rejects_non_json() -> None:
@@ -146,6 +158,94 @@ def test_real_runtime_health_check_records_real_provider_metadata() -> None:
     assert runtime.metadata()["used_fake_llm"] is True
     assert runtime.metadata()["llm_provider_verified"] is False
     assert runtime.metadata()["llm_model"] == "test-real-model"
+
+
+def test_real_runtime_health_check_retries_schema_failures_before_success() -> None:
+    llm = SequenceLLM(
+        [
+            json.dumps(
+                {
+                    "status": "bad",
+                    "schema_name": "LLMHealthCheckResult",
+                    "capabilities": ["json_schema", "research_only"],
+                    "uses_real_capital": False,
+                    "live_order_routing": False,
+                }
+            ),
+            json.dumps(
+                {
+                    "status": "ok",
+                    "schema_name": "LLMHealthCheckResult",
+                    "capabilities": ["json_schema", "research_only"],
+                    "uses_real_capital": False,
+                    "live_order_routing": False,
+                }
+            ),
+        ]
+    )
+    runtime = RealLLMRuntime._for_test_double(llm=llm, role="research")
+
+    result = runtime.health_check(command="research-loop")
+
+    assert result.status == "ok"
+    assert len(llm.calls) == 2
+
+
+def test_real_runtime_health_check_fails_closed_after_retry_budget() -> None:
+    llm = SequenceLLM(
+        [
+            json.dumps(
+                {
+                    "status": "bad",
+                    "schema_name": "LLMHealthCheckResult",
+                    "capabilities": ["json_schema", "research_only"],
+                    "uses_real_capital": False,
+                    "live_order_routing": False,
+                }
+            )
+        ]
+    )
+    runtime = RealLLMRuntime._for_test_double(llm=llm, role="research")
+
+    with pytest.raises(LLMRuntimeError, match="schema_validation_failed"):
+        runtime.health_check(command="research-loop")
+
+    assert len(llm.calls) == 3
+
+
+def test_real_runtime_structured_call_retries_schema_failures_before_success() -> None:
+    llm = SequenceLLM(
+        [
+            json.dumps(
+                {
+                    "schema_name": "SourceResearchJudgement",
+                    "decision": "unexpected",
+                    "rationale": "bad enum",
+                    "evidence_refs": ["source-health:list-targets"],
+                    "next_actions": ["try again"],
+                    "uses_real_capital": False,
+                    "live_order_routing": False,
+                }
+            ),
+            json.dumps(
+                {
+                    "schema_name": "SourceResearchJudgement",
+                    "decision": "useful_for_research",
+                    "rationale": "Source list is suitable for research-only probing.",
+                    "evidence_refs": ["source-health:list-targets"],
+                    "next_actions": ["Probe a source before using it."],
+                    "uses_real_capital": False,
+                    "live_order_routing": False,
+                }
+            ),
+        ]
+    )
+    runtime = RealLLMRuntime._for_test_double(llm=llm, role="research")
+
+    result = runtime.structured_call(object(), SourceResearchJudgement)
+
+    assert result.decision == "useful_for_research"
+    assert len(llm.calls) == 2
 
 
 def test_real_runtime_accepts_configured_adapter_metadata_without_calling_provider() -> None:

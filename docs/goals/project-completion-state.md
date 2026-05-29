@@ -6,57 +6,57 @@ round.
 
 ## Current Round
 
-- Round: 16
-- Status: Phase 15 VPS Docker Operations Runtime complete and verified in the
+- Round: 17
+- Status: Phase 16 GHCR Container Publishing complete and verified in the
   implementation worktree
 - Started: 2026-05-29
 - Completed: 2026-05-29
-- Active slice: Phase 15: VPS Docker Operations Runtime
+- Active slice: Phase 16: GHCR Container Publishing
 - Active plan source:
-  `docs/superpowers/plans/2026-05-29-phase-15-vps-docker-operations-runtime.md`
+  `docs/superpowers/plans/2026-05-29-phase-16-ghcr-container-publishing.md`
 - Phase report:
-  `docs/goals/phase-reports/2026-05-29-phase-15-vps-docker-operations-runtime-completion-report.md`
+  `docs/goals/phase-reports/2026-05-29-phase-16-ghcr-container-publishing-completion-report.md`
 
 ## Completed This Round
 
-- Added the Phase 15 design spec and implementation plan for the recommended
-  VPS operations shape: Docker Compose runtime plus host systemd timers.
-- Added `Dockerfile`, `.dockerignore`, and `docker-compose.yml` for a
-  repeatable Python 3.12/uv runtime that keeps `.env`, local worktrees,
-  virtualenvs, caches, logs, databases, and `var/` artifacts out of the image.
-- Added ops wrappers for daily `evidence-run`, weekly `governance-report`,
-  weekly `ai-research-memo`, weekly `iteration-cycle`, monthly
-  `rollout-review`, backups, and systemd unit installation.
-- Added systemd one-shot services and timers:
-  `crypto-alpha-daily.timer`, `crypto-alpha-weekly.timer`,
-  `crypto-alpha-monthly.timer`, and `crypto-alpha-backup.timer`.
-- Added `docs/vps-deployment.md` with VPS build, `.env`, LLM health check,
-  dry-run, timer installation, outputs, logs, failed marker, backup, update,
-  and safety-boundary instructions.
-- Updated docs contracts, roadmap, runbook, and this state file so the
-  operator workflow records that unattended collection is host-controlled and
-  still LLM-native.
+- Added the Phase 16 design spec and implementation plan for GHCR container
+  publishing.
+- Added `.github/workflows/publish-container.yml` to publish
+  `ghcr.io/ww-shan/crypto-alpha-agent` from the repository `Dockerfile`.
+- Changed `docker-compose.yml` to default to
+  `ghcr.io/ww-shan/crypto-alpha-agent:main` while preserving
+  `CRYPTO_ALPHA_AGENT_IMAGE=crypto-alpha-agent:local` for explicit local
+  builds and local soak runs.
+- Updated VPS deployment docs so maintenance pulls the GHCR image, runs
+  `llm-health-check`, and keeps any GHCR login token host-local.
+- Hardened real LLM structured-output handling with bounded retries for
+  transient invalid JSON, schema-invalid, or structurally invalid planner
+  outputs while preserving fail-closed behavior for unsafe outputs.
+- Expanded research-only judgement decisions observed from the real LLM while
+  keeping governance action enums and live-capital/live-routing guards strict.
 - Added this round's Phase completion report.
 
 ## Verification Evidence
 
-- Baseline worktree verification before Phase 15 code edits:
-  `uv run --extra dev pytest -q` passed with 968 tests.
-- TDD RED check was observed for missing VPS ops files:
-  `uv run --extra dev pytest tests/test_vps_ops.py -q` failed with missing
-  Docker, ops, systemd, and VPS deployment documentation artifacts.
-- Docker-only intermediate verification showed Docker runtime tests passing
-  while ops/systemd/docs tests still failed, then ops and systemd checks were
-  brought green incrementally.
-- A dry-run compatibility regression was reproduced on macOS bash 3:
-  `ops/weekly-review.sh` failed on `declare -n`; a portable dry-run test was
-  added before replacing the nameref usage.
-- Focused Phase 15 verification:
+- Baseline VPS contract before Phase 16 code edits:
+  `uv run --extra dev pytest tests/test_vps_ops.py -q` passed with 14 tests.
+- TDD RED check was observed for GHCR contracts:
+  `uv run --extra dev pytest tests/test_vps_ops.py -q` failed because the
+  GHCR workflow, GHCR compose default, and VPS GHCR documentation did not
+  exist yet.
+- Focused GHCR/docs contract verification:
   `uv run --extra dev pytest tests/test_vps_ops.py tests/test_documentation_contract.py -q`
-  passed with 19 tests, then the portable dry-run regression test brought the
-  focused contract total to 24 passing checks.
+  passed with 26 tests.
+- TDD RED/GREEN covered research-only judgement vocabulary, runtime
+  structured-output retry, and planner structural-output retry.
+- Focused regression bundle:
+  `uv run --extra dev pytest tests/test_vps_ops.py tests/test_documentation_contract.py tests/test_ai_experiment_planner.py tests/test_llm_native_runtime.py tests/test_llm_native_judgements.py tests/test_llm_configured_client.py::test_responses_adapter_uses_json_schema_format_for_judgement_task -q`
+  passed with 81 tests.
+- Real LLM planner smoke:
+  `uv run --extra dev pytest tests/test_real_llm_integration_policy.py::test_real_plan_experiments_cli_uses_configured_llm_without_secret_leaks -q`
+  passed with 1 test.
 - Full verification:
-  `uv run --extra dev pytest -q` passed with 982 tests.
+  `uv run --extra dev pytest -q` passed with 990 tests.
 - `uv run --extra dev ruff check .`, `git diff --check`, staged diff checks,
   and staged secret scan are required before commit.
 - Staged review before commit is required to include `git diff --cached
@@ -111,6 +111,13 @@ evidence-grounded AI research planning, and profit governance review active:
 - Phase 15 VPS operations layer that runs the LLM-native evidence factory as
   host-controlled Docker Compose jobs scheduled by systemd timers, with durable
   `var/` mounts, latest pointers, failed markers, logs, and backups.
+- Phase 16 GHCR container publishing that lets VPS deployments pull
+  `ghcr.io/ww-shan/crypto-alpha-agent:main` by default, while local builds can
+  explicitly use `CRYPTO_ALPHA_AGENT_IMAGE=crypto-alpha-agent:local`.
+- Bounded retries for real LLM structured-output schema drift in runtime
+  judgement calls and experiment planning, without accepting live capital,
+  live order routing, charter violations, unsupported validators, unsupported
+  data fields, or missing evidence refs.
 
 ## Known Hard Boundaries
 
@@ -129,10 +136,11 @@ evidence-grounded AI research planning, and profit governance review active:
 
 ## Known Remaining Gaps
 
-The Phase 0 through Phase 15 charter-compliant evidence-factory roadmap is
+The Phase 0 through Phase 16 charter-compliant evidence-factory roadmap is
 implemented and verified in the current worktree. The LLM-native runtime
-follow-up removed deterministic-only product success paths, and Phase 15 adds
-the VPS Docker/systemd operations layer for unattended evidence collection.
+follow-up removed deterministic-only product success paths. Phase 15 adds the
+VPS Docker/systemd operations layer for unattended evidence collection, and
+Phase 16 makes that runtime pullable from GHCR by default.
 
 Reality audit: `docs/goals/project-reality-audit-2026-05-29.md` records that
 the owner's broader autonomy target is larger than the completed Phase 0
@@ -144,8 +152,9 @@ implementation gaps remain:
   guarding them against uncited evidence, missing tests, missing source probes,
   direct code-write authority, live capital, and live order routing.
 - VPS unattended operation is now available through Docker Compose and systemd
-  timers, but it only repeats the existing LLM-native evidence/report/review
-  jobs and does not create an internal daemon or live execution path.
+  timers with a GHCR-published container default, but it only repeats the
+  existing LLM-native evidence/report/review jobs and does not create an
+  internal daemon or live execution path.
 - autonomous code-writing loop remains proposal-only;
 - autonomous new data source discovery remains probe-gated beyond the curated
   source-probe and query catalogs;
@@ -216,3 +225,4 @@ If work continues after Phase 13:
 | 14 | 2026-05-24 | Phase 13 continuous research review and reporting | deterministic pytest 912 passed, 4 skipped; ruff passed; diff and staged secret checks passed; local real LLM provider test failed schema and is non-gating | `9ca8966 docs: add phase 13 review records` plus final state sync | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 15 | 2026-05-29 | Phase 14 LLM-native autonomous iteration controller | focused Phase 14 tests 16 passed; pytest 965 passed; ruff passed; diff check passed; staged secret scan required before commit | Phase 14 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 16 | 2026-05-29 | Phase 15 VPS Docker operations runtime | focused VPS/docs contracts 24 passed; pytest 982 passed; final ruff, diff, staged diff, and staged secret checks required before commit | Phase 15 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 17 | 2026-05-29 | Phase 16 GHCR container publishing | focused GHCR/docs/runtime/planner contracts 81 passed; real LLM planner smoke 1 passed; pytest 990 passed; final ruff, diff, staged diff, and staged secret checks required before commit | Phase 16 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |

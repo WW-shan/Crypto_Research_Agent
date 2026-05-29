@@ -561,6 +561,10 @@ def test_responses_adapter_uses_json_schema_format_for_judgement_task() -> None:
     assert text_format["schema"]["properties"]["schema_name"]["enum"] == [
         "SourceResearchJudgement"
     ]
+    decision_values = text_format["schema"]["properties"]["decision"]["enum"]
+    assert "useful_for_research" in decision_values
+    assert "not_ready" in decision_values
+    assert "research_only" in decision_values
 
 
 def test_responses_adapter_includes_health_check_schema_hint_for_runtime_task() -> None:

@@ -415,6 +415,34 @@ Completion standard:
 - No wallet-key access, order routing, live execution, or live capital is
   introduced.
 
+### Phase 16: GHCR Container Publishing
+
+Goal: Make VPS deployments consume a published container image instead of
+building the runtime on every server.
+
+Delivered:
+
+- Added a GitHub Actions workflow that publishes
+  `ghcr.io/ww-shan/crypto-alpha-agent` from the repository `Dockerfile`.
+- Default branch pushes publish `:main` and `:sha-<commit>` tags; version tags
+  publish matching GHCR tags.
+- `docker-compose.yml` now defaults to
+  `ghcr.io/ww-shan/crypto-alpha-agent:main` while preserving
+  `CRYPTO_ALPHA_AGENT_IMAGE=crypto-alpha-agent:local` for explicit local
+  builds and local soak runs.
+- VPS update guidance now uses `docker compose pull crypto-alpha-agent`
+  followed by `docker compose run --rm crypto-alpha-agent llm-health-check`.
+
+Completion standard:
+
+- A failed GHCR pull, workflow publish, or LLM health check stops deployment
+  promotion; it does not count as a successful product run.
+- GHCR credentials, LLM credentials, proxy values, and runtime secrets remain
+  outside git and outside published images.
+- The operational runtime remains host-controlled Docker Compose plus systemd
+  timers; no internal daemon, wallet-key access, live order routing, live
+  execution, or live capital is introduced.
+
 #### Immediate Phase 0: Worktree And Configuration Closeout
 
 Goal: Start the next implementation from a clean, explainable local state.

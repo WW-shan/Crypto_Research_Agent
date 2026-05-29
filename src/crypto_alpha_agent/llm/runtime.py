@@ -11,6 +11,12 @@ from crypto_alpha_agent.config import LLMRole, build_required_real_llm
 from crypto_alpha_agent.llm.redaction import redact_text
 
 StructuredModel = TypeVar("StructuredModel", bound=BaseModel)
+_STRUCTURED_OUTPUT_ATTEMPTS = 3
+_RETRYABLE_STRUCTURED_REASON_CODES = {
+    "invalid_json",
+    "invalid_llm_response_type",
+    "schema_validation_failed",
+}
 
 
 class LLMRuntimeError(RuntimeError):
@@ -92,8 +98,13 @@ class RealLLMRuntime:
         )
 
     def health_check(self, *, command: str) -> LLMHealthCheckResult:
-        raw_response = self.llm(LLMHealthCheckTask(command=command))
-        result = parse_structured_llm_json(raw_response, LLMHealthCheckResult)
+        task = LLMHealthCheckTask(command=command)
+
+        def call() -> LLMHealthCheckResult:
+            raw_response = self.llm(task)
+            return parse_structured_llm_json(raw_response, LLMHealthCheckResult)
+
+        result = _retry_structured_output(call)
         required = {"json_schema", "research_only"}
         if not required.issubset(set(result.capabilities)):
             raise LLMRuntimeError(
@@ -106,7 +117,10 @@ class RealLLMRuntime:
     def structured_call(
         self, task: BaseModel, output_model: type[StructuredModel]
     ) -> StructuredModel:
-        return parse_structured_llm_json(self.llm(task), output_model)
+        def call() -> StructuredModel:
+            return parse_structured_llm_json(self.llm(task), output_model)
+
+        return _retry_structured_output(call)
 
     def metadata(self) -> dict[str, Any]:
         settings = getattr(self.llm, "settings", None)
@@ -138,6 +152,19 @@ def build_required_real_llm_runtime(
             redact_text(str(exc)),
         ) from None
     return RealLLMRuntime(llm=llm, provider="real", role=role)
+
+
+def _retry_structured_output(call):
+    for attempt in range(1, _STRUCTURED_OUTPUT_ATTEMPTS + 1):
+        try:
+            return call()
+        except LLMRuntimeError as exc:
+            if (
+                attempt == _STRUCTURED_OUTPUT_ATTEMPTS
+                or exc.reason_code not in _RETRYABLE_STRUCTURED_REASON_CODES
+            ):
+                raise
+    raise AssertionError("unreachable structured LLM retry state")
 
 
 def parse_structured_llm_json(

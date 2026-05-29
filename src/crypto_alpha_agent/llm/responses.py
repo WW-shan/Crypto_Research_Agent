@@ -611,6 +611,10 @@ def _judgement_base_schema(schema_name: str) -> dict[str, Any]:
             "decision": {
                 "type": "string",
                 "enum": [
+                    "useful_for_research",
+                    "not_ready",
+                    "ready_for_offline_research",
+                    "research_only",
                     "research_ready",
                     "keep_collecting",
                     "add_data",
