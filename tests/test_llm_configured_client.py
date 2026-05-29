@@ -227,6 +227,24 @@ class _FakeSession:
         return self.response
 
 
+class _FakeSequenceSession:
+    def __init__(self, responses: list[_FakeResponse]) -> None:
+        self.responses = responses
+        self.calls: list[dict[str, Any]] = []
+
+    def post(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str],
+        json: dict[str, object],
+        timeout: float,
+    ) -> _FakeResponse:
+        self.calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        index = min(len(self.calls) - 1, len(self.responses) - 1)
+        return self.responses[index]
+
+
 def _settings(*, base_url: str = "https://provider.example") -> LLMSettings:
     return LLMSettings(
         base_url=base_url,
@@ -625,6 +643,22 @@ def test_responses_adapter_provider_errors_are_redacted() -> None:
     assert "Authorization" not in message
     assert "secret-header-value" not in message
     assert "status 401" in message
+    assert len(adapter.session.calls) == 1
+
+
+def test_responses_adapter_retries_transient_provider_status_before_success() -> None:
+    session = _FakeSequenceSession(
+        [
+            _FakeResponse(status_code=504, text="gateway timeout fake-api-key-value"),
+            _FakeResponse(payload={"output_text": '{"status":"ok"}'}),
+        ]
+    )
+    adapter = OpenAIResponsesAdapter(_settings(), session=session)
+
+    result = adapter(_DummyTask(task_id="adapter-task-retry", objective="Return JSON"))
+
+    assert result == '{"status":"ok"}'
+    assert len(session.calls) == 2
 
 
 def test_build_configured_llm_returns_adapter_when_settings_exist(

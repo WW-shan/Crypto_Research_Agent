@@ -18,6 +18,10 @@ class LLMConfigurationError(ValueError):
     """Local LLM configuration is missing or unsupported."""
 
 
+_PROVIDER_REQUEST_ATTEMPTS = 3
+_RETRYABLE_PROVIDER_STATUS_CODES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+
+
 class OpenAIResponsesAdapter:
     def __init__(self, settings: LLMSettings, *, session: Any | None = None) -> None:
         self.settings = settings
@@ -36,26 +40,7 @@ class OpenAIResponsesAdapter:
             "Authorization": f"Bearer {self.settings.api_key.get_secret_value()}",
             "Content-Type": "application/json",
         }
-        try:
-            response = self.session.post(
-                self._responses_url(),
-                headers=headers,
-                json=payload,
-                timeout=self.settings.timeout_seconds,
-            )
-        except Exception as exc:  # noqa: BLE001 - redacted provider boundary.
-            raise LLMProviderError(
-                self._redact(
-                    f"LLM provider request failed: {type(exc).__name__}: {exc}"
-                )
-            ) from None
-        if response.status_code >= 400:
-            raise LLMProviderError(
-                self._redact(
-                    f"LLM provider request failed with status {response.status_code}: "
-                    f"{getattr(response, 'text', '')}"
-                )
-            )
+        response = self._post_with_retries(payload=payload, headers=headers)
         try:
             response_payload = response.json()
         except Exception as exc:  # noqa: BLE001 - provider JSON parse boundary.
@@ -65,6 +50,41 @@ class OpenAIResponsesAdapter:
                 )
             ) from None
         return _extract_response_text(response_payload)
+
+    def _post_with_retries(
+        self, *, payload: dict[str, Any], headers: dict[str, str]
+    ) -> Any:
+        for attempt in range(1, _PROVIDER_REQUEST_ATTEMPTS + 1):
+            try:
+                response = self.session.post(
+                    self._responses_url(),
+                    headers=headers,
+                    json=payload,
+                    timeout=self.settings.timeout_seconds,
+                )
+            except Exception as exc:  # noqa: BLE001 - redacted provider boundary.
+                if attempt == _PROVIDER_REQUEST_ATTEMPTS:
+                    raise LLMProviderError(
+                        self._redact(
+                            "LLM provider request failed: "
+                            f"{type(exc).__name__}: {exc}"
+                        )
+                    ) from None
+                continue
+            if response.status_code < 400:
+                return response
+            if (
+                attempt < _PROVIDER_REQUEST_ATTEMPTS
+                and response.status_code in _RETRYABLE_PROVIDER_STATUS_CODES
+            ):
+                continue
+            raise LLMProviderError(
+                self._redact(
+                    f"LLM provider request failed with status {response.status_code}: "
+                    f"{getattr(response, 'text', '')}"
+                )
+            )
+        raise AssertionError("unreachable provider retry state")
 
     def _responses_url(self) -> str:
         base_url = self.settings.base_url.rstrip("/")
