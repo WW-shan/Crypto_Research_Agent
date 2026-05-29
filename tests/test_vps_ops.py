@@ -117,6 +117,7 @@ def test_github_actions_publishes_container_to_ghcr() -> None:
 
     for expected in [
         "ghcr.io/ww-shan/crypto-alpha-agent",
+        "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true",
         "permissions:",
         "contents: read",
         "packages: write",
