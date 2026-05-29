@@ -94,9 +94,12 @@ def test_docker_runtime_keeps_secrets_out_of_image_and_mounts_state() -> None:
         "python:3.12-slim",
         "uv sync --extra dev --frozen",
         "USER app",
-        "crypto-alpha-agent",
+        'ENTRYPOINT ["/app/.venv/bin/crypto-alpha-agent"]',
+        'CMD ["--help"]',
     ]:
         assert expected in dockerfile
+
+    assert 'ENTRYPOINT ["uv", "run"' not in dockerfile
 
     for expected in [
         "${CRYPTO_ALPHA_AGENT_IMAGE:-ghcr.io/ww-shan/crypto-alpha-agent:main}",
@@ -189,6 +192,10 @@ def test_daily_wrapper_can_pass_host_proxy_to_container() -> None:
     assert "-e HTTP_PROXY=http://host.docker.internal:10808" in result.stdout
     assert "-e HTTPS_PROXY=http://host.docker.internal:10808" in result.stdout
     assert "-e ALL_PROXY=http://host.docker.internal:10808" in result.stdout
+    assert "-e http_proxy=http://host.docker.internal:10808" in result.stdout
+    assert "-e https_proxy=http://host.docker.internal:10808" in result.stdout
+    assert "-e all_proxy=http://host.docker.internal:10808" in result.stdout
+    assert "-e CRYPTO_ALPHA_AGENT_PROXY=http://host.docker.internal:10808" in result.stdout
 
 
 def test_weekly_wrapper_runs_governance_memo_and_iteration_cycle() -> None:

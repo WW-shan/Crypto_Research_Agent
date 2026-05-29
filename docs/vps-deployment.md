@@ -86,15 +86,19 @@ CRYPTO_ALPHA_AGENT_DOCKER_PROXY=http://host.docker.internal:<proxy-port>
 ```
 
 The Compose service includes `host.docker.internal:host-gateway`; the wrapper
-scripts pass this value as `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and
-`CRYPTO_ALPHA_AGENT_PROXY` to `docker compose run`. When running commands
-directly on the host without Docker, point `HTTP_PROXY` at the host-bound proxy
-address used by the operator.
+scripts pass this value as `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, their
+lowercase variants, and `CRYPTO_ALPHA_AGENT_PROXY` to `docker compose run`.
+When running commands directly on the host without Docker, point `HTTP_PROXY`
+at the host-bound proxy address used by the operator.
 
 ## Image And Smoke Test
 
 Install Docker and the Compose plugin on the VPS. The default service image is
 `ghcr.io/ww-shan/crypto-alpha-agent:main`; pull it before enabling timers:
+
+The published image starts the synced `/app/.venv/bin/crypto-alpha-agent`
+entrypoint directly. A normal VPS command should not need to resolve Python
+packages from PyPI at startup.
 
 ```bash
 cd /opt/crypto-alpha-agent

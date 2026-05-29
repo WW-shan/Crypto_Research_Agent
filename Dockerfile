@@ -24,5 +24,5 @@ RUN useradd --create-home --shell /usr/sbin/nologin app \
 
 USER app
 
-ENTRYPOINT ["uv", "run", "--extra", "dev", "crypto-alpha-agent"]
+ENTRYPOINT ["/app/.venv/bin/crypto-alpha-agent"]
 CMD ["--help"]
