@@ -385,19 +385,37 @@ def _is_allowed_runner_argv(argv: list[str]) -> bool:
 
 
 def _has_unsafe_pytest_args(args: list[str]) -> bool:
+    if not any(_is_test_selector(arg) for arg in args):
+        return True
     forbidden_prefixes = (
         "--basetemp",
         "--confcutdir",
         "--continue-on-collection-errors",
         "--cov",
         "--cov-report",
+        "--fixtures",
+        "--help",
         "--html",
         "--junitxml",
         "--override-ini",
         "--pyargs",
         "--rootdir",
+        "--setup-plan",
+        "--setup-show",
+        "--trace-config",
+        "--version",
     )
-    forbidden_exact = {"-c", "-p"}
+    forbidden_exact = {
+        "--co",
+        "--collect-only",
+        "--fixtures-per-test",
+        "--markers",
+        "--trace",
+        "-c",
+        "-p",
+        "-V",
+        "-h",
+    }
     for index, arg in enumerate(args):
         if (
             arg in forbidden_exact
@@ -413,6 +431,15 @@ def _has_unsafe_pytest_args(args: list[str]) -> bool:
         if path.is_absolute() or ".." in path.parts:
             return True
     return False
+
+
+def _is_test_selector(arg: str) -> bool:
+    if arg.startswith("-"):
+        return False
+    path = Path(arg.split("::", 1)[0])
+    if path.is_absolute() or ".." in path.parts:
+        return False
+    return path.suffix == ".py" or path.parts[:1] == ("tests",)
 
 
 def _run_safe_command(
@@ -485,6 +512,12 @@ def _docker_pytest_command(pytest_args: list[str], workdir: Path, env: dict[str,
         "--security-opt",
         "no-new-privileges",
         "--read-only",
+        "--pids-limit",
+        "128",
+        "--memory",
+        "512m",
+        "--cpus",
+        "1",
         "--tmpfs",
         "/tmp:rw,nosuid,nodev,noexec",
         "--mount",

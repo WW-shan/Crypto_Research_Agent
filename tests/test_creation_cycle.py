@@ -64,6 +64,11 @@ def test_docker_pytest_command_is_networkless_and_mounts_only_workdir(
     assert "--security-opt" in command
     assert "no-new-privileges" in command
     assert "--read-only" in command
+    assert "--pids-limit" in command
+    assert "128" in command
+    assert "--memory" in command
+    assert "512m" in command
+    assert "--cpus" in command
     assert f"type=bind,source={tmp_path},target=/workspace" in command
     assert "/workspace" in command
     assert "PYTHONPATH=/workspace/src" in command
@@ -345,6 +350,10 @@ def test_creation_cycle_rejects_unsafe_runner_commands_without_promotion(
         "pytest ../test_escape.py -q",
         "pytest --basetemp=/tmp/pytest-out test_escape.py -q",
         "python -m pytest --pyargs crypto_alpha_agent",
+        "pytest --help",
+        "pytest --collect-only test_escape.py",
+        "python -m pytest --version",
+        "uv run pytest --fixtures test_escape.py",
     ],
 )
 def test_creation_cycle_rejects_unsafe_pytest_arguments(
