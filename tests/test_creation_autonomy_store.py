@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from crypto_alpha_agent.autonomy.models import (
     CreationCycleReport,
     CreationObject,
@@ -121,3 +124,69 @@ def test_autonomy_store_writes_latest_report_files(tmp_path: Path) -> None:
     assert markdown_path.read_text(encoding="utf-8").startswith("# Creation")
     assert json_path == tmp_path / "reports" / "creation" / "latest.json"
     assert json.loads(json_path.read_text(encoding="utf-8"))["report"]["task_id"] == "task-001"
+
+
+@pytest.mark.parametrize("bad_task_id", ["", "../escape", "/tmp/escape", "nested/task"])
+def test_autonomy_store_rejects_unsafe_task_ids(
+    tmp_path: Path, bad_task_id: str
+) -> None:
+    store = AutonomyStore(root=tmp_path / "autonomy", reports_root=tmp_path / "reports")
+
+    with pytest.raises(ValueError):
+        store.create_task(task_id=bad_task_id, creation=_creation())
+
+    with pytest.raises(ValueError):
+        store.write_json(bad_task_id, "artifact.json", {"ok": True})
+
+
+@pytest.mark.parametrize("bad_name", ["", "../escape.json", "/tmp/escape.json", "nested/artifact.json"])
+def test_autonomy_store_rejects_unsafe_artifact_names(
+    tmp_path: Path, bad_name: str
+) -> None:
+    store = AutonomyStore(root=tmp_path / "autonomy", reports_root=tmp_path / "reports")
+    task = store.create_task(task_id="task-001", creation=_creation())
+
+    with pytest.raises(ValueError):
+        store.write_json(task.task_id, bad_name, {"ok": True})
+
+    with pytest.raises(ValueError):
+        store.write_text(task.task_id, bad_name, "unsafe")
+
+
+def test_autonomy_store_rejects_role_mismatch(tmp_path: Path) -> None:
+    store = AutonomyStore(root=tmp_path / "autonomy", reports_root=tmp_path / "reports")
+    task = store.create_task(task_id="task-001", creation=_creation())
+
+    with pytest.raises(ValueError):
+        store.write_role_note(
+            task.task_id,
+            "director",
+            CreationRoleNote(role="critic", summary="Conflicting role."),
+        )
+
+
+def test_autonomy_store_rejects_non_portable_json_nan(tmp_path: Path) -> None:
+    store = AutonomyStore(root=tmp_path / "autonomy", reports_root=tmp_path / "reports")
+    task = store.create_task(task_id="task-001", creation=_creation())
+
+    with pytest.raises(ValueError):
+        store.write_json(task.task_id, "artifact.json", {"not_portable": float("nan")})
+
+    with pytest.raises(ValueError):
+        store.write_latest_json({"not_portable": float("nan")})
+
+
+def test_creation_models_reject_unknown_fields_and_coercion() -> None:
+    with pytest.raises(ValidationError):
+        CreationRoleNote(role="director", summary="No extras.", unexpected=True)
+
+    with pytest.raises(ValidationError):
+        CreationCycleReport(
+            task_id="task-001",
+            creation=_creation(),
+            accepted="true",
+            status="active",
+            report_path="reports/creation/latest.md",
+            json_path="reports/creation/latest.json",
+            task_path="autonomy/tasks/task-001",
+        )
