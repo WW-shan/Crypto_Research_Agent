@@ -428,12 +428,20 @@ def _has_unsafe_pytest_args(args: list[str]) -> bool:
             return True
         if index > 0 and args[index - 1] in forbidden_exact:
             return True
+        if _has_unsafe_short_option_cluster(arg):
+            return True
         if arg.startswith("-"):
             continue
         path = Path(arg)
         if path.is_absolute() or ".." in path.parts:
             return True
     return False
+
+
+def _has_unsafe_short_option_cluster(arg: str) -> bool:
+    if not arg.startswith("-") or arg.startswith("--"):
+        return False
+    return "h" in arg[1:] or "V" in arg[1:]
 
 
 def _is_test_selector(arg: str) -> bool:
