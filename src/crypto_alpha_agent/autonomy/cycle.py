@@ -8,6 +8,7 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel
 
@@ -330,7 +331,7 @@ def _is_allowed_runner_argv(argv: list[str]) -> bool:
         return True
     if len(argv) >= 3 and argv[0] == "python" and argv[1:3] == ["-m", "pytest"]:
         return True
-    return len(argv) >= 3 and argv[0] == "python" and argv[1] == "-c"
+    return False
 
 
 def _run_safe_command(
@@ -382,6 +383,9 @@ def _scrub_runner_env(env: os._Environ[str]) -> tuple[dict[str, str], list[str]]
                 redaction_secrets.append(value)
             continue
         clean[name] = value
+        if value and _is_authenticated_proxy_url(name, value):
+            redaction_secrets.append(value)
+            redaction_secrets.extend(_proxy_credentials(name, value))
     return clean, redaction_secrets
 
 
@@ -423,6 +427,36 @@ def _should_scrub_runner_env_var(name: str) -> bool:
     return any(marker in upper_name for marker in _RUNNER_TRADING_ENV_MARKERS) or any(
         marker in upper_name for marker in _RUNNER_SECRET_ENV_MARKERS
     )
+
+
+_RUNNER_SAFE_PROXY_ENV_NAMES = {
+    "ALL_PROXY",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "all_proxy",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+}
+
+
+def _is_authenticated_proxy_url(name: str, value: str) -> bool:
+    if not _is_runner_proxy_env_name(name):
+        return False
+    parsed = urlsplit(value)
+    return bool(parsed.scheme and parsed.hostname and (parsed.username or parsed.password))
+
+
+def _proxy_credentials(name: str, value: str) -> list[str]:
+    if not _is_runner_proxy_env_name(name):
+        return []
+    parsed = urlsplit(value)
+    return [secret for secret in (parsed.username, parsed.password) if secret]
+
+
+def _is_runner_proxy_env_name(name: str) -> bool:
+    return name in _RUNNER_SAFE_PROXY_ENV_NAMES or name.upper() in _RUNNER_SAFE_PROXY_ENV_NAMES
 
 
 def _llm_metadata(llm_runtime: Any) -> Any:

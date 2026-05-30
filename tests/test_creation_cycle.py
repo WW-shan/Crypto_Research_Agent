@@ -140,12 +140,20 @@ def test_creation_cycle_with_commands_patches_and_promotes_new_builder_file(
     repo = _init_repo(tmp_path / "repo")
     autonomy_root = tmp_path / "autonomy"
     payload = _creation_payload(
-        verification_commands=[
-            'python -c "import pathlib; assert pathlib.Path(\'created.txt\').exists()"'
-        ],
+        verification_commands=["python -m pytest test_created.py -q"],
     )
     runtime = FakeRuntime(payload)
-    codex = FakeCodex(exit_code=0, created_file="created.txt")
+    codex = FakeCodex(
+        exit_code=0,
+        created_files={
+            "created.txt": "created by fake codex\n",
+            "test_created.py": (
+                "from pathlib import Path\n\n"
+                "def test_created_file_exists():\n"
+                "    assert Path('created.txt').read_text() == 'created by fake codex\\n'\n"
+            ),
+        },
+    )
 
     report = run_creation_cycle(
         repo_root=repo,
@@ -174,11 +182,16 @@ def test_creation_cycle_command_mode_builder_failure_does_not_promote(
     repo = _init_repo(tmp_path / "repo")
     autonomy_root = tmp_path / "autonomy"
     payload = _creation_payload(
-        verification_commands=[
-            'python -c "import pathlib; assert pathlib.Path(\'created.txt\').exists()"'
-        ],
+        verification_commands=["python -m pytest test_created.py -q"],
     )
-    codex = FakeCodex(exit_code=2, stderr="builder failed", created_file="created.txt")
+    codex = FakeCodex(
+        exit_code=2,
+        stderr="builder failed",
+        created_files={
+            "created.txt": "created by fake codex\n",
+            "test_created.py": "def test_created():\n    assert True\n",
+        },
+    )
 
     report = run_creation_cycle(
         repo_root=repo,
@@ -203,9 +216,15 @@ def test_creation_cycle_command_mode_runner_failure_does_not_promote_or_stage(
     repo = _init_repo(tmp_path / "repo")
     autonomy_root = tmp_path / "autonomy"
     payload = _creation_payload(
-        verification_commands=['python -c "raise SystemExit(3)"'],
+        verification_commands=["pytest test_created.py -q"],
     )
-    codex = FakeCodex(exit_code=0, created_file="created.txt")
+    codex = FakeCodex(
+        exit_code=0,
+        created_files={
+            "created.txt": "created by fake codex\n",
+            "test_created.py": "def test_failure():\n    assert False\n",
+        },
+    )
 
     report = run_creation_cycle(
         repo_root=repo,
@@ -222,12 +241,15 @@ def test_creation_cycle_command_mode_runner_failure_does_not_promote_or_stage(
     assert report.accepted is False
     assert report.status == "needs_fix"
     assert report.rejected_reason_codes == ["verification_failed"]
-    assert report.runner_exit_code == 3
+    assert report.runner_exit_code == 1
     assert not (autonomy_root / "active-worktree" / "created.txt").exists()
-    assert _git_output(task_worktree, "status", "--short") == "?? created.txt\n"
+    status_lines = _git_output(task_worktree, "status", "--short").splitlines()
+    assert "?? created.txt" in status_lines
+    assert "?? test_created.py" in status_lines
+    assert all(line.startswith("?? ") for line in status_lines)
 
 
-@pytest.mark.parametrize("command", ["env", "bash -c 'echo unsafe'"])
+@pytest.mark.parametrize("command", ["env", "bash -c 'echo unsafe'", 'python -c "print(1)"'])
 def test_creation_cycle_rejects_unsafe_runner_commands_without_promotion(
     tmp_path: Path,
     command: str,
@@ -235,7 +257,7 @@ def test_creation_cycle_rejects_unsafe_runner_commands_without_promotion(
     repo = _init_repo(tmp_path / "repo")
     autonomy_root = tmp_path / "autonomy"
     payload = _creation_payload(verification_commands=[command])
-    codex = FakeCodex(exit_code=0, created_file="created.txt")
+    codex = FakeCodex(exit_code=0, created_files={"created.txt": "created by fake codex\n"})
 
     report = run_creation_cycle(
         repo_root=repo,
@@ -261,27 +283,40 @@ def test_creation_cycle_runner_scrubs_env_and_redacts_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    proxy_url = "http://proxy-user:proxy-password@proxy.example:8080"
     monkeypatch.setenv("BINANCE_API_SECRET", "binance-secret")
-    command = (
-        "python -c \"import os; "
-        "print(os.environ.get('BINANCE_API_SECRET', 'missing')); "
-        "print('Bearer runner-secret')\""
-    )
+    monkeypatch.setenv("HTTPS_PROXY", proxy_url)
     report = run_creation_cycle(
         repo_root=_init_repo(tmp_path / "repo"),
         db_path=tmp_path / "research.sqlite",
         memory_path=tmp_path / "memory.jsonl",
         reports_root=tmp_path / "reports",
         autonomy_root=tmp_path / "autonomy",
-        llm_runtime=FakeRuntime(_creation_payload(verification_commands=[command])),
-        codex=FakeCodex(exit_code=0),
+        llm_runtime=FakeRuntime(
+            _creation_payload(verification_commands=["pytest test_redaction.py -q"])
+        ),
+        codex=FakeCodex(
+            exit_code=0,
+            created_files={
+                "test_redaction.py": (
+                    "import os\n\n"
+                    "def test_runner_redaction():\n"
+                    "    assert os.environ.get('BINANCE_API_SECRET') is None\n"
+                    "    raise AssertionError(\n"
+                    "        os.environ['HTTPS_PROXY'] + ' Bearer runner-secret'\n"
+                    "    )\n"
+                )
+            },
+        ),
         run_commands=True,
     )
 
     runner_text = (Path(report.task_path) / "runner.md").read_text(encoding="utf-8")
-    assert report.accepted is True
-    assert "missing" in runner_text
+    assert report.accepted is False
     assert "binance-secret" not in runner_text
+    assert proxy_url not in runner_text
+    assert "proxy-user" not in runner_text
+    assert "proxy-password" not in runner_text
     assert "runner-secret" not in runner_text
     assert "<redacted>" in runner_text
 
@@ -314,7 +349,7 @@ def test_creation_cycle_promotion_failure_writes_rejected_report(
         "AutonomyWorktreeManager",
         FailingPromotionWorktreeManager,
     )
-    payload = _creation_payload(verification_commands=['python -c "print(\'ok\')"'])
+    payload = _creation_payload(verification_commands=["pytest test_created.py -q"])
 
     report = run_creation_cycle(
         repo_root=tmp_path / "repo",
@@ -323,7 +358,10 @@ def test_creation_cycle_promotion_failure_writes_rejected_report(
         reports_root=tmp_path / "reports",
         autonomy_root=tmp_path / "autonomy",
         llm_runtime=FakeRuntime(payload),
-        codex=FakeCodex(exit_code=0, created_file="created.txt"),
+        codex=FakeCodex(
+            exit_code=0,
+            created_files={"test_created.py": "def test_created():\n    assert True\n"},
+        ),
         run_commands=True,
     )
 
@@ -413,6 +451,7 @@ class FakeCodex:
         health_stderr: str = "",
         health_result: object | None = None,
         created_file: str | None = None,
+        created_files: dict[str, str] | None = None,
     ) -> None:
         self.exit_code = exit_code
         self.stdout = stdout
@@ -421,6 +460,7 @@ class FakeCodex:
         self.health_stderr = health_stderr
         self.health_result = health_result
         self.created_file = created_file
+        self.created_files = {} if created_files is None else created_files
         self.events: list[str] = []
         self.exec_workdirs: list[Path] = []
 
@@ -442,6 +482,10 @@ class FakeCodex:
                 "created by fake codex\n",
                 encoding="utf-8",
             )
+        for name, text in self.created_files.items():
+            path = workdir / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
         return CodexExecResult(
             command=["codex", "exec"],
             exit_code=self.exit_code,
