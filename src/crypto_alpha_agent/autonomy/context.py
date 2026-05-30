@@ -24,7 +24,7 @@ def build_creation_context(
     reports: dict[str, str] = {}
     for report_key, path_parts in _REPORT_PATHS:
         path = reports_base.joinpath(*path_parts)
-        if path.exists():
+        if path.is_file():
             reports[report_key] = path.read_text(encoding="utf-8")[:limit]
 
     context_refs = sorted(reports)
@@ -36,6 +36,7 @@ def build_creation_context(
 
 
 def _backlog_count(path: Path) -> int:
-    if not path.exists():
+    if not path.is_file():
         return 0
-    return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+    with path.open(encoding="utf-8") as handle:
+        return sum(1 for line in handle if line.strip())
