@@ -1,0 +1,9 @@
+[Unit]
+Description=Crypto Alpha Agent creation-first Codex autonomy cycle
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/crypto-alpha-agent
+ExecStart=/opt/crypto-alpha-agent/ops/creation-cycle.sh

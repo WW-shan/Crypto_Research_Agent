@@ -13,7 +13,7 @@ if [[ "${CRYPTO_ALPHA_AGENT_DRY_RUN:-0}" == "1" ]]; then
     printf 'DRY RUN: install -m 0644 %q %q\n' "$unit" "${systemd_dir}/$(basename "$unit")"
   done
   printf 'DRY RUN: systemctl daemon-reload\n'
-  printf 'DRY RUN: systemctl enable --now crypto-alpha-daily.timer crypto-alpha-weekly.timer crypto-alpha-monthly.timer crypto-alpha-backup.timer\n'
+  printf 'DRY RUN: systemctl enable --now crypto-alpha-daily.timer crypto-alpha-weekly.timer crypto-alpha-monthly.timer crypto-alpha-backup.timer crypto-alpha-creation.timer\n'
   exit 0
 fi
 
@@ -34,5 +34,6 @@ if [[ "${CRYPTO_ALPHA_AGENT_SKIP_SYSTEMCTL:-0}" != "1" ]]; then
     crypto-alpha-daily.timer \
     crypto-alpha-weekly.timer \
     crypto-alpha-monthly.timer \
-    crypto-alpha-backup.timer
+    crypto-alpha-backup.timer \
+    crypto-alpha-creation.timer
 fi

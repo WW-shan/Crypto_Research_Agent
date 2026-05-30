@@ -7,6 +7,8 @@ This is the recommended unattended operations shape for a VPS:
 - Host `systemd` timers decide when short-lived jobs run.
 - The agent still has no internal daemon and no live trading authority.
 - Secrets stay in host-local environment files; `.env stays outside git`.
+- `crypto-alpha-creation.timer` can run the host-side creation-first Codex
+  autonomy cycle through `ops/creation-cycle.sh`.
 
 The result is an operator-controlled evidence factory that can keep collecting
 data, asking the configured real LLM for judgement, writing reports, and
@@ -18,6 +20,9 @@ preserving artifacts over time.
   structured LLM gate fails, the job fails closed instead of reporting success.
 - The deployment has no wallet keys, no exchange trade permissions, no live
   execution, and no live order routing.
+- The creation cycle still has no live capital/order routing and relies on real
+  LLM + Codex.
+- Codex must be available or the creation cycle exits nonzero.
 - `iteration-cycle` remains review-only and records
   `auto_executes_changes=false`; it does not write code, promote data sources,
   run tests, schedule future commands, or trade.
@@ -44,10 +49,16 @@ Expected durable outputs:
 - `var/reports/daily/latest.md` - latest daily evidence report pointer.
 - `var/reports/daily/latest.evidence-run.json` - latest daily machine payload.
 - `var/reports/iteration/latest.json` - latest guarded iteration payload.
+- `var/autonomy/backlog.jsonl` - creation-first autonomy backlog.
+- `var/autonomy/active-worktree` - optional active worktree used by the
+  creation wrapper when present.
+- `var/reports/creation/latest.md` - latest creation-cycle Markdown report.
+- `var/reports/creation/latest.json` - latest creation-cycle machine payload.
 - `var/run-manifests/latest.json` - latest run manifest pointer.
 - `var/run-manifests/failed/` - failed marker JSON files for nonzero runs.
-- `var/log/evidence-run/`, `var/log/weekly-review/`, and
-  `var/log/monthly-owner-review/` - stdout/stderr logs.
+- `var/log/evidence-run/`, `var/log/weekly-review/`,
+  `var/log/monthly-owner-review/`, and `var/log/creation-cycle/` -
+  stdout/stderr logs.
 - `var/backups/` - timestamped SQLite, memory, report, and manifest backups.
 
 ## Environment
@@ -75,6 +86,7 @@ CRYPTO_ALPHA_AGENT_FUNDING_SYMBOL=BTC/USDT:USDT
 CRYPTO_ALPHA_AGENT_TIMEFRAME=1h
 CRYPTO_ALPHA_AGENT_LIMIT=200
 CRYPTO_ALPHA_AGENT_CURRENT_CAPITAL_USD=300
+CRYPTO_ALPHA_AGENT_MAX_CREATIONS=1
 ```
 
 If the VPS or local Docker Desktop must reach public APIs through a host proxy,
@@ -135,6 +147,7 @@ CRYPTO_ALPHA_AGENT_DRY_RUN=1 \
   CRYPTO_ALPHA_AGENT_REVIEW_FAMILY=funding_extremity_price_confirmation \
   ops/monthly-owner-review.sh
 CRYPTO_ALPHA_AGENT_DRY_RUN=1 ops/backup-var.sh
+CRYPTO_ALPHA_AGENT_DRY_RUN=1 ops/creation-cycle.sh
 ```
 
 Run one manual evidence job when the LLM health check is green:
@@ -149,6 +162,26 @@ Review:
 - `var/reports/daily/latest.evidence-run.json`
 - `var/run-manifests/latest.json`
 - the stdout and stderr log paths printed by the wrapper in dry-run mode
+
+Run one manual creation job only after the real LLM and Codex CLI are healthy
+on the host:
+
+```bash
+ops/creation-cycle.sh
+```
+
+The wrapper runs `uv run crypto-alpha-agent creation-cycle` from
+`var/autonomy/active-worktree` when that directory exists, otherwise from the
+main repository. It passes `--autonomy-root`, `--reports-root`,
+`--max-creations`, `--task-root`, `--worktree-root`, and `--repo-root`, then
+refreshes `var/reports/creation/latest.md` and
+`var/reports/creation/latest.json` through the CLI artifact store.
+
+The creation runner accepts only pytest verification command forms for
+generated work: `pytest ...`, `python -m pytest ...`, and
+`uv run pytest ...`. Shell chains, live trading commands, and non-pytest
+verification commands are rejected. The creation cycle still has no live
+capital/order routing and relies on real LLM + Codex.
 
 ## Install systemd Timers
 
@@ -169,13 +202,18 @@ Installed timers:
 - `crypto-alpha-monthly.timer` runs `rollout-review` for
   `CRYPTO_ALPHA_AGENT_REVIEW_FAMILY`.
 - `crypto-alpha-backup.timer` snapshots SQLite, memory, reports, and manifests.
+- `crypto-alpha-creation.timer` runs `ops/creation-cycle.sh` every four hours
+  for the creation-first `creation-cycle`.
 
 Manual operations:
 
 ```bash
 systemctl start crypto-alpha-daily.service
+systemctl start crypto-alpha-creation.service
 journalctl -u crypto-alpha-daily.service -n 100 --no-pager
+journalctl -u crypto-alpha-creation.service -n 100 --no-pager
 systemctl status crypto-alpha-weekly.timer
+systemctl status crypto-alpha-creation.timer
 ```
 
 The unit files intentionally do not embed `OPENAI_API_KEY`, Dune keys, wallet
@@ -204,6 +242,17 @@ Weekly job:
 - Refreshes `var/reports/iteration/latest.md` and
   `var/reports/iteration/latest.json`.
 
+Creation job:
+
+- Reads backlog and task state under `var/autonomy/backlog.jsonl` and
+  `var/autonomy/tasks/`.
+- Uses `var/autonomy/active-worktree` when present so operators can keep an
+  in-progress autonomy workspace separate from the main repository.
+- Writes creation reports under `var/reports/creation/`.
+- Refreshes `var/reports/creation/latest.md` and
+  `var/reports/creation/latest.json`.
+- Exits nonzero when real LLM preflight or Codex availability fails.
+
 Monthly job:
 
 - Writes rollout readiness JSON under `var/rollout/<family>/`.
@@ -224,12 +273,14 @@ Use an explicit maintenance window:
 ```bash
 cd /opt/crypto-alpha-agent
 systemctl stop crypto-alpha-daily.timer crypto-alpha-weekly.timer \
-  crypto-alpha-monthly.timer crypto-alpha-backup.timer
+  crypto-alpha-monthly.timer crypto-alpha-backup.timer \
+  crypto-alpha-creation.timer
 git pull --ff-only
 docker compose pull crypto-alpha-agent
 docker compose run --rm crypto-alpha-agent llm-health-check
 systemctl start crypto-alpha-daily.timer crypto-alpha-weekly.timer \
-  crypto-alpha-monthly.timer crypto-alpha-backup.timer
+  crypto-alpha-monthly.timer crypto-alpha-backup.timer \
+  crypto-alpha-creation.timer
 ```
 
 If `llm-health-check` fails after an update, leave timers stopped, inspect the

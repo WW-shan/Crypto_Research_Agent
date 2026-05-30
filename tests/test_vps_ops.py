@@ -22,6 +22,7 @@ def test_vps_ops_files_exist() -> None:
         "ops/weekly-review.sh",
         "ops/monthly-owner-review.sh",
         "ops/backup-var.sh",
+        "ops/creation-cycle.sh",
         "ops/install-systemd.sh",
         "ops/systemd/crypto-alpha-daily.service",
         "ops/systemd/crypto-alpha-daily.timer",
@@ -31,6 +32,8 @@ def test_vps_ops_files_exist() -> None:
         "ops/systemd/crypto-alpha-monthly.timer",
         "ops/systemd/crypto-alpha-backup.service",
         "ops/systemd/crypto-alpha-backup.timer",
+        "ops/systemd/crypto-alpha-creation.service",
+        "ops/systemd/crypto-alpha-creation.timer",
         "docs/vps-deployment.md",
     ]
 
@@ -58,6 +61,7 @@ def test_ops_scripts_are_syntax_valid() -> None:
             {"CRYPTO_ALPHA_AGENT_REVIEW_FAMILY": "funding_extremity_price_confirmation"},
         ),
         ("ops/backup-var.sh", {}),
+        ("ops/creation-cycle.sh", {}),
         ("ops/install-systemd.sh", {}),
     ],
 )
@@ -198,6 +202,23 @@ def test_daily_wrapper_can_pass_host_proxy_to_container() -> None:
     assert "-e CRYPTO_ALPHA_AGENT_PROXY=http://host.docker.internal:10808" in result.stdout
 
 
+def test_creation_wrapper_runs_creation_cycle_with_artifact_contract() -> None:
+    script = read_text("ops/creation-cycle.sh")
+
+    for expected in [
+        "set -euo pipefail",
+        "creation-cycle",
+        "--autonomy-root",
+        "--reports-root",
+        "--max-creations",
+        "var/reports/creation/latest.md",
+        "var/reports/creation/latest.json",
+        "CRYPTO_ALPHA_AGENT_DRY_RUN",
+        "CRYPTO_ALPHA_AGENT_ACTIVE_WORKTREE",
+    ]:
+        assert expected in script
+
+
 def test_weekly_wrapper_runs_governance_memo_and_iteration_cycle() -> None:
     script = read_text("ops/weekly-review.sh")
 
@@ -259,6 +280,7 @@ def test_systemd_units_call_ops_scripts_without_secrets() -> None:
         "crypto-alpha-weekly.service": "ops/weekly-review.sh",
         "crypto-alpha-monthly.service": "ops/monthly-owner-review.sh",
         "crypto-alpha-backup.service": "ops/backup-var.sh",
+        "crypto-alpha-creation.service": "ops/creation-cycle.sh",
     }
 
     for name, text in service_text_by_name.items():
@@ -288,6 +310,14 @@ def test_vps_deployment_doc_documents_outputs_and_boundaries() -> None:
         "var/memory/evidence.jsonl",
         "var/reports/daily/latest.md",
         "var/reports/iteration/latest.json",
+        "crypto-alpha-creation.timer",
+        "ops/creation-cycle.sh",
+        "creation-cycle",
+        "var/autonomy/backlog.jsonl",
+        "var/autonomy/active-worktree",
+        "var/reports/creation/latest.md",
+        "var/reports/creation/latest.json",
+        "Codex must be available or the creation cycle exits nonzero",
         "var/run-manifests/latest.json",
         "failed marker",
         "no live order routing",
