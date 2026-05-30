@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import shlex
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,9 +22,12 @@ from crypto_alpha_agent.autonomy.models import (
 from crypto_alpha_agent.autonomy.prompts import render_builder_prompt, render_creator_prompt
 from crypto_alpha_agent.autonomy.store import AutonomyStore
 from crypto_alpha_agent.autonomy.worktrees import AutonomyWorktreeManager
+from crypto_alpha_agent.llm.redaction import redact_text
 from crypto_alpha_agent.llm.runtime import parse_structured_llm_json
 
 _DEFAULT_RUNNER_COMMANDS = ["python -m pytest tests/test_creation_autonomy_store.py -q"]
+_RUNNER_TIMEOUT_SECONDS = 300
+_UNSAFE_COMMAND_EXIT_CODE = 126
 
 
 def run_creation_cycle(
@@ -117,12 +122,17 @@ def run_creation_cycle(
         runner_exit_code=runner_exit_code,
         run_commands=run_commands,
     )
+    promotion_error: str | None = None
+    if not rejected_reason_codes and run_commands and worktrees is not None:
+        try:
+            worktrees.promote_task(
+                task_id=task.task_id,
+                message=f"Promote creation task {task.task_id}",
+            )
+        except Exception as exc:  # noqa: BLE001 - report promotion failures fail-closed.
+            promotion_error = redact_text(exc)
+            rejected_reason_codes.append("promotion_failed")
     accepted = not rejected_reason_codes
-    if accepted and run_commands and worktrees is not None:
-        worktrees.promote_task(
-            task_id=task.task_id,
-            message=f"Promote creation task {task.task_id}",
-        )
 
     report = CreationCycleReport(
         task_id=task.task_id,
@@ -140,6 +150,7 @@ def run_creation_cycle(
             rejected_reason_codes=rejected_reason_codes,
             runner_commands=runner_commands,
             run_commands=run_commands,
+            promotion_error=promotion_error,
         ),
     )
     latest_json_payload = {
@@ -170,8 +181,10 @@ def _parse_creation(raw_response: Any) -> CreationObject:
 
 
 def _ensure_health_check_succeeded(result: Any) -> None:
-    exit_code = getattr(result, "exit_code", None)
-    if exit_code in (None, 0):
+    if not hasattr(result, "exit_code"):
+        raise CodexUnavailableError("Codex health check returned malformed result")
+    exit_code = result.exit_code
+    if exit_code == 0:
         return
     detail = getattr(result, "stderr", "") or getattr(result, "stdout", "") or exit_code
     raise CodexUnavailableError(f"Codex health check failed: {detail}")
@@ -193,33 +206,39 @@ def _run_verification(
 ) -> int:
     sections = ["# Runner", ""]
     highest_exit_code = 0
+    env, redaction_secrets = _scrub_runner_env(os.environ)
     for command in commands:
-        result = subprocess.run(
-            command,
-            cwd=workdir,
-            shell=True,
-            text=True,
-            capture_output=True,
-        )
-        exit_code = int(result.returncode)
+        display_command = redact_text(command, secrets=redaction_secrets)
+        argv, rejection_reason = _runner_argv(command)
+        if rejection_reason is None:
+            exit_code, stdout, stderr = _run_safe_command(
+                argv=argv,
+                workdir=workdir,
+                env=env,
+                redaction_secrets=redaction_secrets,
+            )
+        else:
+            exit_code = _UNSAFE_COMMAND_EXIT_CODE
+            stdout = ""
+            stderr = redact_text(rejection_reason, secrets=redaction_secrets)
         if exit_code != 0:
             highest_exit_code = max(highest_exit_code, exit_code)
         sections.extend(
             [
-                f"## `{command}`",
+                f"## `{display_command}`",
                 "",
                 f"Exit code: {exit_code}",
                 "",
                 "### stdout",
                 "",
                 "```",
-                result.stdout,
+                stdout,
                 "```",
                 "",
                 "### stderr",
                 "",
                 "```",
-                result.stderr,
+                stderr,
                 "```",
                 "",
             ]
@@ -229,20 +248,29 @@ def _run_verification(
 
 
 def _write_patch(*, workdir: Path, store: AutonomyStore, task_id: str) -> Path:
-    subprocess.run(
-        ["git", "add", "-N", "."],
-        cwd=workdir,
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    result = subprocess.run(
-        ["git", "diff", "--binary", "HEAD"],
-        cwd=workdir,
-        text=True,
-        capture_output=True,
-        check=True,
-    )
+    try:
+        subprocess.run(
+            ["git", "add", "-N", "."],
+            cwd=workdir,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        result = subprocess.run(
+            ["git", "diff", "--binary", "HEAD"],
+            cwd=workdir,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+    finally:
+        subprocess.run(
+            ["git", "reset", "--mixed", "HEAD"],
+            cwd=workdir,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
     return store.write_text(task_id, "patch.diff", result.stdout)
 
 
@@ -266,6 +294,7 @@ def _next_actions(
     rejected_reason_codes: list[str],
     runner_commands: list[str],
     run_commands: bool,
+    promotion_error: str | None,
 ) -> list[str]:
     if not rejected_reason_codes:
         if run_commands:
@@ -276,7 +305,124 @@ def _next_actions(
         actions.append("Inspect builder-output.json and rerun the builder.")
     if "verification_failed" in rejected_reason_codes:
         actions.append(f"Fix failing verification: {', '.join(runner_commands)}")
+    if "promotion_failed" in rejected_reason_codes:
+        detail = "" if promotion_error is None else f": {promotion_error}"
+        actions.append(f"Inspect promotion failure{detail}")
     return actions
+
+
+def _runner_argv(command: str) -> tuple[list[str], str | None]:
+    try:
+        argv = shlex.split(command)
+    except ValueError as exc:
+        return [], f"Rejected unsafe verification command: {exc}"
+    if _is_allowed_runner_argv(argv):
+        return argv, None
+    return [], f"Rejected unsafe verification command: {command}"
+
+
+def _is_allowed_runner_argv(argv: list[str]) -> bool:
+    if not argv:
+        return False
+    if argv[0] == "pytest":
+        return True
+    if len(argv) >= 3 and argv[0] == "uv" and argv[1:3] == ["run", "pytest"]:
+        return True
+    if len(argv) >= 3 and argv[0] == "python" and argv[1:3] == ["-m", "pytest"]:
+        return True
+    return len(argv) >= 3 and argv[0] == "python" and argv[1] == "-c"
+
+
+def _run_safe_command(
+    *,
+    argv: list[str],
+    workdir: Path,
+    env: dict[str, str],
+    redaction_secrets: list[str],
+) -> tuple[int, str, str]:
+    try:
+        result = subprocess.run(
+            argv,
+            cwd=workdir,
+            shell=False,
+            text=True,
+            capture_output=True,
+            timeout=_RUNNER_TIMEOUT_SECONDS,
+            env=env,
+        )
+    except FileNotFoundError as exc:
+        return 127, "", redact_text(exc, secrets=redaction_secrets)
+    except subprocess.TimeoutExpired as exc:
+        return (
+            124,
+            redact_text(_process_output(exc.stdout), secrets=redaction_secrets),
+            redact_text(_process_output(exc.stderr), secrets=redaction_secrets),
+        )
+    return (
+        int(result.returncode),
+        redact_text(result.stdout, secrets=redaction_secrets),
+        redact_text(result.stderr, secrets=redaction_secrets),
+    )
+
+
+def _process_output(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return str(value)
+
+
+def _scrub_runner_env(env: os._Environ[str]) -> tuple[dict[str, str], list[str]]:
+    clean: dict[str, str] = {}
+    redaction_secrets: list[str] = []
+    for name, value in env.items():
+        if _should_scrub_runner_env_var(name):
+            if value:
+                redaction_secrets.append(value)
+            continue
+        clean[name] = value
+    return clean, redaction_secrets
+
+
+_RUNNER_SECRET_ENV_MARKERS = (
+    "API_KEY",
+    "API_SECRET",
+    "MNEMONIC",
+    "PASSWORD",
+    "PRIVATE_KEY",
+    "SECRET",
+    "SECRET_KEY",
+    "SEED_PHRASE",
+    "TOKEN",
+)
+_RUNNER_TRADING_ENV_MARKERS = (
+    "ALCHEMY",
+    "BINANCE",
+    "BITFINEX",
+    "BITGET",
+    "BITMEX",
+    "BROKER",
+    "BYBIT",
+    "CCXT",
+    "COINBASE",
+    "DERIBIT",
+    "EXCHANGE",
+    "FTX",
+    "KRAKEN",
+    "KUCOIN",
+    "OKX",
+    "TRADING",
+    "WALLET",
+    "WEB3",
+)
+
+
+def _should_scrub_runner_env_var(name: str) -> bool:
+    upper_name = name.upper()
+    return any(marker in upper_name for marker in _RUNNER_TRADING_ENV_MARKERS) or any(
+        marker in upper_name for marker in _RUNNER_SECRET_ENV_MARKERS
+    )
 
 
 def _llm_metadata(llm_runtime: Any) -> Any:

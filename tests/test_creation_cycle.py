@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+import crypto_alpha_agent.autonomy.cycle as cycle_module
 from crypto_alpha_agent.autonomy.codex_runner import CodexUnavailableError
 from crypto_alpha_agent.autonomy.cycle import run_creation_cycle
 from crypto_alpha_agent.autonomy.models import CodexExecResult
@@ -110,6 +111,29 @@ def test_creation_cycle_rejects_nonzero_injected_health_check_before_llm(
     assert codex.exec_workdirs == []
 
 
+def test_creation_cycle_rejects_malformed_health_check_before_llm(
+    tmp_path: Path,
+) -> None:
+    runtime = FakeRuntime(_creation_payload())
+    codex = FakeCodex(health_result=object())
+
+    with pytest.raises(CodexUnavailableError, match="malformed"):
+        run_creation_cycle(
+            repo_root=tmp_path / "repo",
+            db_path=tmp_path / "research.sqlite",
+            memory_path=tmp_path / "memory.jsonl",
+            reports_root=tmp_path / "reports",
+            autonomy_root=tmp_path / "autonomy",
+            llm_runtime=runtime,
+            codex=codex,
+            run_commands=False,
+        )
+
+    assert runtime.prompts == []
+    assert codex.events == ["health"]
+    assert codex.exec_workdirs == []
+
+
 def test_creation_cycle_with_commands_patches_and_promotes_new_builder_file(
     tmp_path: Path,
 ) -> None:
@@ -142,6 +166,174 @@ def test_creation_cycle_with_commands_patches_and_promotes_new_builder_file(
         encoding="utf-8"
     ) == "created by fake codex\n"
     assert codex.exec_workdirs == [autonomy_root / "worktrees" / report.task_id]
+
+
+def test_creation_cycle_command_mode_builder_failure_does_not_promote(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    autonomy_root = tmp_path / "autonomy"
+    payload = _creation_payload(
+        verification_commands=[
+            'python -c "import pathlib; assert pathlib.Path(\'created.txt\').exists()"'
+        ],
+    )
+    codex = FakeCodex(exit_code=2, stderr="builder failed", created_file="created.txt")
+
+    report = run_creation_cycle(
+        repo_root=repo,
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        reports_root=tmp_path / "reports",
+        autonomy_root=autonomy_root,
+        llm_runtime=FakeRuntime(payload),
+        codex=codex,
+        run_commands=True,
+    )
+
+    assert report.accepted is False
+    assert report.status == "needs_fix"
+    assert report.rejected_reason_codes == ["codex_builder_failed"]
+    assert not (autonomy_root / "active-worktree" / "created.txt").exists()
+
+
+def test_creation_cycle_command_mode_runner_failure_does_not_promote_or_stage(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    autonomy_root = tmp_path / "autonomy"
+    payload = _creation_payload(
+        verification_commands=['python -c "raise SystemExit(3)"'],
+    )
+    codex = FakeCodex(exit_code=0, created_file="created.txt")
+
+    report = run_creation_cycle(
+        repo_root=repo,
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        reports_root=tmp_path / "reports",
+        autonomy_root=autonomy_root,
+        llm_runtime=FakeRuntime(payload),
+        codex=codex,
+        run_commands=True,
+    )
+
+    task_worktree = autonomy_root / "worktrees" / report.task_id
+    assert report.accepted is False
+    assert report.status == "needs_fix"
+    assert report.rejected_reason_codes == ["verification_failed"]
+    assert report.runner_exit_code == 3
+    assert not (autonomy_root / "active-worktree" / "created.txt").exists()
+    assert _git_output(task_worktree, "status", "--short") == "?? created.txt\n"
+
+
+@pytest.mark.parametrize("command", ["env", "bash -c 'echo unsafe'"])
+def test_creation_cycle_rejects_unsafe_runner_commands_without_promotion(
+    tmp_path: Path,
+    command: str,
+) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    autonomy_root = tmp_path / "autonomy"
+    payload = _creation_payload(verification_commands=[command])
+    codex = FakeCodex(exit_code=0, created_file="created.txt")
+
+    report = run_creation_cycle(
+        repo_root=repo,
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        reports_root=tmp_path / "reports",
+        autonomy_root=autonomy_root,
+        llm_runtime=FakeRuntime(payload),
+        codex=codex,
+        run_commands=True,
+    )
+
+    runner_text = (Path(report.task_path) / "runner.md").read_text(encoding="utf-8")
+    assert report.accepted is False
+    assert report.status == "needs_fix"
+    assert report.rejected_reason_codes == ["verification_failed"]
+    assert report.runner_exit_code == 126
+    assert "Rejected unsafe verification command" in runner_text
+    assert not (autonomy_root / "active-worktree" / "created.txt").exists()
+
+
+def test_creation_cycle_runner_scrubs_env_and_redacts_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BINANCE_API_SECRET", "binance-secret")
+    command = (
+        "python -c \"import os; "
+        "print(os.environ.get('BINANCE_API_SECRET', 'missing')); "
+        "print('Bearer runner-secret')\""
+    )
+    report = run_creation_cycle(
+        repo_root=_init_repo(tmp_path / "repo"),
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        reports_root=tmp_path / "reports",
+        autonomy_root=tmp_path / "autonomy",
+        llm_runtime=FakeRuntime(_creation_payload(verification_commands=[command])),
+        codex=FakeCodex(exit_code=0),
+        run_commands=True,
+    )
+
+    runner_text = (Path(report.task_path) / "runner.md").read_text(encoding="utf-8")
+    assert report.accepted is True
+    assert "missing" in runner_text
+    assert "binance-secret" not in runner_text
+    assert "runner-secret" not in runner_text
+    assert "<redacted>" in runner_text
+
+
+def test_creation_cycle_promotion_failure_writes_rejected_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingPromotionWorktreeManager:
+        def __init__(self, *, repo_root: Path, autonomy_root: Path) -> None:
+            self.repo_root = repo_root
+            self.autonomy_root = autonomy_root
+
+        def create_task_worktree(self, task_id: str) -> Path:
+            path = self.autonomy_root / "worktrees" / task_id
+            path.mkdir(parents=True)
+            _git(path, "init")
+            _git(path, "config", "user.email", "test@example.com")
+            _git(path, "config", "user.name", "Test User")
+            (path / "README.md").write_text("base\n", encoding="utf-8")
+            _git(path, "add", "README.md")
+            _git(path, "commit", "-m", "Initial commit")
+            return path
+
+        def promote_task(self, *, task_id: str, message: str) -> None:
+            raise RuntimeError("promotion refused")
+
+    monkeypatch.setattr(
+        cycle_module,
+        "AutonomyWorktreeManager",
+        FailingPromotionWorktreeManager,
+    )
+    payload = _creation_payload(verification_commands=['python -c "print(\'ok\')"'])
+
+    report = run_creation_cycle(
+        repo_root=tmp_path / "repo",
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        reports_root=tmp_path / "reports",
+        autonomy_root=tmp_path / "autonomy",
+        llm_runtime=FakeRuntime(payload),
+        codex=FakeCodex(exit_code=0, created_file="created.txt"),
+        run_commands=True,
+    )
+
+    latest_json = json.loads(Path(report.json_path).read_text(encoding="utf-8"))
+    assert report.accepted is False
+    assert report.status == "needs_fix"
+    assert report.rejected_reason_codes == ["promotion_failed"]
+    assert "promotion refused" in " ".join(report.next_actions)
+    assert latest_json["report"]["rejected_reason_codes"] == ["promotion_failed"]
+    assert (tmp_path / "autonomy" / "backlog.jsonl").is_file()
 
 
 def test_creation_cycle_builder_failure_rejects_but_writes_artifacts(
@@ -219,6 +411,7 @@ class FakeCodex:
         stderr: str = "",
         health_exit_code: int = 0,
         health_stderr: str = "",
+        health_result: object | None = None,
         created_file: str | None = None,
     ) -> None:
         self.exit_code = exit_code
@@ -226,12 +419,15 @@ class FakeCodex:
         self.stderr = stderr
         self.health_exit_code = health_exit_code
         self.health_stderr = health_stderr
+        self.health_result = health_result
         self.created_file = created_file
         self.events: list[str] = []
         self.exec_workdirs: list[Path] = []
 
-    def health_check(self, *, workdir: Path) -> CodexExecResult:
+    def health_check(self, *, workdir: Path) -> object:
         self.events.append("health")
+        if self.health_result is not None:
+            return self.health_result
         return CodexExecResult(
             command=["codex", "health"],
             exit_code=self.health_exit_code,
@@ -302,3 +498,15 @@ def _git(path: Path, *args: str) -> None:
         capture_output=True,
         check=True,
     )
+
+
+def _git_output(path: Path, *args: str) -> str:
+    import subprocess
+
+    return subprocess.run(
+        ["git", *args],
+        cwd=path,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout
