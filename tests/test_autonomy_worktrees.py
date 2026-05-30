@@ -31,7 +31,6 @@ def test_promote_task_commits_task_changes_and_updates_active_worktree(
     active_path = manager.ensure_active_worktree()
     task_path = manager.create_task_worktree("task-001")
     (task_path / "feature.txt").write_text("created by task\n", encoding="utf-8")
-    _git(task_path, "add", "feature.txt")
 
     manager.promote_task(task_id="task-001", message="Promote task 001")
 
@@ -39,6 +38,23 @@ def test_promote_task_commits_task_changes_and_updates_active_worktree(
     assert _git(task_path, "status", "--short").stdout == ""
     log = _git(active_path, "log", "--oneline", "-1").stdout
     assert "Promote task 001" in log
+
+
+def test_promote_task_without_changes_does_not_create_empty_commit(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    autonomy_root = tmp_path / "autonomy"
+    manager = AutonomyWorktreeManager(repo_root=repo, autonomy_root=autonomy_root)
+    active_path = manager.ensure_active_worktree()
+    manager.create_task_worktree("task-001")
+    before = _git(active_path, "rev-parse", "HEAD").stdout.strip()
+
+    manager.promote_task(task_id="task-001", message="No-op promotion")
+
+    after = _git(active_path, "rev-parse", "HEAD").stdout.strip()
+    assert after == before
+    assert "No-op promotion" not in _git(active_path, "log", "--oneline", "-1").stdout
 
 
 def _init_repo(path: Path) -> Path:

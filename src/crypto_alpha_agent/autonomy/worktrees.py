@@ -35,6 +35,7 @@ class AutonomyWorktreeManager:
         if not (task_path / ".git").exists():
             raise FileNotFoundError(f"task worktree does not exist: {task_path}")
 
+        _git(task_path, "add", "-A")
         staged = subprocess.run(
             ["git", "diff", "--cached", "--quiet"],
             cwd=task_path,
