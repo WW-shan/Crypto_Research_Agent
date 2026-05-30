@@ -894,11 +894,13 @@ def _escape_text(value: object) -> str:
 
 def _escape_markdown_text(value: object) -> str:
     text = html.escape(_escape_text(value), quote=True)
-    markdown_meta = "`*_{}[]()!|~:"
-    escaped = "".join(f"\\{char}" if char in markdown_meta else char for char in text)
-    if escaped[:1] in {"#", "-", "+", "*"}:
-        return "\\" + escaped
-    return escaped
+    return "".join(
+        f"&#{ord(char)};" if char in _MARKDOWN_RISK_CHARS else char
+        for char in text
+    )
+
+
+_MARKDOWN_RISK_CHARS = frozenset(r"\`*_{}[]()#+-.!|~:@/")
 
 
 def _optional_number(value: float | None) -> str:
