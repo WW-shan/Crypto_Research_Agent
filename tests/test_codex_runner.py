@@ -84,7 +84,7 @@ def test_exec_prompt_passes_stdin_and_returns_redacted_output(tmp_path: Path) ->
     assert result.stderr == "<redacted>"
 
 
-def test_env_scrubber_removes_trading_wallet_secrets_but_keeps_codex_auth_and_proxy(
+def test_env_scrubber_removes_trading_wallet_llm_secrets_but_keeps_codex_home_and_proxy(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -92,7 +92,10 @@ def test_env_scrubber_removes_trading_wallet_secrets_but_keeps_codex_auth_and_pr
     monkeypatch.setenv("WALLET_PRIVATE_KEY", "wallet-secret")
     monkeypatch.setenv("EXCHANGE_API_KEY", "exchange-secret")
     monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
+    monkeypatch.setenv("CODEX_TOKEN", "codex-token")
     monkeypatch.setenv("CODEX_HOME", "/tmp/codex-home")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://llm.example")
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example")
 
     captured_env: dict[str, str] = {}
@@ -107,12 +110,15 @@ def test_env_scrubber_removes_trading_wallet_secrets_but_keeps_codex_auth_and_pr
     assert "BINANCE_API_SECRET" not in captured_env
     assert "WALLET_PRIVATE_KEY" not in captured_env
     assert "EXCHANGE_API_KEY" not in captured_env
-    assert captured_env["OPENAI_API_KEY"] == "openai-key"
+    assert "OPENAI_API_KEY" not in captured_env
+    assert "ANTHROPIC_API_KEY" not in captured_env
+    assert "CODEX_TOKEN" not in captured_env
     assert captured_env["CODEX_HOME"] == "/tmp/codex-home"
+    assert captured_env["OPENAI_BASE_URL"] == "https://llm.example"
     assert captured_env["HTTPS_PROXY"] == "http://proxy.example"
 
 
-def test_allowed_openai_and_codex_secret_values_are_redacted_from_output(
+def test_scrubbed_llm_and_codex_secret_values_are_redacted_from_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -133,9 +139,9 @@ def test_allowed_openai_and_codex_secret_values_are_redacted_from_output(
     runner = CodexRunner(run_command=fake_run)
     result = runner.exec_prompt(workdir=tmp_path, prompt="hello")
 
-    assert captured_env["OPENAI_API_KEY"] == "openai-key-secret"
-    assert captured_env["OPENAI_SECRET_KEY"] == "openai-secret-key"
-    assert captured_env["CODEX_PRIVATE_KEY"] == "codex-private-key"
+    assert "OPENAI_API_KEY" not in captured_env
+    assert "OPENAI_SECRET_KEY" not in captured_env
+    assert "CODEX_PRIVATE_KEY" not in captured_env
     assert "openai-key-secret" not in result.stdout
     assert "openai-secret-key" not in result.stdout
     assert "codex-private-key" not in result.stderr

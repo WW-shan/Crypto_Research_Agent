@@ -182,13 +182,15 @@ def _scrub_codex_env(env: Mapping[str, str]) -> tuple[dict[str, str], list[str]]
 
 def _should_scrub_env_var(name: str) -> bool:
     upper_name = name.upper()
+    if any(marker in upper_name for marker in _TRADING_ENV_MARKERS):
+        return True
+    if any(marker in upper_name for marker in _SECRET_ENV_MARKERS):
+        return True
     if name in _SAFE_ENV_NAMES or upper_name in _SAFE_ENV_NAMES:
         return False
     if upper_name.startswith(_SAFE_ENV_PREFIXES):
         return False
-    if any(marker in upper_name for marker in _TRADING_ENV_MARKERS):
-        return True
-    return any(marker in upper_name for marker in _SECRET_ENV_MARKERS)
+    return False
 
 
 def _should_redact_env_value(name: str, value: str) -> bool:

@@ -6,6 +6,7 @@ import json
 import math
 import os
 import re
+import subprocess
 import uuid
 from contextlib import nullcontext
 from collections import Counter
@@ -1837,6 +1838,7 @@ def _handle_creation_cycle(args: argparse.Namespace) -> dict[str, Any]:
             codex=CodexRunner(),
             max_creations=args.max_creations,
             run_commands=not args.no_run_commands,
+            write_latest_json=False,
         )
     except LLMProviderError as exc:
         return _creation_cycle_failure_payload(
@@ -1867,6 +1869,12 @@ def _handle_creation_cycle(args: argparse.Namespace) -> dict[str, Any]:
             runtime=runtime,
             reason_code="creation_cycle_io_failed",
             failure=str(exc),
+        )
+    except subprocess.SubprocessError as exc:
+        return _creation_cycle_failure_payload(
+            runtime=runtime,
+            reason_code="creation_cycle_subprocess_failed",
+            failure=_subprocess_failure_text(exc),
         )
     except RuntimeError as exc:
         return _creation_cycle_failure_payload(
@@ -1921,6 +1929,19 @@ def _creation_cycle_failure_payload(
         "failure": redact_text(failure),
         **runtime.metadata(),
     }
+
+
+def _subprocess_failure_text(exc: subprocess.SubprocessError) -> str:
+    if isinstance(exc, subprocess.CalledProcessError):
+        detail = str(exc)
+        stderr = getattr(exc, "stderr", None)
+        stdout = getattr(exc, "stdout", None)
+        if stderr:
+            detail = f"{detail}; stderr={stderr}"
+        if stdout:
+            detail = f"{detail}; stdout={stdout}"
+        return detail
+    return str(exc)
 
 
 def _handle_evidence_report(args: argparse.Namespace) -> dict[str, Any]:

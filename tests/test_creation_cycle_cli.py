@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -113,23 +114,24 @@ def test_creation_cycle_cli_writes_latest_reports_and_payload(
     latest_json = json.loads(Path(payload["json_out"]).read_text(encoding="utf-8"))
     markdown = markdown_path.read_text(encoding="utf-8")
 
-    assert exit_code == 0
+    assert exit_code == 2
     assert requested_roles == ["planning"]
     assert runtime.health_commands == ["creation-cycle"]
     assert codex.health_workdirs == [tmp_path / "repo"]
     assert len(codex.exec_workdirs) == 1
     assert payload["command"] == "creation-cycle"
-    assert payload["exit_code"] == 0
-    assert payload["accepted"] is True
-    assert payload["reason_code"] is None
+    assert payload["exit_code"] == 2
+    assert payload["accepted"] is False
+    assert payload["reason_code"] == "creation_cycle_rejected"
     assert payload["llm_required"] is True
     assert payload["codex_required"] is True
     assert payload["uses_real_capital"] is False
     assert payload["live_order_routing"] is False
     assert payload["creation_report_out"] == str(markdown_path)
     assert payload["json_out"] == str(json_path)
-    assert payload["report"]["accepted"] is True
+    assert payload["report"]["accepted"] is False
     assert payload["report"]["runner_exit_code"] is None
+    assert payload["report"]["rejected_reason_codes"] == ["verification_skipped"]
     assert payload["llm_role"] == "planning"
     assert latest_json["command"] == payload["command"]
     assert latest_json["exit_code"] == payload["exit_code"]
@@ -182,7 +184,10 @@ def test_creation_cycle_cli_returns_nonzero_for_rejected_builder_result(
     assert payload["accepted"] is False
     assert payload["reason_code"] == "creation_cycle_rejected"
     assert payload["report"]["status"] == "needs_fix"
-    assert payload["report"]["rejected_reason_codes"] == ["codex_builder_failed"]
+    assert payload["report"]["rejected_reason_codes"] == [
+        "codex_builder_failed",
+        "verification_skipped",
+    ]
     assert (reports_root / "creation" / "latest.md").is_file()
     assert (reports_root / "creation" / "latest.json").is_file()
 
@@ -247,7 +252,7 @@ def test_creation_cycle_cli_returns_structured_payload_for_task_collision(
     runtime = _CreationRuntime(_creation_response(), role="planning")
     codex = _FakeCodex()
 
-    def fake_run_creation_cycle(**kwargs):
+    def fake_run_creation_cycle(**kwargs: Any) -> None:
         assert kwargs["codex"] is codex
         raise FileExistsError("task path already exists")
 
@@ -292,6 +297,53 @@ def test_creation_cycle_cli_returns_structured_payload_for_task_collision(
     assert payload["llm_role"] == "planning"
     assert "task path already exists" in payload["failure"]
     assert codex.exec_workdirs == []
+
+
+def test_creation_cycle_cli_returns_structured_payload_for_subprocess_failure(
+    capsys,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runtime = _CreationRuntime(_creation_response(), role="planning")
+    codex = _FakeCodex()
+
+    def fake_run_creation_cycle(**kwargs: Any) -> None:
+        assert kwargs["codex"] is codex
+        raise subprocess.CalledProcessError(
+            returncode=4,
+            cmd=["git", "diff"],
+            stderr="Authorization: Bearer git-secret failed",
+        )
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.build_required_real_llm_runtime",
+        lambda *, role: runtime,
+    )
+    monkeypatch.setattr("crypto_alpha_agent.cli.CodexRunner", lambda: codex, raising=False)
+    monkeypatch.setattr("crypto_alpha_agent.cli.run_creation_cycle", fake_run_creation_cycle)
+
+    exit_code = main(
+        [
+            "creation-cycle",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--memory",
+            str(tmp_path / "memory.jsonl"),
+            "--reports-root",
+            str(tmp_path / "reports"),
+            "--autonomy-root",
+            str(tmp_path / "autonomy"),
+            "--repo-root",
+            str(tmp_path / "repo"),
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 2
+    assert payload["reason_code"] == "creation_cycle_subprocess_failed"
+    assert "<redacted>" in payload["failure"]
+    assert "git-secret" not in payload["failure"]
 
 
 def test_creation_cycle_cli_returns_structured_payload_when_cli_json_write_fails(
@@ -349,6 +401,7 @@ def test_creation_cycle_cli_returns_structured_payload_when_cli_json_write_fails
     assert "<redacted>" in payload["failure"]
     assert "artifact-secret" not in payload["failure"]
     assert len(codex.exec_workdirs) == 1
+    assert not (tmp_path / "reports" / "creation" / "latest.json").exists()
 
 
 def _creation_response() -> str:

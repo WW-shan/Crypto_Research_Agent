@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -34,8 +35,9 @@ def test_creation_cycle_without_commands_writes_artifacts_and_reports(
     )
 
     task_path = Path(report.task_path)
-    assert report.accepted is True
-    assert report.status == "active"
+    assert report.accepted is False
+    assert report.status == "needs_fix"
+    assert report.rejected_reason_codes == ["verification_skipped"]
     assert report.patch_path is None
     assert "Funding open interest crowding" in report.creation.title
     assert codex.exec_workdirs == [task_path]
@@ -279,6 +281,74 @@ def test_creation_cycle_rejects_unsafe_runner_commands_without_promotion(
     assert not (autonomy_root / "active-worktree" / "created.txt").exists()
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pytest /tmp/test_escape.py -q",
+        "pytest ../test_escape.py -q",
+        "pytest --basetemp=/tmp/pytest-out test_escape.py -q",
+        "python -m pytest --pyargs crypto_alpha_agent",
+    ],
+)
+def test_creation_cycle_rejects_unsafe_pytest_arguments(
+    tmp_path: Path,
+    command: str,
+) -> None:
+    report = run_creation_cycle(
+        repo_root=_init_repo(tmp_path / "repo"),
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        reports_root=tmp_path / "reports",
+        autonomy_root=tmp_path / "autonomy",
+        llm_runtime=FakeRuntime(_creation_payload(verification_commands=[command])),
+        codex=FakeCodex(
+            exit_code=0,
+            created_files={"test_escape.py": "def test_ok():\n    assert True\n"},
+        ),
+        run_commands=True,
+    )
+
+    runner_text = (Path(report.task_path) / "runner.md").read_text(encoding="utf-8")
+    assert report.accepted is False
+    assert report.runner_exit_code == 126
+    assert "Rejected unsafe verification command" in runner_text
+
+
+def test_creation_cycle_runner_blocks_reads_outside_worktree(
+    tmp_path: Path,
+) -> None:
+    secret_path = tmp_path / "outside-file.txt"
+    secret_path.write_text("outside-secret-value", encoding="utf-8")
+
+    report = run_creation_cycle(
+        repo_root=_init_repo(tmp_path / "repo"),
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        reports_root=tmp_path / "reports",
+        autonomy_root=tmp_path / "autonomy",
+        llm_runtime=FakeRuntime(
+            _creation_payload(verification_commands=["pytest test_escape.py -q"])
+        ),
+        codex=FakeCodex(
+            exit_code=0,
+            created_files={
+                "test_escape.py": (
+                    "from pathlib import Path\n\n"
+                    "def test_escape_blocked():\n"
+                    f"    Path({str(secret_path)!r}).read_text()\n"
+                )
+            },
+        ),
+        run_commands=True,
+    )
+
+    runner_text = (Path(report.task_path) / "runner.md").read_text(encoding="utf-8")
+    assert report.accepted is False
+    assert report.runner_exit_code == 1
+    assert "sandbox blocks read outside allowed paths" in runner_text
+    assert "outside-secret-value" not in runner_text
+
+
 def test_creation_cycle_runner_scrubs_env_and_redacts_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -302,8 +372,9 @@ def test_creation_cycle_runner_scrubs_env_and_redacts_output(
                     "import os\n\n"
                     "def test_runner_redaction():\n"
                     "    assert os.environ.get('BINANCE_API_SECRET') is None\n"
+                    "    assert os.environ.get('HTTPS_PROXY') is None\n"
                     "    raise AssertionError(\n"
-                    "        os.environ['HTTPS_PROXY'] + ' Bearer runner-secret'\n"
+                    "        'Bearer runner-secret'\n"
                     "    )\n"
                 )
             },
@@ -374,6 +445,78 @@ def test_creation_cycle_promotion_failure_writes_rejected_report(
     assert (tmp_path / "autonomy" / "backlog.jsonl").is_file()
 
 
+def test_creation_cycle_worktree_creation_failure_writes_rejected_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingWorktreeManager:
+        def __init__(self, *, repo_root: Path, autonomy_root: Path) -> None:
+            self.repo_root = repo_root
+            self.autonomy_root = autonomy_root
+
+        def create_task_worktree(self, task_id: str) -> Path:
+            raise subprocess.CalledProcessError(
+                returncode=3,
+                cmd=["git", "worktree", "add"],
+                stderr="worktree failed",
+            )
+
+    monkeypatch.setattr(cycle_module, "AutonomyWorktreeManager", FailingWorktreeManager)
+
+    report = run_creation_cycle(
+        repo_root=tmp_path / "repo",
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        reports_root=tmp_path / "reports",
+        autonomy_root=tmp_path / "autonomy",
+        llm_runtime=FakeRuntime(_creation_payload()),
+        codex=FakeCodex(exit_code=0),
+        run_commands=True,
+    )
+
+    latest_json = json.loads(Path(report.json_path).read_text(encoding="utf-8"))
+    assert report.accepted is False
+    assert "worktree_creation_failed" in report.rejected_reason_codes
+    assert "Repair task worktree setup" in " ".join(report.next_actions)
+    assert latest_json["report"]["rejected_reason_codes"] == report.rejected_reason_codes
+
+
+def test_creation_cycle_patch_export_failure_writes_rejected_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_patch_export(*, workdir: Path, store: object, task_id: str) -> Path:
+        raise subprocess.CalledProcessError(
+            returncode=4,
+            cmd=["git", "diff"],
+            stderr="diff failed",
+        )
+
+    monkeypatch.setattr(cycle_module, "_write_patch", fail_patch_export)
+
+    report = run_creation_cycle(
+        repo_root=_init_repo(tmp_path / "repo"),
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        reports_root=tmp_path / "reports",
+        autonomy_root=tmp_path / "autonomy",
+        llm_runtime=FakeRuntime(
+            _creation_payload(verification_commands=["pytest test_created.py -q"])
+        ),
+        codex=FakeCodex(
+            exit_code=0,
+            created_files={"test_created.py": "def test_created():\n    assert True\n"},
+        ),
+        run_commands=True,
+    )
+
+    latest_json = json.loads(Path(report.json_path).read_text(encoding="utf-8"))
+    assert report.accepted is False
+    assert report.rejected_reason_codes == ["patch_export_failed"]
+    assert "Repair patch export" in " ".join(report.next_actions)
+    assert latest_json["report"]["rejected_reason_codes"] == ["patch_export_failed"]
+
+
 def test_creation_cycle_builder_failure_rejects_but_writes_artifacts(
     tmp_path: Path,
 ) -> None:
@@ -393,7 +536,10 @@ def test_creation_cycle_builder_failure_rejects_but_writes_artifacts(
     task_path = Path(report.task_path)
     assert report.accepted is False
     assert report.status == "needs_fix"
-    assert report.rejected_reason_codes == ["codex_builder_failed"]
+    assert report.rejected_reason_codes == [
+        "codex_builder_failed",
+        "verification_skipped",
+    ]
     assert (task_path / "builder-output.json").is_file()
     assert (task_path / "runner.md").is_file()
     assert "needs_fix" in Path(report.report_path).read_text(encoding="utf-8")

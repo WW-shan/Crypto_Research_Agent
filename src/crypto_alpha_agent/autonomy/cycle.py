@@ -5,6 +5,8 @@ import json
 import os
 import shlex
 import subprocess
+import sys
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -43,6 +45,7 @@ def run_creation_cycle(
     codex: CodexRunner | Any | None = None,
     max_creations: int = 1,
     run_commands: bool = True,
+    write_latest_json: bool = True,
 ) -> CreationCycleReport:
     repo_path = Path(repo_root)
     reports_path = Path(reports_root)
@@ -87,14 +90,25 @@ def run_creation_cycle(
 
     workdir = task.path
     worktrees: AutonomyWorktreeManager | None = None
+    worktree_error: str | None = None
     if run_commands:
         worktrees = AutonomyWorktreeManager(
             repo_root=repo_path,
             autonomy_root=autonomy_path,
         )
-        workdir = worktrees.create_task_worktree(task.task_id)
+        try:
+            workdir = worktrees.create_task_worktree(task.task_id)
+        except subprocess.SubprocessError as exc:
+            worktree_error = redact_text(_subprocess_failure_text(exc))
 
-    builder_result = codex_runner.exec_prompt(workdir=workdir, prompt=builder_prompt)
+    if worktree_error is None:
+        builder_result = codex_runner.exec_prompt(workdir=workdir, prompt=builder_prompt)
+    else:
+        builder_result = CodexExecResult(
+            command=["codex", "exec"],
+            exit_code=1,
+            stderr=f"Builder skipped because task worktree creation failed: {worktree_error}",
+        )
     store.write_json(
         task.task_id,
         "builder-output.json",
@@ -103,20 +117,29 @@ def run_creation_cycle(
 
     runner_exit_code: int | None
     patch_path: Path | None = None
-    if run_commands:
+    patch_error: str | None = None
+    if run_commands and worktree_error is None:
         runner_exit_code = _run_verification(
             commands=runner_commands,
             workdir=workdir,
             store=store,
             task_id=task.task_id,
         )
-        patch_path = _write_patch(workdir=workdir, store=store, task_id=task.task_id)
+        try:
+            patch_path = _write_patch(workdir=workdir, store=store, task_id=task.task_id)
+        except subprocess.SubprocessError as exc:
+            patch_error = redact_text(_subprocess_failure_text(exc))
     else:
         runner_exit_code = None
+        reason = (
+            "Verification skipped because task worktree creation failed."
+            if worktree_error is not None
+            else "Verification skipped because run_commands=false."
+        )
         store.write_text(
             task.task_id,
             "runner.md",
-            "# Runner\n\nVerification skipped because run_commands=false.\n",
+            f"# Runner\n\n{reason}\n",
         )
 
     rejected_reason_codes = _rejected_reason_codes(
@@ -124,6 +147,10 @@ def run_creation_cycle(
         runner_exit_code=runner_exit_code,
         run_commands=run_commands,
     )
+    if worktree_error is not None:
+        rejected_reason_codes.append("worktree_creation_failed")
+    if patch_error is not None:
+        rejected_reason_codes.append("patch_export_failed")
     promotion_error: str | None = None
     if not rejected_reason_codes and run_commands and worktrees is not None:
         try:
@@ -153,6 +180,8 @@ def run_creation_cycle(
             runner_commands=runner_commands,
             run_commands=run_commands,
             promotion_error=promotion_error,
+            worktree_error=worktree_error,
+            patch_error=patch_error,
         ),
     )
     latest_json_payload = {
@@ -166,7 +195,8 @@ def run_creation_cycle(
         },
     }
     store.write_latest_report(render_creation_cycle_markdown(report))
-    store.write_latest_json(latest_json_payload)
+    if write_latest_json:
+        store.write_latest_json(latest_json_payload)
     store.append_backlog(creation)
     return report
 
@@ -287,6 +317,8 @@ def _rejected_reason_codes(
         reasons.append("codex_builder_failed")
     if run_commands and runner_exit_code != 0:
         reasons.append("verification_failed")
+    if not run_commands:
+        reasons.append("verification_skipped")
     return reasons
 
 
@@ -297,6 +329,8 @@ def _next_actions(
     runner_commands: list[str],
     run_commands: bool,
     promotion_error: str | None,
+    worktree_error: str | None,
+    patch_error: str | None,
 ) -> list[str]:
     if not rejected_reason_codes:
         if run_commands:
@@ -310,6 +344,14 @@ def _next_actions(
     if "promotion_failed" in rejected_reason_codes:
         detail = "" if promotion_error is None else f": {promotion_error}"
         actions.append(f"Inspect promotion failure{detail}")
+    if "worktree_creation_failed" in rejected_reason_codes:
+        detail = "" if worktree_error is None else f": {worktree_error}"
+        actions.append(f"Repair task worktree setup{detail}")
+    if "patch_export_failed" in rejected_reason_codes:
+        detail = "" if patch_error is None else f": {patch_error}"
+        actions.append(f"Repair patch export{detail}")
+    if "verification_skipped" in rejected_reason_codes:
+        actions.append("Run verification commands before promotion.")
     return actions
 
 
@@ -318,20 +360,59 @@ def _runner_argv(command: str) -> tuple[list[str], str | None]:
         argv = shlex.split(command)
     except ValueError as exc:
         return [], f"Rejected unsafe verification command: {exc}"
-    if _is_allowed_runner_argv(argv):
-        return argv, None
+    pytest_args = _pytest_args_from_runner_argv(argv)
+    if pytest_args is not None:
+        return pytest_args, None
     return [], f"Rejected unsafe verification command: {command}"
 
 
-def _is_allowed_runner_argv(argv: list[str]) -> bool:
+def _pytest_args_from_runner_argv(argv: list[str]) -> list[str] | None:
     if not argv:
-        return False
+        return None
+    pytest_args: list[str] | None = None
     if argv[0] == "pytest":
-        return True
+        pytest_args = argv[1:]
     if len(argv) >= 3 and argv[0] == "uv" and argv[1:3] == ["run", "pytest"]:
-        return True
+        pytest_args = argv[3:]
     if len(argv) >= 3 and argv[0] == "python" and argv[1:3] == ["-m", "pytest"]:
-        return True
+        pytest_args = argv[3:]
+    if pytest_args is None or _has_unsafe_pytest_args(pytest_args):
+        return None
+    return pytest_args
+
+
+def _is_allowed_runner_argv(argv: list[str]) -> bool:
+    return _pytest_args_from_runner_argv(argv) is not None
+
+
+def _has_unsafe_pytest_args(args: list[str]) -> bool:
+    forbidden_prefixes = (
+        "--basetemp",
+        "--confcutdir",
+        "--continue-on-collection-errors",
+        "--cov",
+        "--cov-report",
+        "--html",
+        "--junitxml",
+        "--override-ini",
+        "--pyargs",
+        "--rootdir",
+    )
+    forbidden_exact = {"-c", "-p"}
+    for index, arg in enumerate(args):
+        if (
+            arg in forbidden_exact
+            or arg.startswith(("-c", "-p"))
+            or any(arg.startswith(prefix) for prefix in forbidden_prefixes)
+        ):
+            return True
+        if index > 0 and args[index - 1] in forbidden_exact:
+            return True
+        if arg.startswith("-"):
+            continue
+        path = Path(arg)
+        if path.is_absolute() or ".." in path.parts:
+            return True
     return False
 
 
@@ -342,9 +423,27 @@ def _run_safe_command(
     env: dict[str, str],
     redaction_secrets: list[str],
 ) -> tuple[int, str, str]:
+    with tempfile.TemporaryDirectory(prefix="crypto-alpha-runner-") as temp_root:
+        env = _sandbox_runner_env(env, temp_root, workdir)
+        command = _sandboxed_pytest_command(argv, workdir, temp_root)
+        return _run_sandboxed_command(
+            command=command,
+            workdir=workdir,
+            env=env,
+            redaction_secrets=redaction_secrets,
+        )
+
+
+def _run_sandboxed_command(
+    *,
+    command: list[str],
+    workdir: Path,
+    env: dict[str, str],
+    redaction_secrets: list[str],
+) -> tuple[int, str, str]:
     try:
         result = subprocess.run(
-            argv,
+            command,
             cwd=workdir,
             shell=False,
             text=True,
@@ -367,12 +466,62 @@ def _run_safe_command(
     )
 
 
+def _sandboxed_pytest_command(pytest_args: list[str], workdir: Path, temp_root: str) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "crypto_alpha_agent.autonomy.sandboxed_pytest",
+        "--workdir",
+        str(workdir),
+        "--temp-root",
+        temp_root,
+        "--",
+        *pytest_args,
+    ]
+
+
+def _sandbox_runner_env(env: dict[str, str], temp_root: str, workdir: Path) -> dict[str, str]:
+    sandbox_env = dict(env)
+    for name in list(sandbox_env):
+        if name.upper() in {"ALL_PROXY", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"}:
+            sandbox_env.pop(name, None)
+    sandbox_env.update(
+        {
+            "HOME": temp_root,
+            "TMPDIR": temp_root,
+            "PYTHONPATH": _sandbox_pythonpath(env, workdir),
+            "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+            "PYTHONNOUSERSITE": "1",
+        }
+    )
+    return sandbox_env
+
+
+def _sandbox_pythonpath(env: dict[str, str], current_root: Path) -> str:
+    entries = [str((current_root / "src").resolve())]
+    existing = env.get("PYTHONPATH")
+    if existing:
+        entries.append(existing)
+    return os.pathsep.join(entries)
+
+
 def _process_output(value: Any) -> str:
     if value is None:
         return ""
     if isinstance(value, bytes):
         return value.decode(errors="replace")
     return str(value)
+
+
+def _subprocess_failure_text(exc: subprocess.SubprocessError) -> str:
+    if isinstance(exc, subprocess.CalledProcessError):
+        detail = str(exc)
+        if exc.stderr:
+            detail = f"{detail}; stderr={_process_output(exc.stderr)}"
+        if exc.stdout:
+            detail = f"{detail}; stdout={_process_output(exc.stdout)}"
+        return detail
+    return str(exc)
 
 
 def _scrub_runner_env(env: os._Environ[str]) -> tuple[dict[str, str], list[str]]:
