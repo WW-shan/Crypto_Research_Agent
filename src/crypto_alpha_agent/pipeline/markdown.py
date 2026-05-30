@@ -835,8 +835,8 @@ def render_creation_cycle_markdown(report: CreationCycleReport) -> str:
         "## Creation",
         f"Task id: {_escape_markdown_text(report.task_id)}",
         f"Accepted: {_bool_text(report.accepted)}",
-        f"Status: {_escape_markdown_text(report.status)}",
-        f"Kind: {_escape_markdown_text(report.creation.kind)}",
+        f"Status: {_escape_text(report.status)}",
+        f"Kind: {_escape_text(report.creation.kind)}",
         f"Title: {_escape_markdown_text(report.creation.title)}",
         f"Hypothesis: {_escape_markdown_text(report.creation.hypothesis)}",
         f"Why now: {_escape_markdown_text(report.creation.why_now)}",
@@ -894,7 +894,7 @@ def _escape_text(value: object) -> str:
 
 def _escape_markdown_text(value: object) -> str:
     text = html.escape(_escape_text(value), quote=True)
-    markdown_meta = "`[]()!|"
+    markdown_meta = "`*_{}[]()!|~:"
     escaped = "".join(f"\\{char}" if char in markdown_meta else char for char in text)
     if escaped[:1] in {"#", "-", "+", "*"}:
         return "\\" + escaped

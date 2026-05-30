@@ -239,6 +239,118 @@ def test_creation_cycle_cli_returns_structured_payload_for_codex_health_failure(
     assert codex.exec_workdirs == []
 
 
+def test_creation_cycle_cli_returns_structured_payload_for_task_collision(
+    capsys,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runtime = _CreationRuntime(_creation_response(), role="planning")
+    codex = _FakeCodex()
+
+    def fake_run_creation_cycle(**kwargs):
+        assert kwargs["codex"] is codex
+        raise FileExistsError("task path already exists")
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.build_required_real_llm_runtime",
+        lambda *, role: runtime,
+    )
+    monkeypatch.setattr("crypto_alpha_agent.cli.CodexRunner", lambda: codex, raising=False)
+    monkeypatch.setattr("crypto_alpha_agent.cli.run_creation_cycle", fake_run_creation_cycle)
+
+    exit_code = main(
+        [
+            "creation-cycle",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--memory",
+            str(tmp_path / "memory.jsonl"),
+            "--reports-root",
+            str(tmp_path / "reports"),
+            "--autonomy-root",
+            str(tmp_path / "autonomy"),
+            "--repo-root",
+            str(tmp_path / "repo"),
+            "--no-run-commands",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 2
+    assert "usage:" not in captured.err
+    assert "Traceback" not in captured.err
+    assert payload["command"] == "creation-cycle"
+    assert payload["exit_code"] == 2
+    assert payload["accepted"] is False
+    assert payload["reason_code"] == "creation_cycle_io_failed"
+    assert payload["llm_required"] is True
+    assert payload["codex_required"] is True
+    assert payload["uses_real_capital"] is False
+    assert payload["live_order_routing"] is False
+    assert payload["llm_role"] == "planning"
+    assert "task path already exists" in payload["failure"]
+    assert codex.exec_workdirs == []
+
+
+def test_creation_cycle_cli_returns_structured_payload_when_cli_json_write_fails(
+    capsys,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runtime = _CreationRuntime(_creation_response(), role="planning")
+    codex = _FakeCodex()
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.build_required_real_llm_runtime",
+        lambda *, role: runtime,
+    )
+    monkeypatch.setattr("crypto_alpha_agent.cli.CodexRunner", lambda: codex, raising=False)
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.write_json_artifact",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            OSError("Authorization: Bearer artifact-secret failed")
+        ),
+    )
+
+    exit_code = main(
+        [
+            "creation-cycle",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--memory",
+            str(tmp_path / "memory.jsonl"),
+            "--reports-root",
+            str(tmp_path / "reports"),
+            "--autonomy-root",
+            str(tmp_path / "autonomy"),
+            "--repo-root",
+            str(tmp_path / "repo"),
+            "--no-run-commands",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 2
+    assert "usage:" not in captured.err
+    assert "Traceback" not in captured.err
+    assert payload["command"] == "creation-cycle"
+    assert payload["exit_code"] == 2
+    assert payload["accepted"] is False
+    assert payload["reason_code"] == "creation_cycle_io_failed"
+    assert payload["llm_required"] is True
+    assert payload["codex_required"] is True
+    assert payload["uses_real_capital"] is False
+    assert payload["live_order_routing"] is False
+    assert payload["llm_role"] == "planning"
+    assert "<redacted>" in payload["failure"]
+    assert "artifact-secret" not in payload["failure"]
+    assert len(codex.exec_workdirs) == 1
+
+
 def _creation_response() -> str:
     return json.dumps(
         {

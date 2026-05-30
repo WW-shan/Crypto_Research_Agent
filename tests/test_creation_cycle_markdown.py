@@ -10,7 +10,11 @@ def test_creation_cycle_markdown_neutralizes_untrusted_markup() -> None:
         creation=CreationObject(
             id="creation-markup",
             kind="family_idea",
-            title="![x](https://example.invalid/image.png) `code` | table",
+            title=(
+                "![x](https://example.invalid/image.png) `code` | table "
+                "_emphasis_ *bold* ~~strike~~ https://example.invalid "
+                "<https://example.invalid>"
+            ),
             hypothesis="# heading\n<script>alert(1)</script>",
             why_now="> quote *bold* [link](https://example.invalid)",
             first_code_change="- list item with <img src=x>",
@@ -45,7 +49,16 @@ def test_creation_cycle_markdown_neutralizes_untrusted_markup() -> None:
     assert "`pytest`" not in markdown
     assert "`rerun`" not in markdown
     assert "`code` | table" not in markdown
+    assert "_emphasis_" not in markdown
+    assert "*bold*" not in markdown
+    assert "~~strike~~" not in markdown
+    assert "https://example.invalid" not in markdown
+    assert "<https://example.invalid>" not in markdown
     assert "&lt;img" in markdown
     assert "\\!\\[x\\]\\(" in markdown
     assert "\\`code\\`" in markdown
     assert "\\| table" in markdown
+    assert "\\_emphasis\\_" in markdown
+    assert "\\*bold\\*" in markdown
+    assert "\\~\\~strike\\~\\~" in markdown
+    assert "https\\://example.invalid" in markdown

@@ -1862,6 +1862,12 @@ def _handle_creation_cycle(args: argparse.Namespace) -> dict[str, Any]:
             reason_code="creation_cycle_invalid",
             failure=str(exc),
         )
+    except OSError as exc:
+        return _creation_cycle_failure_payload(
+            runtime=runtime,
+            reason_code="creation_cycle_io_failed",
+            failure=str(exc),
+        )
     except RuntimeError as exc:
         return _creation_cycle_failure_payload(
             runtime=runtime,
@@ -1886,7 +1892,14 @@ def _handle_creation_cycle(args: argparse.Namespace) -> dict[str, Any]:
     response_metadata = report.__dict__.get("_response_metadata")
     if response_metadata is not None:
         payload["llm_response_metadata"] = response_metadata
-    write_json_artifact(report.json_path, payload)
+    try:
+        write_json_artifact(report.json_path, payload)
+    except OSError as exc:
+        return _creation_cycle_failure_payload(
+            runtime=runtime,
+            reason_code="creation_cycle_io_failed",
+            failure=str(exc),
+        )
     return payload
 
 
