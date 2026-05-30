@@ -6,4 +6,6 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/crypto-alpha-agent
+Environment=CRYPTO_ALPHA_AGENT_REPO=/opt/crypto-alpha-agent
+EnvironmentFile=-/opt/crypto-alpha-agent/.env
 ExecStart=/opt/crypto-alpha-agent/ops/creation-cycle.sh

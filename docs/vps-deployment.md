@@ -59,6 +59,8 @@ Expected durable outputs:
 - `var/log/evidence-run/`, `var/log/weekly-review/`,
   `var/log/monthly-owner-review/`, and `var/log/creation-cycle/` -
   stdout/stderr logs.
+- `/opt/crypto-alpha-agent/var/locks/creation-cycle.lock` - wrapper-level
+  lock that prevents overlapping creation cycles.
 - `var/backups/` - timestamped SQLite, memory, report, and manifest backups.
 
 ## Environment
@@ -172,9 +174,13 @@ ops/creation-cycle.sh
 
 The wrapper runs `uv run crypto-alpha-agent creation-cycle` from
 `var/autonomy/active-worktree` when that directory exists, otherwise from the
-main repository. It passes `--autonomy-root`, `--reports-root`,
-`--max-creations`, `--task-root`, `--worktree-root`, and `--repo-root`, then
-refreshes `var/reports/creation/latest.md` and
+main repository. The active worktree must be a git worktree or git repository
+with `pyproject.toml`; malformed active worktree directories fail closed even
+in dry-run mode. Code may run from the active worktree, but durable
+state/logs/reports remain under the main repository
+`/opt/crypto-alpha-agent/var/...`. The wrapper passes `--autonomy-root`,
+`--reports-root`, `--max-creations`, `--task-root`, `--worktree-root`, and
+`--repo-root`, then refreshes `var/reports/creation/latest.md` and
 `var/reports/creation/latest.json` through the CLI artifact store.
 
 The creation runner accepts only pytest verification command forms for
@@ -182,6 +188,13 @@ generated work: `pytest ...`, `python -m pytest ...`, and
 `uv run pytest ...`. Shell chains, live trading commands, and non-pytest
 verification commands are rejected. The creation cycle still has no live
 capital/order routing and relies on real LLM + Codex.
+
+The normal VPS path requires `flock`; without it, `ops/creation-cycle.sh`
+exits nonzero rather than running unlocked. Run the creation service as a
+Codex-authenticated service user with access to the Codex CLI credentials and
+the configured LLM environment in `/opt/crypto-alpha-agent/.env` or a systemd
+drop-in. The unit sets `CRYPTO_ALPHA_AGENT_REPO=/opt/crypto-alpha-agent` and
+loads `EnvironmentFile=-/opt/crypto-alpha-agent/.env`.
 
 ## Install systemd Timers
 
@@ -247,10 +260,13 @@ Creation job:
 - Reads backlog and task state under `var/autonomy/backlog.jsonl` and
   `var/autonomy/tasks/`.
 - Uses `var/autonomy/active-worktree` when present so operators can keep an
-  in-progress autonomy workspace separate from the main repository.
+  in-progress autonomy workspace separate from the main repository while
+  durable state/logs/reports remain under the main repository.
 - Writes creation reports under `var/reports/creation/`.
 - Refreshes `var/reports/creation/latest.md` and
   `var/reports/creation/latest.json`.
+- Holds `/opt/crypto-alpha-agent/var/locks/creation-cycle.lock` with `flock`
+  during normal execution.
 - Exits nonzero when real LLM preflight or Codex availability fails.
 
 Monthly job:

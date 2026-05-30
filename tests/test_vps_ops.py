@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -215,8 +216,73 @@ def test_creation_wrapper_runs_creation_cycle_with_artifact_contract() -> None:
         "var/reports/creation/latest.json",
         "CRYPTO_ALPHA_AGENT_DRY_RUN",
         "CRYPTO_ALPHA_AGENT_ACTIVE_WORKTREE",
+        "flock",
+        "var/locks/creation-cycle.lock",
+        "${REPO}/var/research.sqlite",
+        "${REPO}/var/memory/evidence.jsonl",
+        "${REPO}/var/autonomy",
+        "${REPO}/var/reports",
+        "${REPO}/var/log/creation-cycle",
     ]:
         assert expected in script
+
+
+def test_creation_wrapper_uses_active_worktree_for_code_and_main_repo_for_state(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    active_worktree = repo / "var" / "autonomy" / "active-worktree"
+    active_worktree.mkdir(parents=True)
+    (active_worktree / "pyproject.toml").write_text("[project]\nname = 'active'\n", encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=active_worktree, check=True, stdout=subprocess.PIPE)
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "ops" / "creation-cycle.sh")],
+        check=False,
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "CRYPTO_ALPHA_AGENT_DRY_RUN": "1",
+            "CRYPTO_ALPHA_AGENT_REPO": str(repo),
+        },
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"--autonomy-root {repo / 'var' / 'autonomy'}" in result.stdout
+    assert f"--reports-root {repo / 'var' / 'reports'}" in result.stdout
+    assert f"--repo-root {active_worktree}" in result.stdout
+    assert str(repo / "var" / "reports" / "creation" / "latest.md") in result.stdout
+    assert str(repo / "var" / "reports" / "creation" / "latest.json") in result.stdout
+    assert str(repo / "var" / "log" / "creation-cycle") in result.stdout
+    assert str(active_worktree / "var" / "reports") not in result.stdout
+    assert str(active_worktree / "var" / "log") not in result.stdout
+
+
+def test_creation_wrapper_rejects_invalid_active_worktree_in_dry_run(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    active_worktree = repo / "var" / "autonomy" / "active-worktree"
+    active_worktree.mkdir(parents=True)
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "ops" / "creation-cycle.sh")],
+        check=False,
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "CRYPTO_ALPHA_AGENT_DRY_RUN": "1",
+            "CRYPTO_ALPHA_AGENT_REPO": str(repo),
+        },
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    assert result.returncode != 0
+    assert "Invalid active worktree" in result.stderr
+    assert "pyproject.toml" in result.stderr
 
 
 def test_weekly_wrapper_runs_governance_memo_and_iteration_cycle() -> None:
@@ -289,6 +355,10 @@ def test_systemd_units_call_ops_scripts_without_secrets() -> None:
         assert "WorkingDirectory=/opt/crypto-alpha-agent" in text
         assert expected_scripts[name] in text
 
+    creation_service = service_text_by_name["crypto-alpha-creation.service"]
+    assert "Environment=CRYPTO_ALPHA_AGENT_REPO=/opt/crypto-alpha-agent" in creation_service
+    assert "EnvironmentFile=-/opt/crypto-alpha-agent/.env" in creation_service
+
     for text in timer_text_by_name.values():
         assert "OnCalendar=" in text
         assert "Persistent=true" in text
@@ -318,6 +388,9 @@ def test_vps_deployment_doc_documents_outputs_and_boundaries() -> None:
         "var/reports/creation/latest.md",
         "var/reports/creation/latest.json",
         "Codex must be available or the creation cycle exits nonzero",
+        "/opt/crypto-alpha-agent/var/locks/creation-cycle.lock",
+        "durable state/logs/reports remain under the main repository",
+        "Codex-authenticated service user",
         "var/run-manifests/latest.json",
         "failed marker",
         "no live order routing",
