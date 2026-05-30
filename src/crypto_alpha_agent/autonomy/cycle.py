@@ -25,6 +25,7 @@ from crypto_alpha_agent.autonomy.store import AutonomyStore
 from crypto_alpha_agent.autonomy.worktrees import AutonomyWorktreeManager
 from crypto_alpha_agent.llm.redaction import redact_text
 from crypto_alpha_agent.llm.runtime import parse_structured_llm_json
+from crypto_alpha_agent.pipeline.markdown import render_creation_cycle_markdown
 
 _DEFAULT_RUNNER_COMMANDS = ["python -m pytest tests/test_creation_autonomy_store.py -q"]
 _RUNNER_TIMEOUT_SECONDS = 300
@@ -164,7 +165,7 @@ def run_creation_cycle(
             "run_commands": run_commands,
         },
     }
-    store.write_latest_report(_render_creation_cycle_markdown(report))
+    store.write_latest_report(render_creation_cycle_markdown(report))
     store.write_latest_json(latest_json_payload)
     store.append_backlog(creation)
     return report
@@ -464,36 +465,3 @@ def _llm_metadata(llm_runtime: Any) -> Any:
     if not callable(metadata):
         return None
     return metadata()
-
-
-def _render_creation_cycle_markdown(report: CreationCycleReport) -> str:
-    lines = [
-        "# Creation Cycle Report",
-        "",
-        f"- Task: {report.task_id}",
-        f"- Title: {report.creation.title}",
-        f"- Accepted: {report.accepted}",
-        f"- Status: {report.status}",
-        f"- Runner exit code: {report.runner_exit_code}",
-    ]
-    if report.patch_path:
-        lines.append(f"- Patch: {report.patch_path}")
-    if report.rejected_reason_codes:
-        lines.extend(["", "Rejected reasons:"])
-        lines.extend(f"- {reason}" for reason in report.rejected_reason_codes)
-    if report.next_actions:
-        lines.extend(["", "Next actions:"])
-        lines.extend(f"- {action}" for action in report.next_actions)
-    lines.extend(
-        [
-            "",
-            "## Hypothesis",
-            "",
-            report.creation.hypothesis,
-            "",
-            "## First Code Change",
-            "",
-            report.creation.first_code_change,
-        ]
-    )
-    return "\n".join(lines) + "\n"

@@ -13,6 +13,8 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Sequence
 
+from crypto_alpha_agent.autonomy.codex_runner import CodexRunner, CodexUnavailableError
+from crypto_alpha_agent.autonomy.cycle import run_creation_cycle
 from crypto_alpha_agent.agents.report_summarizer import ReportType, summarize_evidence_report
 from crypto_alpha_agent.config import LLMRole
 from crypto_alpha_agent.data.ingestion import (
@@ -494,6 +496,55 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum LLM iteration candidates to accept after deterministic guards.",
     )
     iteration_cycle_parser.set_defaults(handler=_handle_iteration_cycle, parser=iteration_cycle_parser)
+
+    creation_cycle_parser = subparsers.add_parser(
+        "creation-cycle",
+        help="run one creation-first Codex autonomy cycle.",
+    )
+    creation_cycle_parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite research data store.")
+    creation_cycle_parser.add_argument("--memory", required=True, type=Path, help="Path to the JSONL memory store.")
+    creation_cycle_parser.add_argument(
+        "--autonomy-root",
+        type=Path,
+        default=Path("var/autonomy"),
+        help="Root directory for autonomy cycle state.",
+    )
+    creation_cycle_parser.add_argument(
+        "--task-root",
+        type=Path,
+        default=Path("var/autonomy/tasks"),
+        help="Compatibility path for autonomy task artifacts.",
+    )
+    creation_cycle_parser.add_argument(
+        "--worktree-root",
+        type=Path,
+        default=Path("var/autonomy/worktrees"),
+        help="Compatibility path for autonomy worktrees.",
+    )
+    creation_cycle_parser.add_argument(
+        "--reports-root",
+        type=Path,
+        default=Path("var/reports"),
+        help="Root directory for creation cycle reports.",
+    )
+    creation_cycle_parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=Path("."),
+        help="Repository root used by Codex and worktree operations.",
+    )
+    creation_cycle_parser.add_argument(
+        "--max-creations",
+        type=_positive_int,
+        default=1,
+        help="Maximum creation objects to request.",
+    )
+    creation_cycle_parser.add_argument(
+        "--no-run-commands",
+        action="store_true",
+        help="Skip verification command execution and worktree promotion.",
+    )
+    creation_cycle_parser.set_defaults(handler=_handle_creation_cycle, parser=creation_cycle_parser)
 
     evidence_report_parser = subparsers.add_parser(
         "evidence-report",
@@ -1071,7 +1122,7 @@ def _base_payload(command: str) -> dict[str, Any]:
 
 
 def _llm_role_for_command(command: str) -> LLMRole:
-    if command in {"plan-experiments", "iteration-cycle", "schedule"}:
+    if command in {"plan-experiments", "iteration-cycle", "creation-cycle", "schedule"}:
         return "planning"
     if command in {
         "evidence-report",
@@ -1761,6 +1812,50 @@ def _handle_iteration_cycle(args: argparse.Namespace) -> dict[str, Any]:
     if response_metadata is not None:
         payload["llm_response_metadata"] = response_metadata
     write_json_artifact(args.json_out, payload)
+    return payload
+
+
+def _handle_creation_cycle(args: argparse.Namespace) -> dict[str, Any]:
+    runtime: RealLLMRuntime = args.llm_runtime
+    try:
+        report = run_creation_cycle(
+            repo_root=args.repo_root,
+            db_path=args.db,
+            memory_path=args.memory,
+            reports_root=args.reports_root,
+            autonomy_root=args.autonomy_root,
+            llm_runtime=runtime,
+            codex=CodexRunner(),
+            max_creations=args.max_creations,
+            run_commands=not args.no_run_commands,
+        )
+    except (
+        LLMProviderError,
+        LLMRuntimeError,
+        CodexUnavailableError,
+        ValueError,
+        RuntimeError,
+    ) as exc:
+        args.parser.error(str(exc))
+        raise AssertionError("argparse parser.error should exit") from exc
+
+    payload = {
+        "command": "creation-cycle",
+        "exit_code": 0 if report.accepted else 2,
+        "report": report.model_dump(mode="json"),
+        "creation_report_out": report.report_path,
+        "json_out": report.json_path,
+        "accepted": report.accepted,
+        "reason_code": None if report.accepted else "creation_cycle_rejected",
+        "llm_required": report.llm_required,
+        "codex_required": report.codex_required,
+        "uses_real_capital": False,
+        "live_order_routing": False,
+        **runtime.metadata(),
+    }
+    response_metadata = report.__dict__.get("_response_metadata")
+    if response_metadata is not None:
+        payload["llm_response_metadata"] = response_metadata
     return payload
 
 

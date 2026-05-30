@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from crypto_alpha_agent.autonomy.models import CreationCycleReport
 from crypto_alpha_agent.pipeline.ai_research_memo import AIResearchMemo
 from crypto_alpha_agent.pipeline.expansion_preparation import ExpansionPreparationReport
 from crypto_alpha_agent.pipeline.evidence_reports import DailyEvidenceReport, WeeklyEvidenceReport
@@ -816,6 +817,40 @@ def render_iteration_cycle_markdown(report: IterationCycleReport) -> str:
         if candidate.source_probe_targets:
             lines.extend(["Source probe targets:"])
             lines.extend(_bullet_lines(candidate.source_probe_targets))
+    return "\n".join(lines) + "\n"
+
+
+def render_creation_cycle_markdown(report: CreationCycleReport) -> str:
+    lines = [
+        "# Creation Cycle Report",
+        "",
+        "## Safety",
+        f"LLM required: {_bool_text(report.llm_required)}",
+        f"Codex required: {_bool_text(report.codex_required)}",
+        f"Real capital: {_bool_text(report.uses_real_capital)}",
+        f"Live order routing: {_bool_text(report.live_order_routing)}",
+        "",
+        "## Creation",
+        f"Task id: {_escape_text(report.task_id)}",
+        f"Accepted: {_bool_text(report.accepted)}",
+        f"Status: {_escape_text(report.status)}",
+        f"Kind: {_escape_text(report.creation.kind)}",
+        f"Title: {_escape_text(report.creation.title)}",
+        f"Hypothesis: {_escape_text(report.creation.hypothesis)}",
+        f"Why now: {_escape_text(report.creation.why_now)}",
+        f"First code change: {_escape_text(report.creation.first_code_change)}",
+        f"Expected experiment: {_escape_text(report.creation.expected_experiment)}",
+        "",
+        "## Artifacts",
+        f"Task path: {_escape_text(report.task_path)}",
+        f"Patch path: {_escape_text(report.patch_path or 'none')}",
+        f"Runner exit code: {_escape_text(report.runner_exit_code if report.runner_exit_code is not None else 'none')}",
+    ]
+    if report.rejected_reason_codes:
+        lines.extend(["", "## Rejected Reason Codes"])
+        lines.extend(_bullet_lines(report.rejected_reason_codes))
+    lines.extend(["", "## Next Actions"])
+    lines.extend(_bullet_lines(report.next_actions))
     return "\n".join(lines) + "\n"
 
 
