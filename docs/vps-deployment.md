@@ -182,6 +182,11 @@ state/logs/reports remain under the main repository
 `--reports-root`, `--max-creations`, `--task-root`, `--worktree-root`, and
 `--repo-root`, then refreshes `var/reports/creation/latest.md` and
 `var/reports/creation/latest.json` through the CLI artifact store.
+Relative overrides for `CRYPTO_ALPHA_AGENT_DB`,
+`CRYPTO_ALPHA_AGENT_MEMORY`, `CRYPTO_ALPHA_AGENT_AUTONOMY_ROOT`,
+`CRYPTO_ALPHA_AGENT_REPORTS_ROOT`, `CRYPTO_ALPHA_AGENT_CREATION_LOG_DIR`, and
+`CRYPTO_ALPHA_AGENT_CREATION_LOCK_PATH` are resolved under
+`CRYPTO_ALPHA_AGENT_REPO`, not under the active worktree.
 
 The creation runner accepts only pytest verification command forms for
 generated work: `pytest ...`, `python -m pytest ...`, and

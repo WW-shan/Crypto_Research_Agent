@@ -3,32 +3,48 @@ set -euo pipefail
 
 REPO="${CRYPTO_ALPHA_AGENT_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 ACTIVE_WORKTREE="${CRYPTO_ALPHA_AGENT_ACTIVE_WORKTREE:-${REPO}/var/autonomy/active-worktree}"
+
+resolve_repo_path() {
+  case "$1" in
+    /*) printf '%s\n' "$1" ;;
+    *) printf '%s/%s\n' "$REPO" "$1" ;;
+  esac
+}
+
 RUN_REPO="$REPO"
 if [[ -d "$ACTIVE_WORKTREE" ]]; then
   if [[ ! -f "${ACTIVE_WORKTREE}/pyproject.toml" ]]; then
     printf 'Invalid active worktree %s: missing pyproject.toml\n' "$ACTIVE_WORKTREE" >&2
     exit 1
   fi
-  if ! git -C "$ACTIVE_WORKTREE" rev-parse --show-toplevel >/dev/null 2>&1; then
+  if ! active_top="$(git -C "$ACTIVE_WORKTREE" rev-parse --show-toplevel 2>/dev/null)"; then
     printf 'Invalid active worktree %s: git rev-parse --show-toplevel failed\n' "$ACTIVE_WORKTREE" >&2
+    exit 1
+  fi
+  active_top_physical="$(cd "$active_top" && pwd -P)"
+  active_worktree_physical="$(cd "$ACTIVE_WORKTREE" && pwd -P)"
+  if [[ "$active_top_physical" != "$active_worktree_physical" ]]; then
+    printf 'Invalid active worktree %s: git top-level mismatch (%s)\n' "$ACTIVE_WORKTREE" "$active_top" >&2
     exit 1
   fi
   RUN_REPO="$ACTIVE_WORKTREE"
 fi
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-db_path="${CRYPTO_ALPHA_AGENT_DB:-${REPO}/var/research.sqlite}"
-memory_path="${CRYPTO_ALPHA_AGENT_MEMORY:-${REPO}/var/memory/evidence.jsonl}"
-autonomy_root="${CRYPTO_ALPHA_AGENT_AUTONOMY_ROOT:-${REPO}/var/autonomy}"
-reports_root="${CRYPTO_ALPHA_AGENT_REPORTS_ROOT:-${REPO}/var/reports}"
+db_path="$(resolve_repo_path "${CRYPTO_ALPHA_AGENT_DB:-var/research.sqlite}")"
+memory_path="$(resolve_repo_path "${CRYPTO_ALPHA_AGENT_MEMORY:-var/memory/evidence.jsonl}")"
+autonomy_root="$(resolve_repo_path "${CRYPTO_ALPHA_AGENT_AUTONOMY_ROOT:-var/autonomy}")"
+reports_root="$(resolve_repo_path "${CRYPTO_ALPHA_AGENT_REPORTS_ROOT:-var/reports}")"
 max_creations="${CRYPTO_ALPHA_AGENT_MAX_CREATIONS:-1}"
-log_dir="${CRYPTO_ALPHA_AGENT_CREATION_LOG_DIR:-${REPO}/var/log/creation-cycle}"
-lock_path="${CRYPTO_ALPHA_AGENT_CREATION_LOCK_PATH:-${REPO}/var/locks/creation-cycle.lock}"
+log_dir="$(resolve_repo_path "${CRYPTO_ALPHA_AGENT_CREATION_LOG_DIR:-var/log/creation-cycle}")"
+lock_path="$(resolve_repo_path "${CRYPTO_ALPHA_AGENT_CREATION_LOCK_PATH:-var/locks/creation-cycle.lock}")"
 stdout_log="${log_dir}/${timestamp}.stdout.log"
 stderr_log="${log_dir}/${timestamp}.stderr.log"
 latest_markdown="${reports_root}/creation/latest.md"
 latest_json="${reports_root}/creation/latest.json"
 # Default latest artifacts: var/reports/creation/latest.md and var/reports/creation/latest.json.
+# Defaults resolve under ${REPO}/var/research.sqlite, ${REPO}/var/memory/evidence.jsonl,
+# ${REPO}/var/autonomy, ${REPO}/var/reports, and ${REPO}/var/log/creation-cycle.
 
 mkdir -p \
   "$(dirname "$db_path")" \

@@ -251,14 +251,87 @@ def test_creation_wrapper_uses_active_worktree_for_code_and_main_repo_for_state(
     )
 
     assert result.returncode == 0, result.stderr
+    assert f"--db {repo / 'var' / 'research.sqlite'}" in result.stdout
+    assert f"--memory {repo / 'var' / 'memory' / 'evidence.jsonl'}" in result.stdout
     assert f"--autonomy-root {repo / 'var' / 'autonomy'}" in result.stdout
     assert f"--reports-root {repo / 'var' / 'reports'}" in result.stdout
     assert f"--repo-root {active_worktree}" in result.stdout
     assert str(repo / "var" / "reports" / "creation" / "latest.md") in result.stdout
     assert str(repo / "var" / "reports" / "creation" / "latest.json") in result.stdout
     assert str(repo / "var" / "log" / "creation-cycle") in result.stdout
+    assert str(repo / "var" / "locks" / "creation-cycle.lock") in result.stdout
     assert str(active_worktree / "var" / "reports") not in result.stdout
     assert str(active_worktree / "var" / "log") not in result.stdout
+
+
+def test_creation_wrapper_rejects_nested_plain_dir_even_with_pyproject(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.PIPE)
+    active_worktree = repo / "var" / "autonomy" / "active-worktree"
+    active_worktree.mkdir(parents=True)
+    (active_worktree / "pyproject.toml").write_text("[project]\nname = 'nested'\n", encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "ops" / "creation-cycle.sh")],
+        check=False,
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "CRYPTO_ALPHA_AGENT_DRY_RUN": "1",
+            "CRYPTO_ALPHA_AGENT_REPO": str(repo),
+        },
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    assert result.returncode != 0
+    assert "Invalid active worktree" in result.stderr
+    assert "top-level mismatch" in result.stderr
+
+
+def test_creation_wrapper_resolves_relative_overrides_under_main_repo(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    active_worktree = repo / "var" / "autonomy" / "active-worktree"
+    active_worktree.mkdir(parents=True)
+    (active_worktree / "pyproject.toml").write_text("[project]\nname = 'active'\n", encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=active_worktree, check=True, stdout=subprocess.PIPE)
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "ops" / "creation-cycle.sh")],
+        check=False,
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "CRYPTO_ALPHA_AGENT_DRY_RUN": "1",
+            "CRYPTO_ALPHA_AGENT_REPO": str(repo),
+            "CRYPTO_ALPHA_AGENT_DB": "var/custom/research.sqlite",
+            "CRYPTO_ALPHA_AGENT_MEMORY": "var/custom/memory.jsonl",
+            "CRYPTO_ALPHA_AGENT_AUTONOMY_ROOT": "var/custom-autonomy",
+            "CRYPTO_ALPHA_AGENT_REPORTS_ROOT": "var/custom-reports",
+            "CRYPTO_ALPHA_AGENT_CREATION_LOG_DIR": "var/custom-logs",
+            "CRYPTO_ALPHA_AGENT_CREATION_LOCK_PATH": "var/custom-locks/creation.lock",
+        },
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"--db {repo / 'var' / 'custom' / 'research.sqlite'}" in result.stdout
+    assert f"--memory {repo / 'var' / 'custom' / 'memory.jsonl'}" in result.stdout
+    assert f"--autonomy-root {repo / 'var' / 'custom-autonomy'}" in result.stdout
+    assert f"--reports-root {repo / 'var' / 'custom-reports'}" in result.stdout
+    assert str(repo / "var" / "custom-reports" / "creation" / "latest.md") in result.stdout
+    assert str(repo / "var" / "custom-reports" / "creation" / "latest.json") in result.stdout
+    assert str(repo / "var" / "custom-logs") in result.stdout
+    assert str(repo / "var" / "custom-locks" / "creation.lock") in result.stdout
+    assert f"--repo-root {active_worktree}" in result.stdout
+    assert str(active_worktree / "var" / "custom-reports") not in result.stdout
+    assert str(active_worktree / "var" / "custom-logs") not in result.stdout
 
 
 def test_creation_wrapper_rejects_invalid_active_worktree_in_dry_run(tmp_path: Path) -> None:
