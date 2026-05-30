@@ -354,6 +354,9 @@ def test_creation_cycle_rejects_unsafe_runner_commands_without_promotion(
         "pytest --collect-only test_escape.py",
         "python -m pytest --version",
         "uv run pytest --fixtures test_escape.py",
+        "pytest test_escape.py --setup-only -q",
+        "pytest test_escape.py --cache-show -q",
+        "pytest test_escape.py --funcargs -q",
     ],
 )
 def test_creation_cycle_rejects_unsafe_pytest_arguments(

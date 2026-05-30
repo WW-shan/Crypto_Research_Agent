@@ -389,6 +389,7 @@ def _has_unsafe_pytest_args(args: list[str]) -> bool:
         return True
     forbidden_prefixes = (
         "--basetemp",
+        "--cache-show",
         "--confcutdir",
         "--continue-on-collection-errors",
         "--cov",
@@ -400,6 +401,7 @@ def _has_unsafe_pytest_args(args: list[str]) -> bool:
         "--override-ini",
         "--pyargs",
         "--rootdir",
+        "--setup-only",
         "--setup-plan",
         "--setup-show",
         "--trace-config",
@@ -409,6 +411,7 @@ def _has_unsafe_pytest_args(args: list[str]) -> bool:
         "--co",
         "--collect-only",
         "--fixtures-per-test",
+        "--funcargs",
         "--markers",
         "--trace",
         "-c",
