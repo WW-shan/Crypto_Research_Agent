@@ -54,9 +54,33 @@ class AutonomyWorktreeManager:
 
     def _ensure_worktree(self, path: Path, branch: str) -> None:
         if path.exists():
-            _git(path, "rev-parse", "--is-inside-work-tree")
+            self._validate_existing_worktree(path, branch)
             return
         _git(self.repo_root, "worktree", "add", str(path), branch)
+
+    def _validate_existing_worktree(self, path: Path, branch: str) -> None:
+        if not path.is_dir():
+            raise ValueError(f"existing worktree path is not a directory: {path}")
+        try:
+            expected_common_dir = _git_path(
+                self.repo_root,
+                "rev-parse",
+                "--git-common-dir",
+            )
+            actual_common_dir = _git_path(path, "rev-parse", "--git-common-dir")
+            actual_branch = _git(path, "branch", "--show-current").stdout.strip()
+        except subprocess.CalledProcessError as exc:
+            raise ValueError(f"existing path is not a valid git worktree: {path}") from exc
+
+        if actual_common_dir != expected_common_dir:
+            raise ValueError(
+                f"existing worktree {path} belongs to a different git repository"
+            )
+        if actual_branch != branch:
+            raise ValueError(
+                f"existing worktree {path} is on branch {actual_branch!r}; "
+                f"expected {branch!r}"
+            )
 
 
 def _branch_exists(repo_root: Path, branch: str) -> bool:
@@ -79,6 +103,24 @@ def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _git_path(cwd: Path, *args: str) -> Path:
+    value = _git(cwd, *args).stdout.strip()
+    path = Path(value)
+    if not path.is_absolute():
+        path = cwd / path
+    return path.resolve()
+
+
 def _validate_task_id(task_id: str) -> None:
-    if not re.fullmatch(r"[A-Za-z0-9._-]+", task_id):
+    if task_id in {".", ".."}:
+        raise ValueError(f"unsafe task_id: {task_id!r}")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", task_id):
+        raise ValueError(f"unsafe task_id: {task_id!r}")
+    branch = f"autonomy/task/{task_id}"
+    result = subprocess.run(
+        ["git", "check-ref-format", "--branch", branch],
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode != 0:
         raise ValueError(f"unsafe task_id: {task_id!r}")

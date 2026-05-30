@@ -8,7 +8,9 @@ import pytest
 from crypto_alpha_agent.autonomy.codex_runner import (
     CodexRunner,
     CodexUnavailableError,
+    ensure_success,
 )
+from crypto_alpha_agent.autonomy.models import CodexExecResult
 
 
 def test_health_check_constructs_codex_exec_command(tmp_path: Path) -> None:
@@ -108,3 +110,70 @@ def test_env_scrubber_removes_trading_wallet_secrets_but_keeps_codex_auth_and_pr
     assert captured_env["OPENAI_API_KEY"] == "openai-key"
     assert captured_env["CODEX_HOME"] == "/tmp/codex-home"
     assert captured_env["HTTPS_PROXY"] == "http://proxy.example"
+
+
+def test_allowed_openai_and_codex_secret_values_are_redacted_from_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key-secret")
+    monkeypatch.setenv("OPENAI_SECRET_KEY", "openai-secret-key")
+    monkeypatch.setenv("CODEX_PRIVATE_KEY", "codex-private-key")
+    captured_env: dict[str, str] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured_env.update(kwargs["env"])  # type: ignore[arg-type]
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="stdout openai-key-secret openai-secret-key",
+            stderr="stderr codex-private-key",
+        )
+
+    runner = CodexRunner(run_command=fake_run)
+    result = runner.exec_prompt(workdir=tmp_path, prompt="hello")
+
+    assert captured_env["OPENAI_API_KEY"] == "openai-key-secret"
+    assert captured_env["OPENAI_SECRET_KEY"] == "openai-secret-key"
+    assert captured_env["CODEX_PRIVATE_KEY"] == "codex-private-key"
+    assert "openai-key-secret" not in result.stdout
+    assert "openai-secret-key" not in result.stdout
+    assert "codex-private-key" not in result.stderr
+    assert result.stdout == "stdout <redacted> <redacted>"
+    assert result.stderr == "stderr <redacted>"
+
+
+def test_authenticated_proxy_values_are_redacted_from_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    proxy_url = "http://proxy-user:proxy-password@proxy.example:8080"
+    monkeypatch.setenv("HTTPS_PROXY", proxy_url)
+
+    def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=f"using {proxy_url}",
+            stderr=f"failed via {proxy_url}",
+        )
+
+    runner = CodexRunner(run_command=fake_run)
+    result = runner.exec_prompt(workdir=tmp_path, prompt="hello")
+
+    assert proxy_url not in result.stdout
+    assert proxy_url not in result.stderr
+    assert result.stdout == "using <redacted>"
+    assert result.stderr == "failed via <redacted>"
+
+
+def test_ensure_success_raises_for_nonzero_codex_result() -> None:
+    result = CodexExecResult(
+        command=["codex", "exec"],
+        exit_code=2,
+        stdout="",
+        stderr="builder failed",
+    )
+
+    with pytest.raises(CodexUnavailableError, match="builder failed"):
+        ensure_success(result)

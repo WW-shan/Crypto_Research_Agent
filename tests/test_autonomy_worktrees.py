@@ -3,6 +3,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from crypto_alpha_agent.autonomy.worktrees import AutonomyWorktreeManager
 
 
@@ -55,6 +57,46 @@ def test_promote_task_without_changes_does_not_create_empty_commit(
     after = _git(active_path, "rev-parse", "HEAD").stdout.strip()
     assert after == before
     assert "No-op promotion" not in _git(active_path, "log", "--oneline", "-1").stdout
+
+
+def test_existing_active_worktree_on_wrong_branch_is_rejected(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    autonomy_root = tmp_path / "autonomy"
+    active_path = autonomy_root / "active-worktree"
+    _git(repo, "branch", "wrong-active")
+    _git(repo, "worktree", "add", str(active_path), "wrong-active")
+    manager = AutonomyWorktreeManager(repo_root=repo, autonomy_root=autonomy_root)
+
+    with pytest.raises(ValueError, match="autonomy/active"):
+        manager.ensure_active_worktree()
+
+
+def test_existing_task_worktree_on_wrong_branch_is_rejected(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    autonomy_root = tmp_path / "autonomy"
+    manager = AutonomyWorktreeManager(repo_root=repo, autonomy_root=autonomy_root)
+    manager.ensure_active_worktree()
+    task_path = autonomy_root / "worktrees" / "task-001"
+    _git(repo, "branch", "wrong-task")
+    _git(repo, "worktree", "add", str(task_path), "wrong-task")
+
+    with pytest.raises(ValueError, match="autonomy/task/task-001"):
+        manager.create_task_worktree("task-001")
+
+
+@pytest.mark.parametrize("task_id", [".", "..", "feature.lock", "-bad"])
+def test_worktree_manager_rejects_unsafe_task_ids(
+    tmp_path: Path,
+    task_id: str,
+) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    manager = AutonomyWorktreeManager(
+        repo_root=repo,
+        autonomy_root=tmp_path / "autonomy",
+    )
+
+    with pytest.raises(ValueError):
+        manager.create_task_worktree(task_id)
 
 
 def _init_repo(path: Path) -> Path:

@@ -5,6 +5,7 @@ import subprocess
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from crypto_alpha_agent.autonomy.models import CodexExecResult
 from crypto_alpha_agent.llm.redaction import redact_text
@@ -44,6 +45,11 @@ class CodexRunner:
         sandbox: str = "workspace-write",
         timeout_seconds: int | None = None,
     ) -> CodexExecResult:
+        """Run Codex and return its result without raising on nonzero exit.
+
+        Callers that need failure-as-exception semantics should use
+        ``ensure_success(result)`` after inspecting or persisting runner output.
+        """
         command = [
             "codex",
             "exec",
@@ -91,6 +97,13 @@ class CodexRunner:
         )
 
 
+def ensure_success(result: CodexExecResult) -> CodexExecResult:
+    if result.exit_code != 0:
+        detail = result.stderr or result.stdout or f"exit code {result.exit_code}"
+        raise CodexUnavailableError(f"Codex exec failed: {detail}")
+    return result
+
+
 def _process_output(value: Any) -> str:
     if value is None:
         return ""
@@ -120,11 +133,15 @@ _SAFE_ENV_NAMES = {
     "no_proxy",
 }
 _SECRET_ENV_MARKERS = (
+    "API_KEY",
     "API_SECRET",
     "MNEMONIC",
+    "PASSWORD",
     "PRIVATE_KEY",
+    "SECRET",
     "SECRET_KEY",
     "SEED_PHRASE",
+    "TOKEN",
 )
 _TRADING_ENV_MARKERS = (
     "ALCHEMY",
@@ -150,14 +167,16 @@ _TRADING_ENV_MARKERS = (
 
 def _scrub_codex_env(env: Mapping[str, str]) -> tuple[dict[str, str], list[str]]:
     clean: dict[str, str] = {}
-    scrubbed_secrets: list[str] = []
+    redaction_secrets: list[str] = []
     for name, value in env.items():
         if _should_scrub_env_var(name):
             if value:
-                scrubbed_secrets.append(value)
+                redaction_secrets.append(value)
             continue
         clean[name] = value
-    return clean, scrubbed_secrets
+        if value and _should_redact_env_value(name, value):
+            redaction_secrets.append(value)
+    return clean, redaction_secrets
 
 
 def _should_scrub_env_var(name: str) -> bool:
@@ -169,3 +188,17 @@ def _should_scrub_env_var(name: str) -> bool:
     if any(marker in upper_name for marker in _TRADING_ENV_MARKERS):
         return True
     return any(marker in upper_name for marker in _SECRET_ENV_MARKERS)
+
+
+def _should_redact_env_value(name: str, value: str) -> bool:
+    upper_name = name.upper()
+    if any(marker in upper_name for marker in _SECRET_ENV_MARKERS):
+        return True
+    return _is_authenticated_proxy_url(name, value)
+
+
+def _is_authenticated_proxy_url(name: str, value: str) -> bool:
+    if name not in _SAFE_ENV_NAMES and name.upper() not in _SAFE_ENV_NAMES:
+        return False
+    parsed = urlsplit(value)
+    return bool(parsed.scheme and parsed.hostname and (parsed.username or parsed.password))
