@@ -38,6 +38,10 @@ def fake_docker_pytest_runner(monkeypatch: pytest.MonkeyPatch) -> list[list[str]
             if _uses_trusted_pytest_config(command):
                 return 1, "", "AssertionError"
             return 0, "collected 1 item\n", ""
+        if "test_conftest_escape.py" in command:
+            if _disables_conftest(command):
+                return 1, "", "AssertionError"
+            return 0, "forced clean exit\n", ""
         return 0, "", ""
 
     monkeypatch.setattr(
@@ -61,6 +65,14 @@ def _uses_trusted_pytest_config(command: list[str]) -> bool:
         "printf '%s\\n' '[pytest]'" in script
         and "-c /tmp/crypto-alpha-agent-pytest.ini" in script
     )
+
+
+def _disables_conftest(command: list[str]) -> bool:
+    try:
+        script = command[command.index("-c") + 1]
+    except (ValueError, IndexError):
+        return False
+    return "--noconftest" in script
 
 
 def test_docker_pytest_command_is_networkless_and_mounts_only_workdir(
@@ -92,6 +104,7 @@ def test_docker_pytest_command_is_networkless_and_mounts_only_workdir(
     assert command[command.index("--entrypoint") + 1] == "/bin/sh"
     assert command[image_index + 1] == "-c"
     assert _uses_trusted_pytest_config(command)
+    assert _disables_conftest(command)
     assert command[image_index + 3 :] == [
         "crypto-alpha-agent-pytest",
         "tests/test_created.py",
@@ -375,11 +388,14 @@ def test_creation_cycle_rejects_unsafe_runner_commands_without_promotion(
         "python -m pytest --pyargs crypto_alpha_agent",
         "pytest --help",
         "pytest --collect-only test_escape.py",
+        "pytest --collectonly test_escape.py",
         "python -m pytest --version",
         "uv run pytest --fixtures test_escape.py",
         "pytest test_escape.py --setup-only -q",
+        "pytest test_escape.py --setuponly -q",
         "pytest test_escape.py --cache-show -q",
         "pytest test_escape.py --funcargs -q",
+        "pytest test_escape.py --setupplan -q",
         "pytest test_escape.py -hq",
         "pytest test_escape.py -qh",
         "pytest test_escape.py -qV",
@@ -444,6 +460,43 @@ def test_creation_cycle_ignores_builder_pytest_config_addopts(
     assert report.runner_exit_code == 1
     assert "AssertionError" in runner_text
     assert not (autonomy_root / "active-worktree" / "pytest.ini").exists()
+
+
+def test_creation_cycle_ignores_builder_conftest_exit(
+    tmp_path: Path,
+) -> None:
+    autonomy_root = tmp_path / "autonomy"
+
+    report = run_creation_cycle(
+        repo_root=_init_repo(tmp_path / "repo"),
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        reports_root=tmp_path / "reports",
+        autonomy_root=autonomy_root,
+        llm_runtime=FakeRuntime(
+            _creation_payload(verification_commands=["pytest test_conftest_escape.py -q"])
+        ),
+        codex=FakeCodex(
+            exit_code=0,
+            created_files={
+                "conftest.py": (
+                    "import pytest\n\n"
+                    "def pytest_sessionstart(session):\n"
+                    "    pytest.exit('forced clean exit', returncode=0)\n"
+                ),
+                "test_conftest_escape.py": "def test_must_run():\n    assert False\n",
+            },
+        ),
+        run_commands=True,
+    )
+
+    runner_text = (Path(report.task_path) / "runner.md").read_text(encoding="utf-8")
+    assert report.accepted is False
+    assert report.status == "needs_fix"
+    assert report.rejected_reason_codes == ["verification_failed"]
+    assert report.runner_exit_code == 1
+    assert "AssertionError" in runner_text
+    assert not (autonomy_root / "active-worktree" / "conftest.py").exists()
 
 
 def test_creation_cycle_runner_blocks_reads_outside_worktree(

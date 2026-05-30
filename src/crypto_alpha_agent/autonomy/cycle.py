@@ -391,6 +391,7 @@ def _has_unsafe_pytest_args(args: list[str]) -> bool:
     forbidden_prefixes = (
         "--basetemp",
         "--cache-show",
+        "--collectonly",
         "--confcutdir",
         "--continue-on-collection-errors",
         "--cov",
@@ -403,7 +404,9 @@ def _has_unsafe_pytest_args(args: list[str]) -> bool:
         "--pyargs",
         "--rootdir",
         "--setup-only",
+        "--setuponly",
         "--setup-plan",
+        "--setupplan",
         "--setup-show",
         "--trace-config",
         "--version",
@@ -557,7 +560,7 @@ def _trusted_pytest_entrypoint_script() -> str:
     return (
         f"printf '%s\\n' '[pytest]' > {_TRUSTED_PYTEST_CONFIG_PATH} && "
         f"exec /app/.venv/bin/python -m pytest -c {_TRUSTED_PYTEST_CONFIG_PATH} "
-        '-o cache_dir=/tmp/pytest-cache "$@"'
+        '-o cache_dir=/tmp/pytest-cache --noconftest "$@"'
     )
 
 
