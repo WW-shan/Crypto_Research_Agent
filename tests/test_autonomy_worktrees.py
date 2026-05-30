@@ -84,6 +84,26 @@ def test_existing_task_worktree_on_wrong_branch_is_rejected(tmp_path: Path) -> N
         manager.create_task_worktree("task-001")
 
 
+def test_promote_task_rejects_wrong_branch_task_worktree_before_staging(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    autonomy_root = tmp_path / "autonomy"
+    manager = AutonomyWorktreeManager(repo_root=repo, autonomy_root=autonomy_root)
+    active_path = manager.ensure_active_worktree()
+    _git(repo, "branch", "autonomy/task/task-001", "autonomy/active")
+    _git(repo, "branch", "wrong-task", "autonomy/active")
+    task_path = autonomy_root / "worktrees" / "task-001"
+    _git(repo, "worktree", "add", str(task_path), "wrong-task")
+    (task_path / "wrong.txt").write_text("do not promote\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="autonomy/task/task-001"):
+        manager.promote_task(task_id="task-001", message="Promote task 001")
+
+    assert not (active_path / "wrong.txt").exists()
+    assert _git(task_path, "status", "--short").stdout == "?? wrong.txt\n"
+
+
 @pytest.mark.parametrize("task_id", [".", "..", "feature.lock", "-bad"])
 def test_worktree_manager_rejects_unsafe_task_ids(
     tmp_path: Path,

@@ -154,8 +154,8 @@ def test_authenticated_proxy_values_are_redacted_from_output(
         return subprocess.CompletedProcess(
             command,
             0,
-            stdout=f"using {proxy_url}",
-            stderr=f"failed via {proxy_url}",
+            stdout=f"using {proxy_url} user proxy-user",
+            stderr=f"failed via {proxy_url} password proxy-password",
         )
 
     runner = CodexRunner(run_command=fake_run)
@@ -163,8 +163,10 @@ def test_authenticated_proxy_values_are_redacted_from_output(
 
     assert proxy_url not in result.stdout
     assert proxy_url not in result.stderr
-    assert result.stdout == "using <redacted>"
-    assert result.stderr == "failed via <redacted>"
+    assert "proxy-user" not in result.stdout
+    assert "proxy-password" not in result.stderr
+    assert result.stdout == "using <redacted> user <redacted>"
+    assert result.stderr == "failed via <redacted> password <redacted>"
 
 
 def test_ensure_success_raises_for_nonzero_codex_result() -> None:

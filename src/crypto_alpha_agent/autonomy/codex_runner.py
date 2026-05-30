@@ -176,6 +176,7 @@ def _scrub_codex_env(env: Mapping[str, str]) -> tuple[dict[str, str], list[str]]
         clean[name] = value
         if value and _should_redact_env_value(name, value):
             redaction_secrets.append(value)
+            redaction_secrets.extend(_proxy_credentials(name, value))
     return clean, redaction_secrets
 
 
@@ -202,3 +203,10 @@ def _is_authenticated_proxy_url(name: str, value: str) -> bool:
         return False
     parsed = urlsplit(value)
     return bool(parsed.scheme and parsed.hostname and (parsed.username or parsed.password))
+
+
+def _proxy_credentials(name: str, value: str) -> list[str]:
+    if name not in _SAFE_ENV_NAMES and name.upper() not in _SAFE_ENV_NAMES:
+        return []
+    parsed = urlsplit(value)
+    return [secret for secret in (parsed.username, parsed.password) if secret]
