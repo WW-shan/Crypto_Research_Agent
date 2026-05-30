@@ -353,6 +353,10 @@ def test_creation_cycle_cli_returns_structured_payload_when_cli_json_write_fails
 ) -> None:
     runtime = _CreationRuntime(_creation_response(), role="planning")
     codex = _FakeCodex()
+    reports_root = tmp_path / "reports"
+    latest_json = reports_root / "creation" / "latest.json"
+    latest_json.parent.mkdir(parents=True)
+    latest_json.write_text('{"accepted": true}\n', encoding="utf-8")
 
     monkeypatch.setattr(
         "crypto_alpha_agent.cli.build_required_real_llm_runtime",
@@ -374,7 +378,7 @@ def test_creation_cycle_cli_returns_structured_payload_when_cli_json_write_fails
             "--memory",
             str(tmp_path / "memory.jsonl"),
             "--reports-root",
-            str(tmp_path / "reports"),
+            str(reports_root),
             "--autonomy-root",
             str(tmp_path / "autonomy"),
             "--repo-root",
@@ -401,7 +405,7 @@ def test_creation_cycle_cli_returns_structured_payload_when_cli_json_write_fails
     assert "<redacted>" in payload["failure"]
     assert "artifact-secret" not in payload["failure"]
     assert len(codex.exec_workdirs) == 1
-    assert not (tmp_path / "reports" / "creation" / "latest.json").exists()
+    assert not latest_json.exists()
 
 
 def _creation_response() -> str:

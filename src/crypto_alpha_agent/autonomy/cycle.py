@@ -5,8 +5,6 @@ import json
 import os
 import shlex
 import subprocess
-import sys
-import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -32,6 +30,7 @@ from crypto_alpha_agent.pipeline.markdown import render_creation_cycle_markdown
 _DEFAULT_RUNNER_COMMANDS = ["python -m pytest tests/test_creation_autonomy_store.py -q"]
 _RUNNER_TIMEOUT_SECONDS = 300
 _UNSAFE_COMMAND_EXIT_CODE = 126
+_DEFAULT_RUNNER_IMAGE = "ghcr.io/ww-shan/crypto-alpha-agent:main"
 
 
 def run_creation_cycle(
@@ -423,15 +422,13 @@ def _run_safe_command(
     env: dict[str, str],
     redaction_secrets: list[str],
 ) -> tuple[int, str, str]:
-    with tempfile.TemporaryDirectory(prefix="crypto-alpha-runner-") as temp_root:
-        env = _sandbox_runner_env(env, temp_root, workdir)
-        command = _sandboxed_pytest_command(argv, workdir, temp_root)
-        return _run_sandboxed_command(
-            command=command,
-            workdir=workdir,
-            env=env,
-            redaction_secrets=redaction_secrets,
-        )
+    command = _docker_pytest_command(argv, workdir, env)
+    return _run_sandboxed_command(
+        command=command,
+        workdir=workdir,
+        env=_docker_runner_env(env),
+        redaction_secrets=redaction_secrets,
+    )
 
 
 def _run_sandboxed_command(
@@ -452,7 +449,11 @@ def _run_sandboxed_command(
             env=env,
         )
     except FileNotFoundError as exc:
-        return 127, "", redact_text(exc, secrets=redaction_secrets)
+        return (
+            127,
+            "",
+            redact_text(f"Docker is required for sandboxed verification: {exc}", secrets=redaction_secrets),
+        )
     except subprocess.TimeoutExpired as exc:
         return (
             124,
@@ -466,43 +467,53 @@ def _run_sandboxed_command(
     )
 
 
-def _sandboxed_pytest_command(pytest_args: list[str], workdir: Path, temp_root: str) -> list[str]:
+def _docker_pytest_command(pytest_args: list[str], workdir: Path, env: dict[str, str]) -> list[str]:
+    image = (
+        env.get("CRYPTO_ALPHA_AGENT_RUNNER_IMAGE")
+        or env.get("CRYPTO_ALPHA_AGENT_IMAGE")
+        or _DEFAULT_RUNNER_IMAGE
+    )
+    mount_spec = f"type=bind,source={workdir},target=/workspace"
     return [
-        sys.executable,
-        "-m",
-        "crypto_alpha_agent.autonomy.sandboxed_pytest",
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--read-only",
+        "--tmpfs",
+        "/tmp:rw,nosuid,nodev,noexec",
+        "--mount",
+        mount_spec,
         "--workdir",
-        str(workdir),
-        "--temp-root",
-        temp_root,
-        "--",
+        "/workspace",
+        "-e",
+        "PYTHONPATH=/workspace/src",
+        "-e",
+        "PYTHONDONTWRITEBYTECODE=1",
+        "-e",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1",
+        "--entrypoint",
+        "/app/.venv/bin/python",
+        image,
+        "-m",
+        "pytest",
+        "-o",
+        "cache_dir=/tmp/pytest-cache",
         *pytest_args,
     ]
 
 
-def _sandbox_runner_env(env: dict[str, str], temp_root: str, workdir: Path) -> dict[str, str]:
-    sandbox_env = dict(env)
-    for name in list(sandbox_env):
-        if name.upper() in {"ALL_PROXY", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"}:
-            sandbox_env.pop(name, None)
-    sandbox_env.update(
-        {
-            "HOME": temp_root,
-            "TMPDIR": temp_root,
-            "PYTHONPATH": _sandbox_pythonpath(env, workdir),
-            "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
-            "PYTHONNOUSERSITE": "1",
-        }
-    )
-    return sandbox_env
-
-
-def _sandbox_pythonpath(env: dict[str, str], current_root: Path) -> str:
-    entries = [str((current_root / "src").resolve())]
-    existing = env.get("PYTHONPATH")
-    if existing:
-        entries.append(existing)
-    return os.pathsep.join(entries)
+def _docker_runner_env(env: dict[str, str]) -> dict[str, str]:
+    return {
+        name: value
+        for name, value in env.items()
+        if name in {"PATH", "HOME"} or name.startswith("DOCKER_")
+    }
 
 
 def _process_output(value: Any) -> str:

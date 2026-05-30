@@ -1901,7 +1901,7 @@ def _handle_creation_cycle(args: argparse.Namespace) -> dict[str, Any]:
     if response_metadata is not None:
         payload["llm_response_metadata"] = response_metadata
     try:
-        write_json_artifact(report.json_path, payload)
+        _write_creation_cli_payload(report.json_path, payload)
     except OSError as exc:
         return _creation_cycle_failure_payload(
             runtime=runtime,
@@ -1929,6 +1929,13 @@ def _creation_cycle_failure_payload(
         "failure": redact_text(failure),
         **runtime.metadata(),
     }
+
+
+def _write_creation_cli_payload(path: str | Path, payload: dict[str, Any]) -> None:
+    target = Path(path)
+    if target.exists():
+        target.unlink()
+    write_json_artifact(target, payload)
 
 
 def _subprocess_failure_text(exc: subprocess.SubprocessError) -> str:

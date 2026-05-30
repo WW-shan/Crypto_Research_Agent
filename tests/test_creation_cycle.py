@@ -14,6 +14,63 @@ from crypto_alpha_agent.autonomy.cycle import run_creation_cycle
 from crypto_alpha_agent.autonomy.models import CodexExecResult
 
 
+@pytest.fixture(autouse=True)
+def fake_docker_pytest_runner(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    calls: list[list[str]] = []
+
+    def fake_run_sandboxed_command(
+        *,
+        command: list[str],
+        workdir: Path,
+        env: dict[str, str],
+        redaction_secrets: list[str],
+    ) -> tuple[int, str, str]:
+        calls.append(command)
+        if "test_failure.py" in command or "test_created.py" in command and _file_contains(
+            workdir / "test_created.py", "assert False"
+        ):
+            return 1, "", "AssertionError"
+        if "test_escape.py" in command:
+            return 1, "", "sandbox blocks read outside allowed paths"
+        if "test_redaction.py" in command:
+            return 1, "", "<redacted>"
+        return 0, "", ""
+
+    monkeypatch.setattr(
+        cycle_module,
+        "_run_sandboxed_command",
+        fake_run_sandboxed_command,
+    )
+    return calls
+
+
+def _file_contains(path: Path, text: str) -> bool:
+    return path.is_file() and text in path.read_text(encoding="utf-8")
+
+
+def test_docker_pytest_command_is_networkless_and_mounts_only_workdir(
+    tmp_path: Path,
+) -> None:
+    command = cycle_module._docker_pytest_command(
+        ["tests/test_created.py", "-q"],
+        tmp_path,
+        {"CRYPTO_ALPHA_AGENT_RUNNER_IMAGE": "runner-image:test"},
+    )
+
+    assert command[:4] == ["docker", "run", "--rm", "--network"]
+    assert "none" in command
+    assert "--cap-drop" in command
+    assert "ALL" in command
+    assert "--security-opt" in command
+    assert "no-new-privileges" in command
+    assert "--read-only" in command
+    assert f"type=bind,source={tmp_path},target=/workspace" in command
+    assert "/workspace" in command
+    assert "PYTHONPATH=/workspace/src" in command
+    assert "runner-image:test" in command
+    assert command[-2:] == ["tests/test_created.py", "-q"]
+
+
 def test_creation_cycle_without_commands_writes_artifacts_and_reports(
     tmp_path: Path,
 ) -> None:

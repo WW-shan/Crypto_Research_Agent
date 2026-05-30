@@ -588,6 +588,8 @@ def test_vps_docker_operations_contract_is_documented() -> None:
             "pytest ...",
             "python -m pytest ...",
             "uv run pytest ...",
+            "--network none",
+            "CRYPTO_ALPHA_AGENT_RUNNER_IMAGE",
             "var/run-manifests/latest.json",
             "failed marker",
             ".env stays outside git",

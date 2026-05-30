@@ -461,6 +461,8 @@ def test_vps_deployment_doc_documents_outputs_and_boundaries() -> None:
         "var/reports/creation/latest.md",
         "var/reports/creation/latest.json",
         "Codex must be available or the creation cycle exits nonzero",
+        "--network none",
+        "CRYPTO_ALPHA_AGENT_RUNNER_IMAGE",
         "/opt/crypto-alpha-agent/var/locks/creation-cycle.lock",
         "durable state/logs/reports remain under the main repository",
         "Codex-authenticated service user",

@@ -191,8 +191,13 @@ Relative overrides for `CRYPTO_ALPHA_AGENT_DB`,
 The creation runner accepts only pytest verification command forms for
 generated work: `pytest ...`, `python -m pytest ...`, and
 `uv run pytest ...`. Shell chains, live trading commands, and non-pytest
-verification commands are rejected. The creation cycle still has no live
-capital/order routing and relies on real LLM + Codex.
+verification commands are rejected. Accepted pytest commands run in a Docker
+sandbox with `--network none`, dropped Linux capabilities, no-new-privileges,
+a read-only container filesystem, and only the task worktree bind-mounted at
+`/workspace`. Set `CRYPTO_ALPHA_AGENT_RUNNER_IMAGE` to override the default
+runner image; if Docker is unavailable, verification fails closed and the
+task is not promoted. The creation cycle still has no live capital/order
+routing and relies on real LLM + Codex.
 
 The normal VPS path requires `flock`; without it, `ops/creation-cycle.sh`
 exits nonzero rather than running unlocked. Run the creation service as a
