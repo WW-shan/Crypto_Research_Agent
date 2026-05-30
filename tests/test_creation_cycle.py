@@ -34,6 +34,10 @@ def fake_docker_pytest_runner(monkeypatch: pytest.MonkeyPatch) -> list[list[str]
             return 1, "", "sandbox blocks read outside allowed paths"
         if "test_redaction.py" in command:
             return 1, "", "<redacted>"
+        if "test_pytest_config_escape.py" in command:
+            if _uses_trusted_pytest_config(command):
+                return 1, "", "AssertionError"
+            return 0, "collected 1 item\n", ""
         return 0, "", ""
 
     monkeypatch.setattr(
@@ -46,6 +50,17 @@ def fake_docker_pytest_runner(monkeypatch: pytest.MonkeyPatch) -> list[list[str]
 
 def _file_contains(path: Path, text: str) -> bool:
     return path.is_file() and text in path.read_text(encoding="utf-8")
+
+
+def _uses_trusted_pytest_config(command: list[str]) -> bool:
+    try:
+        script = command[command.index("-c") + 1]
+    except (ValueError, IndexError):
+        return False
+    return (
+        "printf '%s\\n' '[pytest]'" in script
+        and "-c /tmp/crypto-alpha-agent-pytest.ini" in script
+    )
 
 
 def test_docker_pytest_command_is_networkless_and_mounts_only_workdir(
@@ -73,7 +88,15 @@ def test_docker_pytest_command_is_networkless_and_mounts_only_workdir(
     assert "/workspace" in command
     assert "PYTHONPATH=/workspace/src" in command
     assert "runner-image:test" in command
-    assert command[-2:] == ["tests/test_created.py", "-q"]
+    image_index = command.index("runner-image:test")
+    assert command[command.index("--entrypoint") + 1] == "/bin/sh"
+    assert command[image_index + 1] == "-c"
+    assert _uses_trusted_pytest_config(command)
+    assert command[image_index + 3 :] == [
+        "crypto-alpha-agent-pytest",
+        "tests/test_created.py",
+        "-q",
+    ]
 
 
 def test_creation_cycle_without_commands_writes_artifacts_and_reports(
@@ -388,6 +411,39 @@ def test_creation_cycle_rejects_unsafe_pytest_arguments(
     assert report.accepted is False
     assert report.runner_exit_code == 126
     assert "Rejected unsafe verification command" in runner_text
+
+
+def test_creation_cycle_ignores_builder_pytest_config_addopts(
+    tmp_path: Path,
+) -> None:
+    autonomy_root = tmp_path / "autonomy"
+
+    report = run_creation_cycle(
+        repo_root=_init_repo(tmp_path / "repo"),
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        reports_root=tmp_path / "reports",
+        autonomy_root=autonomy_root,
+        llm_runtime=FakeRuntime(
+            _creation_payload(verification_commands=["pytest test_pytest_config_escape.py -q"])
+        ),
+        codex=FakeCodex(
+            exit_code=0,
+            created_files={
+                "pytest.ini": "[pytest]\naddopts = --collect-only\n",
+                "test_pytest_config_escape.py": "def test_must_run():\n    assert False\n",
+            },
+        ),
+        run_commands=True,
+    )
+
+    runner_text = (Path(report.task_path) / "runner.md").read_text(encoding="utf-8")
+    assert report.accepted is False
+    assert report.status == "needs_fix"
+    assert report.rejected_reason_codes == ["verification_failed"]
+    assert report.runner_exit_code == 1
+    assert "AssertionError" in runner_text
+    assert not (autonomy_root / "active-worktree" / "pytest.ini").exists()
 
 
 def test_creation_cycle_runner_blocks_reads_outside_worktree(

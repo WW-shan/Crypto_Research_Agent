@@ -31,6 +31,7 @@ _DEFAULT_RUNNER_COMMANDS = ["python -m pytest tests/test_creation_autonomy_store
 _RUNNER_TIMEOUT_SECONDS = 300
 _UNSAFE_COMMAND_EXIT_CODE = 126
 _DEFAULT_RUNNER_IMAGE = "ghcr.io/ww-shan/crypto-alpha-agent:main"
+_TRUSTED_PYTEST_CONFIG_PATH = "/tmp/crypto-alpha-agent-pytest.ini"
 
 
 def run_creation_cycle(
@@ -543,14 +544,21 @@ def _docker_pytest_command(pytest_args: list[str], workdir: Path, env: dict[str,
         "-e",
         "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1",
         "--entrypoint",
-        "/app/.venv/bin/python",
+        "/bin/sh",
         image,
-        "-m",
-        "pytest",
-        "-o",
-        "cache_dir=/tmp/pytest-cache",
+        "-c",
+        _trusted_pytest_entrypoint_script(),
+        "crypto-alpha-agent-pytest",
         *pytest_args,
     ]
+
+
+def _trusted_pytest_entrypoint_script() -> str:
+    return (
+        f"printf '%s\\n' '[pytest]' > {_TRUSTED_PYTEST_CONFIG_PATH} && "
+        f"exec /app/.venv/bin/python -m pytest -c {_TRUSTED_PYTEST_CONFIG_PATH} "
+        '-o cache_dir=/tmp/pytest-cache "$@"'
+    )
 
 
 def _docker_runner_env(env: dict[str, str]) -> dict[str, str]:
