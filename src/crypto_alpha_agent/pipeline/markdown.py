@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+
 from crypto_alpha_agent.autonomy.models import CreationCycleReport
 from crypto_alpha_agent.pipeline.ai_research_memo import AIResearchMemo
 from crypto_alpha_agent.pipeline.expansion_preparation import ExpansionPreparationReport
@@ -831,26 +833,26 @@ def render_creation_cycle_markdown(report: CreationCycleReport) -> str:
         f"Live order routing: {_bool_text(report.live_order_routing)}",
         "",
         "## Creation",
-        f"Task id: {_escape_text(report.task_id)}",
+        f"Task id: {_escape_markdown_text(report.task_id)}",
         f"Accepted: {_bool_text(report.accepted)}",
-        f"Status: {_escape_text(report.status)}",
-        f"Kind: {_escape_text(report.creation.kind)}",
-        f"Title: {_escape_text(report.creation.title)}",
-        f"Hypothesis: {_escape_text(report.creation.hypothesis)}",
-        f"Why now: {_escape_text(report.creation.why_now)}",
-        f"First code change: {_escape_text(report.creation.first_code_change)}",
-        f"Expected experiment: {_escape_text(report.creation.expected_experiment)}",
+        f"Status: {_escape_markdown_text(report.status)}",
+        f"Kind: {_escape_markdown_text(report.creation.kind)}",
+        f"Title: {_escape_markdown_text(report.creation.title)}",
+        f"Hypothesis: {_escape_markdown_text(report.creation.hypothesis)}",
+        f"Why now: {_escape_markdown_text(report.creation.why_now)}",
+        f"First code change: {_escape_markdown_text(report.creation.first_code_change)}",
+        f"Expected experiment: {_escape_markdown_text(report.creation.expected_experiment)}",
         "",
         "## Artifacts",
-        f"Task path: {_escape_text(report.task_path)}",
-        f"Patch path: {_escape_text(report.patch_path or 'none')}",
+        f"Task path: {_escape_markdown_text(report.task_path)}",
+        f"Patch path: {_escape_markdown_text(report.patch_path or 'none')}",
         f"Runner exit code: {_escape_text(report.runner_exit_code if report.runner_exit_code is not None else 'none')}",
     ]
     if report.rejected_reason_codes:
         lines.extend(["", "## Rejected Reason Codes"])
-        lines.extend(_bullet_lines(report.rejected_reason_codes))
+        lines.extend(_bullet_lines([_escape_markdown_text(reason) for reason in report.rejected_reason_codes]))
     lines.extend(["", "## Next Actions"])
-    lines.extend(_bullet_lines(report.next_actions))
+    lines.extend(_bullet_lines([_escape_markdown_text(action) for action in report.next_actions]))
     return "\n".join(lines) + "\n"
 
 
@@ -888,6 +890,15 @@ def _escape_table_cell(value: object) -> str:
 
 def _escape_text(value: object) -> str:
     return str(value).replace("\n", " ").strip()
+
+
+def _escape_markdown_text(value: object) -> str:
+    text = html.escape(_escape_text(value), quote=True)
+    markdown_meta = "`[]()!|"
+    escaped = "".join(f"\\{char}" if char in markdown_meta else char for char in text)
+    if escaped[:1] in {"#", "-", "+", "*"}:
+        return "\\" + escaped
+    return escaped
 
 
 def _optional_number(value: float | None) -> str:

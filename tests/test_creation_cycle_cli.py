@@ -39,14 +39,26 @@ class _CreationLLM:
 
 
 class _FakeCodex:
-    def __init__(self, *, builder_exit_code: int = 0) -> None:
+    def __init__(
+        self,
+        *,
+        builder_exit_code: int = 0,
+        health_exit_code: int = 0,
+        health_stderr: str = "",
+    ) -> None:
         self.builder_exit_code = builder_exit_code
+        self.health_exit_code = health_exit_code
+        self.health_stderr = health_stderr
         self.health_workdirs: list[Path] = []
         self.exec_workdirs: list[Path] = []
 
     def health_check(self, *, workdir: Path) -> CodexExecResult:
         self.health_workdirs.append(workdir)
-        return CodexExecResult(command=["codex", "health"], exit_code=0)
+        return CodexExecResult(
+            command=["codex", "health"],
+            exit_code=self.health_exit_code,
+            stderr=self.health_stderr,
+        )
 
     def exec_prompt(self, *, workdir: Path, prompt: str) -> CodexExecResult:
         self.exec_workdirs.append(workdir)
@@ -98,7 +110,7 @@ def test_creation_cycle_cli_writes_latest_reports_and_payload(
     payload = json.loads(capsys.readouterr().out)
     markdown_path = reports_root / "creation" / "latest.md"
     json_path = reports_root / "creation" / "latest.json"
-    latest_json = json.loads(json_path.read_text(encoding="utf-8"))
+    latest_json = json.loads(Path(payload["json_out"]).read_text(encoding="utf-8"))
     markdown = markdown_path.read_text(encoding="utf-8")
 
     assert exit_code == 0
@@ -119,7 +131,11 @@ def test_creation_cycle_cli_writes_latest_reports_and_payload(
     assert payload["report"]["accepted"] is True
     assert payload["report"]["runner_exit_code"] is None
     assert payload["llm_role"] == "planning"
+    assert latest_json["command"] == payload["command"]
+    assert latest_json["exit_code"] == payload["exit_code"]
+    assert latest_json["accepted"] == payload["accepted"]
     assert latest_json["report"]["task_id"] == payload["report"]["task_id"]
+    assert latest_json["llm_role"] == payload["llm_role"]
     assert "# Creation Cycle Report" in markdown
     assert "LLM required: true" in markdown
     assert "Codex required: true" in markdown
@@ -169,6 +185,58 @@ def test_creation_cycle_cli_returns_nonzero_for_rejected_builder_result(
     assert payload["report"]["rejected_reason_codes"] == ["codex_builder_failed"]
     assert (reports_root / "creation" / "latest.md").is_file()
     assert (reports_root / "creation" / "latest.json").is_file()
+
+
+def test_creation_cycle_cli_returns_structured_payload_for_codex_health_failure(
+    capsys,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runtime = _CreationRuntime(_creation_response(), role="planning")
+    codex = _FakeCodex(
+        health_exit_code=127,
+        health_stderr="Authorization: Bearer codex-secret failed",
+    )
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.build_required_real_llm_runtime",
+        lambda *, role: runtime,
+    )
+    monkeypatch.setattr("crypto_alpha_agent.cli.CodexRunner", lambda: codex, raising=False)
+
+    exit_code = main(
+        [
+            "creation-cycle",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--memory",
+            str(tmp_path / "memory.jsonl"),
+            "--reports-root",
+            str(tmp_path / "reports"),
+            "--autonomy-root",
+            str(tmp_path / "autonomy"),
+            "--repo-root",
+            str(tmp_path / "repo"),
+            "--no-run-commands",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 2
+    assert "usage:" not in captured.err
+    assert payload["command"] == "creation-cycle"
+    assert payload["exit_code"] == 2
+    assert payload["reason_code"] == "codex_unavailable"
+    assert payload["llm_required"] is True
+    assert payload["codex_required"] is True
+    assert payload["uses_real_capital"] is False
+    assert payload["live_order_routing"] is False
+    assert payload["llm_role"] == "planning"
+    assert "<redacted>" in payload["failure"]
+    assert "codex-secret" not in payload["failure"]
+    assert codex.exec_workdirs == []
 
 
 def _creation_response() -> str:

@@ -513,13 +513,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--task-root",
         type=Path,
         default=Path("var/autonomy/tasks"),
-        help="Compatibility path for autonomy task artifacts.",
+        help=(
+            "Compatibility path only; task paths are currently derived from "
+            "--autonomy-root."
+        ),
     )
     creation_cycle_parser.add_argument(
         "--worktree-root",
         type=Path,
         default=Path("var/autonomy/worktrees"),
-        help="Compatibility path for autonomy worktrees.",
+        help=(
+            "Compatibility path only; worktree paths are currently derived from "
+            "--autonomy-root."
+        ),
     )
     creation_cycle_parser.add_argument(
         "--reports-root",
@@ -537,12 +543,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-creations",
         type=_positive_int,
         default=1,
-        help="Maximum creation objects to request.",
+        help="Compatibility limit; this cycle currently creates one object.",
     )
     creation_cycle_parser.add_argument(
         "--no-run-commands",
         action="store_true",
-        help="Skip verification command execution and worktree promotion.",
+        help=(
+            "Still runs the Codex builder; skips verification command execution "
+            "and worktree promotion."
+        ),
     )
     creation_cycle_parser.set_defaults(handler=_handle_creation_cycle, parser=creation_cycle_parser)
 
@@ -1829,15 +1838,36 @@ def _handle_creation_cycle(args: argparse.Namespace) -> dict[str, Any]:
             max_creations=args.max_creations,
             run_commands=not args.no_run_commands,
         )
-    except (
-        LLMProviderError,
-        LLMRuntimeError,
-        CodexUnavailableError,
-        ValueError,
-        RuntimeError,
-    ) as exc:
-        args.parser.error(str(exc))
-        raise AssertionError("argparse parser.error should exit") from exc
+    except LLMProviderError as exc:
+        return _creation_cycle_failure_payload(
+            runtime=runtime,
+            reason_code="llm_provider_unavailable",
+            failure=str(exc),
+        )
+    except LLMRuntimeError as exc:
+        return _creation_cycle_failure_payload(
+            runtime=runtime,
+            reason_code=exc.reason_code,
+            failure=str(exc),
+        )
+    except CodexUnavailableError as exc:
+        return _creation_cycle_failure_payload(
+            runtime=runtime,
+            reason_code="codex_unavailable",
+            failure=str(exc),
+        )
+    except ValueError as exc:
+        return _creation_cycle_failure_payload(
+            runtime=runtime,
+            reason_code="creation_cycle_invalid",
+            failure=str(exc),
+        )
+    except RuntimeError as exc:
+        return _creation_cycle_failure_payload(
+            runtime=runtime,
+            reason_code="creation_cycle_failed",
+            failure=str(exc),
+        )
 
     payload = {
         "command": "creation-cycle",
@@ -1856,7 +1886,28 @@ def _handle_creation_cycle(args: argparse.Namespace) -> dict[str, Any]:
     response_metadata = report.__dict__.get("_response_metadata")
     if response_metadata is not None:
         payload["llm_response_metadata"] = response_metadata
+    write_json_artifact(report.json_path, payload)
     return payload
+
+
+def _creation_cycle_failure_payload(
+    *,
+    runtime: RealLLMRuntime,
+    reason_code: str,
+    failure: str,
+) -> dict[str, Any]:
+    return {
+        "command": "creation-cycle",
+        "exit_code": 2,
+        "accepted": False,
+        "reason_code": reason_code,
+        "llm_required": True,
+        "codex_required": True,
+        "uses_real_capital": False,
+        "live_order_routing": False,
+        "failure": redact_text(failure),
+        **runtime.metadata(),
+    }
 
 
 def _handle_evidence_report(args: argparse.Namespace) -> dict[str, Any]:
