@@ -415,6 +415,7 @@ def _has_unsafe_pytest_args(args: list[str]) -> bool:
         "--markers",
         "--trace",
         "-c",
+        "-o",
         "-p",
         "-V",
         "-h",
@@ -422,7 +423,7 @@ def _has_unsafe_pytest_args(args: list[str]) -> bool:
     for index, arg in enumerate(args):
         if (
             arg in forbidden_exact
-            or arg.startswith(("-c", "-p"))
+            or arg.startswith(("-c", "-o", "-p"))
             or any(arg.startswith(prefix) for prefix in forbidden_prefixes)
         ):
             return True

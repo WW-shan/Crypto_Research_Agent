@@ -360,6 +360,10 @@ def test_creation_cycle_rejects_unsafe_runner_commands_without_promotion(
         "pytest test_escape.py -hq",
         "pytest test_escape.py -qh",
         "pytest test_escape.py -qV",
+        "pytest test_escape.py -q -o addopts=--help",
+        "pytest test_escape.py -q -oaddopts=--collect-only",
+        "python -m pytest test_escape.py -q -o addopts=--fixtures",
+        "uv run pytest test_escape.py -q -o addopts=--setup-plan",
     ],
 )
 def test_creation_cycle_rejects_unsafe_pytest_arguments(
