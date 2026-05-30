@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from crypto_alpha_agent.autonomy.codex_runner import CodexRunner
+from crypto_alpha_agent.autonomy.codex_runner import CodexRunner, CodexUnavailableError
 from crypto_alpha_agent.autonomy.context import build_creation_context
 from crypto_alpha_agent.autonomy.models import (
     CodexExecResult,
@@ -44,7 +44,8 @@ def run_creation_cycle(
     memory_path = Path(memory_path)
     codex_runner = CodexRunner() if codex is None else codex
 
-    codex_runner.health_check(workdir=repo_path)
+    health_result = codex_runner.health_check(workdir=repo_path)
+    _ensure_health_check_succeeded(health_result)
 
     context = build_creation_context(
         reports_root=reports_path,
@@ -168,6 +169,14 @@ def _parse_creation(raw_response: Any) -> CreationObject:
     return CreationObject.model_validate(raw_response)
 
 
+def _ensure_health_check_succeeded(result: Any) -> None:
+    exit_code = getattr(result, "exit_code", None)
+    if exit_code in (None, 0):
+        return
+    detail = getattr(result, "stderr", "") or getattr(result, "stdout", "") or exit_code
+    raise CodexUnavailableError(f"Codex health check failed: {detail}")
+
+
 def _task_id(context: dict[str, Any]) -> str:
     context_text = json.dumps(context, sort_keys=True, allow_nan=False, default=str)
     digest = hashlib.sha256(context_text.encode("utf-8")).hexdigest()[:10]
@@ -220,8 +229,15 @@ def _run_verification(
 
 
 def _write_patch(*, workdir: Path, store: AutonomyStore, task_id: str) -> Path:
+    subprocess.run(
+        ["git", "add", "-N", "."],
+        cwd=workdir,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
     result = subprocess.run(
-        ["git", "diff", "--binary"],
+        ["git", "diff", "--binary", "HEAD"],
         cwd=workdir,
         text=True,
         capture_output=True,

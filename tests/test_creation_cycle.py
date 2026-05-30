@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from crypto_alpha_agent.autonomy.codex_runner import CodexUnavailableError
 from crypto_alpha_agent.autonomy.cycle import run_creation_cycle
 from crypto_alpha_agent.autonomy.models import CodexExecResult
 
@@ -86,6 +87,63 @@ def test_creation_cycle_calls_codex_health_check_before_builder_prompt(
     assert codex.events.index("health") < codex.events.index("exec")
 
 
+def test_creation_cycle_rejects_nonzero_injected_health_check_before_llm(
+    tmp_path: Path,
+) -> None:
+    runtime = FakeRuntime(_creation_payload())
+    codex = FakeCodex(health_exit_code=99, health_stderr="codex unavailable")
+
+    with pytest.raises(CodexUnavailableError, match="codex unavailable"):
+        run_creation_cycle(
+            repo_root=tmp_path / "repo",
+            db_path=tmp_path / "research.sqlite",
+            memory_path=tmp_path / "memory.jsonl",
+            reports_root=tmp_path / "reports",
+            autonomy_root=tmp_path / "autonomy",
+            llm_runtime=runtime,
+            codex=codex,
+            run_commands=False,
+        )
+
+    assert runtime.prompts == []
+    assert codex.events == ["health"]
+    assert codex.exec_workdirs == []
+
+
+def test_creation_cycle_with_commands_patches_and_promotes_new_builder_file(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    autonomy_root = tmp_path / "autonomy"
+    payload = _creation_payload(
+        verification_commands=[
+            'python -c "import pathlib; assert pathlib.Path(\'created.txt\').exists()"'
+        ],
+    )
+    runtime = FakeRuntime(payload)
+    codex = FakeCodex(exit_code=0, created_file="created.txt")
+
+    report = run_creation_cycle(
+        repo_root=repo,
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        reports_root=tmp_path / "reports",
+        autonomy_root=autonomy_root,
+        llm_runtime=runtime,
+        codex=codex,
+        run_commands=True,
+    )
+
+    assert report.accepted is True
+    assert report.runner_exit_code == 0
+    assert report.patch_path is not None
+    assert "created.txt" in Path(report.patch_path).read_text(encoding="utf-8")
+    assert (autonomy_root / "active-worktree" / "created.txt").read_text(
+        encoding="utf-8"
+    ) == "created by fake codex\n"
+    assert codex.exec_workdirs == [autonomy_root / "worktrees" / report.task_id]
+
+
 def test_creation_cycle_builder_failure_rejects_but_writes_artifacts(
     tmp_path: Path,
 ) -> None:
@@ -159,20 +217,35 @@ class FakeCodex:
         exit_code: int = 0,
         stdout: str = "",
         stderr: str = "",
+        health_exit_code: int = 0,
+        health_stderr: str = "",
+        created_file: str | None = None,
     ) -> None:
         self.exit_code = exit_code
         self.stdout = stdout
         self.stderr = stderr
+        self.health_exit_code = health_exit_code
+        self.health_stderr = health_stderr
+        self.created_file = created_file
         self.events: list[str] = []
         self.exec_workdirs: list[Path] = []
 
     def health_check(self, *, workdir: Path) -> CodexExecResult:
         self.events.append("health")
-        return CodexExecResult(command=["codex", "health"], exit_code=0)
+        return CodexExecResult(
+            command=["codex", "health"],
+            exit_code=self.health_exit_code,
+            stderr=self.health_stderr,
+        )
 
     def exec_prompt(self, *, workdir: Path, prompt: str) -> CodexExecResult:
         self.events.append("exec")
         self.exec_workdirs.append(workdir)
+        if self.created_file is not None:
+            (workdir / self.created_file).write_text(
+                "created by fake codex\n",
+                encoding="utf-8",
+            )
         return CodexExecResult(
             command=["codex", "exec"],
             exit_code=self.exit_code,
@@ -181,8 +254,8 @@ class FakeCodex:
         )
 
 
-def _creation_payload() -> dict[str, Any]:
-    return {
+def _creation_payload(**overrides: Any) -> dict[str, Any]:
+    payload = {
         "id": "creation-open-interest",
         "kind": "family_idea",
         "title": "Funding open interest crowding",
@@ -198,9 +271,34 @@ def _creation_payload() -> dict[str, Any]:
         "uses_real_capital": False,
         "live_order_routing": False,
     }
+    payload.update(overrides)
+    return payload
 
 
 def _write_report(reports_root: Path, name: str, text: str) -> None:
     path = reports_root / name / "latest.md"
     path.parent.mkdir(parents=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _init_repo(path: Path) -> Path:
+    path.mkdir()
+    _git(path, "init")
+    _git(path, "config", "user.email", "test@example.com")
+    _git(path, "config", "user.name", "Test User")
+    (path / "README.md").write_text("base\n", encoding="utf-8")
+    _git(path, "add", "README.md")
+    _git(path, "commit", "-m", "Initial commit")
+    return path
+
+
+def _git(path: Path, *args: str) -> None:
+    import subprocess
+
+    subprocess.run(
+        ["git", *args],
+        cwd=path,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
