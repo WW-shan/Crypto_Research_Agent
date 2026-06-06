@@ -18,6 +18,7 @@ from crypto_alpha_agent.autonomy.models import (
     CodexExecResult,
     CreationCycleReport,
     CreationObject,
+    CreationPlannerTask,
     CreationRoleNote,
 )
 from crypto_alpha_agent.autonomy.prompts import render_builder_prompt, render_creator_prompt
@@ -63,7 +64,17 @@ def run_creation_cycle(
     )
     task_id = _task_id(context)
     creator_prompt = render_creator_prompt(task_id=task_id, context=context)
-    creation = _parse_creation(llm_runtime.llm(creator_prompt))
+    creation = _parse_creation(
+        llm_runtime.structured_call(
+            CreationPlannerTask(
+                task_id=task_id,
+                objective="Create one guarded code creation object for this repository.",
+                context=context,
+                creator_prompt=creator_prompt,
+            ),
+            CreationObject,
+        )
+    )
     runner_commands = creation.verification_commands or list(_DEFAULT_RUNNER_COMMANDS)
 
     store = AutonomyStore(root=autonomy_path, reports_root=reports_path)
@@ -516,6 +527,7 @@ def _docker_pytest_command(pytest_args: list[str], workdir: Path, env: dict[str,
         or env.get("CRYPTO_ALPHA_AGENT_IMAGE")
         or _DEFAULT_RUNNER_IMAGE
     )
+    workdir = Path(workdir).resolve()
     mount_spec = f"type=bind,source={workdir},target=/workspace"
     return [
         "docker",

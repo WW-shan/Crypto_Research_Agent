@@ -275,6 +275,8 @@ def _text_format_for_task(task: Any) -> dict[str, Any] | None:
                 ],
             },
         )
+    if task_type == "CreationPlannerTask":
+        return _json_schema_text_format("CreationObject", _creation_object_schema())
     if task_type == "LLMHealthCheckTask":
         return _json_schema_text_format(
             "LLMHealthCheckResult",
@@ -443,6 +445,58 @@ def _iteration_candidate_schema() -> dict[str, Any]:
             "target_files",
             "human_review_required",
             "direct_code_write_authorized",
+            "uses_real_capital",
+            "live_order_routing",
+        ],
+    }
+
+
+def _creation_object_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "id": {"type": "string"},
+            "kind": {
+                "type": "string",
+                "enum": [
+                    "family_idea",
+                    "data_source_idea",
+                    "validator_idea",
+                    "strategy_idea",
+                    "experiment_idea",
+                    "system_improvement_idea",
+                ],
+            },
+            "title": {"type": "string"},
+            "hypothesis": {"type": "string"},
+            "why_now": {"type": "string"},
+            "first_code_change": {"type": "string"},
+            "expected_experiment": {"type": "string"},
+            "status": {
+                "type": "string",
+                "enum": ["active", "needs_data", "needs_fix", "stale", "archived"],
+            },
+            "continuation_reason": {"type": "string"},
+            "evidence_refs": _string_list_schema(min_items=0, max_items=16),
+            "target_files": _string_list_schema(min_items=0, max_items=16),
+            "verification_commands": _string_list_schema(min_items=0, max_items=8),
+            "uses_real_capital": {"type": "boolean", "enum": [False]},
+            "live_order_routing": {"type": "boolean", "enum": [False]},
+        },
+        "required": [
+            "id",
+            "kind",
+            "title",
+            "hypothesis",
+            "why_now",
+            "first_code_change",
+            "expected_experiment",
+            "status",
+            "continuation_reason",
+            "evidence_refs",
+            "target_files",
+            "verification_commands",
             "uses_real_capital",
             "live_order_routing",
         ],
@@ -742,6 +796,18 @@ def _schema_hint_for_task(task: Any) -> str:
             "tool_refs, provider, feed, source_id, discovery_queries, "
             "acceptance_criteria, preconditions, validator_scope, proposed_parameters, "
             "or any other extra fields."
+        )
+    if task_type == "CreationPlannerTask":
+        return (
+            "Schema instructions: return exactly one CreationObject JSON object. "
+            "Use exactly these fields: id, kind, title, hypothesis, why_now, "
+            "first_code_change, expected_experiment, status, continuation_reason, "
+            "evidence_refs, target_files, verification_commands, uses_real_capital, "
+            "and live_order_routing. Set uses_real_capital=false and "
+            "live_order_routing=false. Use kind and status enum values from the "
+            "schema. verification_commands may include only pytest command forms "
+            "that the runner can validate, or an empty list to use the default. "
+            "Do not include extra fields."
         )
     if task_type == "LLMHealthCheckTask":
         return (

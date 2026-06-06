@@ -50,15 +50,16 @@ class CodexRunner:
         Callers that need failure-as-exception semantics should use
         ``ensure_success(result)`` after inspecting or persisting runner output.
         """
+        workdir = Path(workdir).resolve()
         command = [
             "codex",
+            "--ask-for-approval",
+            "never",
             "exec",
             "--cd",
             str(workdir),
             "--sandbox",
             sandbox,
-            "--ask-for-approval",
-            "never",
             "--json",
             "-",
         ]

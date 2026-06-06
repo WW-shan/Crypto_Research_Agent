@@ -9,6 +9,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict
 
 from crypto_alpha_agent.agents.llm_contracts import HypothesisProposal, ResearchTask
+from crypto_alpha_agent.autonomy.models import CreationPlannerTask
 from crypto_alpha_agent.agents.report_summarizer import EvidenceReportSummaryTask
 from crypto_alpha_agent.pipeline.experiment_planner import (
     ExperimentPlannerInput,
@@ -519,6 +520,63 @@ def test_responses_adapter_uses_json_schema_format_for_iteration_controller_task
     assert candidate_schema["properties"]["source_probe_targets"]["minItems"] == 0
     assert candidate_schema["properties"]["target_files"]["minItems"] == 0
     assert candidate_schema["properties"]["direct_code_write_authorized"]["enum"] == [False]
+
+
+def test_responses_adapter_uses_json_schema_format_for_creation_planner_task() -> None:
+    session = _FakeSession(_FakeResponse(payload={"output_text": "{}"}))
+    adapter = OpenAIResponsesAdapter(_settings(), session=session)
+    task = CreationPlannerTask(
+        task_id="creation-schema-format",
+        objective="Create one guarded object.",
+        context={"reports": {"daily/latest.md": "Daily report."}},
+        creator_prompt="Return exactly one CreationObject.",
+    )
+
+    adapter(task)
+
+    request_payload = session.calls[0]["json"]
+    prompt = str(request_payload["input"])
+    text_format = request_payload["text"]["format"]
+    schema = text_format["schema"]
+
+    assert "CreationObject" in prompt
+    assert text_format["type"] == "json_schema"
+    assert text_format["name"] == "CreationObject"
+    assert text_format["strict"] is True
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["kind"]["enum"] == [
+        "family_idea",
+        "data_source_idea",
+        "validator_idea",
+        "strategy_idea",
+        "experiment_idea",
+        "system_improvement_idea",
+    ]
+    assert schema["properties"]["status"]["enum"] == [
+        "active",
+        "needs_data",
+        "needs_fix",
+        "stale",
+        "archived",
+    ]
+    assert schema["properties"]["uses_real_capital"]["enum"] == [False]
+    assert schema["properties"]["live_order_routing"]["enum"] == [False]
+    assert set(schema["required"]) == {
+        "id",
+        "kind",
+        "title",
+        "hypothesis",
+        "why_now",
+        "first_code_change",
+        "expected_experiment",
+        "status",
+        "continuation_reason",
+        "evidence_refs",
+        "target_files",
+        "verification_commands",
+        "uses_real_capital",
+        "live_order_routing",
+    }
 
 
 def test_responses_adapter_uses_strict_schema_for_evidence_run_interpretation() -> None:

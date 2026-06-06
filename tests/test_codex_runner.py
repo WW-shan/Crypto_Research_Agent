@@ -27,13 +27,13 @@ def test_health_check_constructs_codex_exec_command(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert calls[0]["command"] == [
         "codex",
+        "--ask-for-approval",
+        "never",
         "exec",
         "--cd",
         str(tmp_path),
         "--sandbox",
         "read-only",
-        "--ask-for-approval",
-        "never",
         "--json",
         "-",
     ]
@@ -82,6 +82,37 @@ def test_exec_prompt_passes_stdin_and_returns_redacted_output(tmp_path: Path) ->
     assert result.command == calls[0]["command"]
     assert result.stdout == "<redacted>\ncreated"
     assert result.stderr == "<redacted>"
+
+
+def test_exec_prompt_resolves_relative_workdir_before_passing_to_codex(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.chdir(tmp_path)
+    calls: list[dict[str, object]] = []
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append({"command": command, **kwargs})
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    runner = CodexRunner(run_command=fake_run)
+    runner.exec_prompt(workdir=Path("repo"), prompt="hello")
+
+    assert calls[0]["command"] == [
+        "codex",
+        "--ask-for-approval",
+        "never",
+        "exec",
+        "--cd",
+        str(repo),
+        "--sandbox",
+        "workspace-write",
+        "--json",
+        "-",
+    ]
+    assert calls[0]["cwd"] == repo
 
 
 def test_env_scrubber_removes_trading_wallet_llm_secrets_but_keeps_codex_home_and_proxy(

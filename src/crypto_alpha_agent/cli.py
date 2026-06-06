@@ -452,7 +452,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Optional rollout evidence package JSON path.",
     )
-    rollout_review_parser.set_defaults(handler=_handle_rollout_review)
+    rollout_review_parser.set_defaults(
+        handler=_handle_rollout_review,
+        parser=rollout_review_parser,
+    )
 
     plan_experiments_parser = subparsers.add_parser(
         "plan-experiments",

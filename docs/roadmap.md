@@ -66,6 +66,9 @@ Implemented:
   - `plan-experiments` for bounded operator-facing experiment planning.
   - `iteration-cycle` for LLM-native, evidence-cited next-iteration
     candidates that remain review-only and write no code.
+  - `creation-cycle` for the first creation-first Codex autonomy loop: real
+    LLM required, Codex required, isolated worktree, sandboxed pytest
+    verification, persistent backlog/task artifacts, and local reports.
   - `evidence-report` daily and weekly Markdown builders.
   - `governance-report` profit governance Markdown builder with family
     scoreboards, stopped-family ledger, paper-only portfolio selector, and
@@ -77,7 +80,7 @@ Implemented:
   - External operator-controlled scheduling handoff documented in the runbook.
   - VPS-ready Docker Compose runtime, ops shell wrappers, and host `systemd`
     timers for unattended daily evidence runs, weekly reviews, monthly owner
-    review packages, and backups.
+    review packages, backups, and guarded creation-cycle jobs.
 
 Current limits that remain outside the completed safe research-loop milestone:
 
@@ -95,6 +98,12 @@ Current limits that remain outside the completed safe research-loop milestone:
 - Paper simulation, outcome ledger, evidence reporting, and memory feedback are
   operational. Longer paper evidence collection is still required before any
   tiny-live review can even be considered.
+- The first guarded autonomous code-writing loop now exists as
+  `creation-cycle`, but accepted work is not auto-pushed and not auto-merged
+  into the owner checkout. A real accepted creation-cycle artifact has been
+  observed in durable `var/` state as
+  `creation-20260606T074040Z-d88a1ac24e` with `accepted=true` and
+  `runner_exit_code=0`.
 - There is no live execution path, no wallet-key access, no exchange order
   routing, and the system should not deploy capital.
 
@@ -359,10 +368,25 @@ autonomy target is not yet implemented. The command records
 promote data sources, does not run scheduler jobs, and cannot report product
 success if the real LLM gate or structured output validation fails.
 
-Relative to the completed Phase 0 through Phase 14 roadmap, this broader owner
+Phase 17 adds the first guarded autonomous code-writing increment:
+`creation-cycle`. It reads latest reports and backlog state, asks the real
+planning LLM for one strict `CreationObject`, asks Codex to build in an
+isolated worktree, runs accepted pytest verification command forms in a Docker
+sandbox with `--network none`, and writes
+`var/autonomy/backlog.jsonl`, `var/autonomy/tasks/`,
+`var/reports/creation/latest.md`, and
+`var/reports/creation/latest.json`. It is not full self-improvement: accepted
+work is not auto-pushed, not auto-merged into the owner checkout, and no live
+capital or live order routing is introduced.
+
+Relative to the completed Phase 0 through Phase 17 roadmap, this broader owner
 autonomy target still has these gaps:
 
-- autonomous code-writing loop remains proposal-only;
+- autonomous code-writing has a first guarded local Codex loop and a real
+  accepted creation-cycle artifact has been observed in durable `var/` state as
+  `creation-20260606T074040Z-d88a1ac24e` with `accepted=true` and
+  `runner_exit_code=0`, but human inspection is still required before any
+  main-branch merge;
 - autonomous new data source discovery remains probe-gated outside the curated
   source-probe and query catalogs;
 - closed auto-iteration loop is started by `iteration-cycle`, but repeated
@@ -377,8 +401,8 @@ as self-coding or autonomous unknown-source discovery.
 
 Any next phase for this owner autonomy target must keep the existing LLM-native
 rule: if the real LLM connection, structured JSON schema validation, evidence
-reference validation, or guard validation fails, the command fails closed
-instead of reporting product success.
+reference validation, Codex availability, or guard validation fails, the command
+fails closed instead of reporting product success.
 
 ### Phase 15: VPS Docker Operations Runtime
 
@@ -442,6 +466,44 @@ Completion standard:
 - The operational runtime remains host-controlled Docker Compose plus systemd
   timers; no internal daemon, wallet-key access, live order routing, live
   execution, or live capital is introduced.
+
+### Phase 17: Creation-First Codex Autonomy
+
+Goal: Add the first guarded creation-first autonomy loop without changing the
+research-only charter.
+
+Delivered:
+
+- Added `creation-cycle`, a real LLM required and Codex required product
+  command.
+- Added strict creation models, backlog persistence, bounded report-context
+  loading, Director/Creator and Builder prompts, Codex execution, and git
+  worktree management under `crypto_alpha_agent.autonomy`.
+- Added local durable creation artifacts under `var/autonomy/backlog.jsonl`,
+  `var/autonomy/tasks/`, `var/reports/creation/latest.md`, and
+  `var/reports/creation/latest.json`.
+- Added sandboxed verification that accepts only pytest verification command
+  forms and runs them in a Docker sandbox with `--network none`.
+- Added `ops/creation-cycle.sh`,
+  `crypto-alpha-creation.service`, and `crypto-alpha-creation.timer`.
+
+Completion standard:
+
+- Codex must be available or the creation cycle exits nonzero.
+- A failed real LLM gate, invalid `CreationObject`, Codex builder failure,
+  sandboxed pytest failure, worktree failure, or patch export failure fails
+  closed.
+- Accepted work can be promoted into `var/autonomy/active-worktree`, but it is
+  not auto-pushed and not auto-merged into the owner main checkout.
+- No live execution, wallet-key access, order routing, live capital, MEV,
+  premium RPC, or private infrastructure is introduced.
+- A real accepted creation-cycle artifact has been observed at closeout:
+  `creation-20260606T074040Z-d88a1ac24e`, `accepted=true`, and
+  `runner_exit_code=0`. The next operator step is inspection of the backlog,
+  task, Markdown, JSON, and `var/autonomy/active-worktree` patch before any
+  owner-checkout merge.
+- The 30/60/90 out-of-sample paper evidence remains uncollected, so this phase
+  does not prove profit and does not unblock tiny-live review.
 
 #### Immediate Phase 0: Worktree And Configuration Closeout
 

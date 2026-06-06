@@ -600,6 +600,91 @@ def test_vps_docker_operations_contract_is_documented() -> None:
     )
 
 
+def test_phase17_creation_first_autonomy_closeout_is_documented() -> None:
+    phase_report_path = (
+        ROOT
+        / "docs"
+        / "goals"
+        / "phase-reports"
+        / "2026-06-06-phase-17-creation-first-codex-autonomy-completion-report.md"
+    )
+    state_path = ROOT / "docs" / "goals" / "project-completion-state.md"
+    docs = "\n".join(
+        [
+            _combined_docs(),
+            _normalized(state_path),
+            _normalized(phase_report_path) if phase_report_path.exists() else "",
+        ]
+    )
+
+    assert phase_report_path.exists()
+    _assert_contains(
+        docs,
+        [
+            "phase 17",
+            "creation-first codex autonomy",
+            "creation-cycle",
+            "var/autonomy/backlog.jsonl",
+            "var/autonomy/tasks/",
+            "var/reports/creation/latest.md",
+            "var/reports/creation/latest.json",
+            "real llm required",
+            "codex required",
+            "isolated worktree",
+            "docker sandbox",
+            "--network none",
+            "pytest verification command forms",
+            "not auto-pushed",
+            "not auto-merged",
+            "no live order routing",
+            "no live capital",
+            "real accepted creation-cycle artifact has been observed",
+            "creation-20260606T074040Z-d88a1ac24e",
+            "accepted=true",
+            "runner_exit_code=0",
+            "30/60/90 out-of-sample paper evidence remains uncollected",
+        ],
+    )
+    _assert_contains(
+        _normalized(DOC_PATHS["readme"]),
+        [
+            "creation-cycle",
+            "var/autonomy/backlog.jsonl",
+            "var/reports/creation/latest.md",
+            "not auto-pushed",
+            "not auto-merged",
+            "no live order routing",
+            "no live capital",
+        ],
+    )
+    _assert_contains(
+        _normalized(DOC_PATHS["runbook"]),
+        [
+            "creation-cycle",
+            "real llm required",
+            "codex required",
+            "isolated worktree",
+            "docker sandbox",
+            "--network none",
+            "pytest verification command forms",
+            "not auto-pushed",
+            "not auto-merged",
+        ],
+    )
+    _assert_contains(
+        _normalized(DOC_PATHS["roadmap"]),
+        [
+            "phase 17: creation-first codex autonomy",
+            "creation-cycle",
+            "var/autonomy/backlog.jsonl",
+            "var/reports/creation/latest.json",
+            "real accepted creation-cycle artifact has been observed",
+            "creation-20260606T074040Z-d88a1ac24e",
+            "30/60/90 out-of-sample paper evidence remains uncollected",
+        ],
+    )
+
+
 def test_roadmap_rollout_and_tiny_live_contracts_are_current() -> None:
     roadmap = _normalized(DOC_PATHS["roadmap"])
     rollout = _normalized(DOC_PATHS["rollout"])
