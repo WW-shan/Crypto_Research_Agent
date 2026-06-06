@@ -375,9 +375,11 @@ autonomy target still has these gaps:
 - closed auto-iteration has separate `iteration-cycle` and `creation-cycle`
   pieces, but repeated evidence re-ingestion, promotion to `main`, and GitHub
   publication still require review and explicit operator action;
-- the current configured real LLM provider route returns successful Responses
-  envelopes with no extractable model output, so product commands fail closed
-  until provider/base URL/model configuration is remediated.
+- the configured real LLM provider's Responses route can return successful
+  envelopes with no extractable model output; the adapter now retries those
+  empty Responses payloads and falls back to the same provider/model through
+  Chat Completions while preserving strict schema requests and fail-closed
+  parsing.
 
 The current implementation does have bounded AI experiment planning,
 source-probe workflows, expansion-preparation reports, evidence runs,

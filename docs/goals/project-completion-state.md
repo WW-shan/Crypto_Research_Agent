@@ -8,11 +8,12 @@ round.
 
 - Round: 18
 - Status: Phase 17 Creation-First Codex Autonomy implemented locally and
-  non-LLM verification passed; full product verification is blocked by the
-  current real LLM provider route returning empty Responses output
+  non-LLM verification passed; real LLM health check recovered through a
+  provider-compatible Chat Completions fallback after repeated empty Responses
+  output
 - Started: 2026-06-06
-- Completed: 2026-06-06 code/docs closeout; real LLM provider remediation
-  remains open
+- Completed: 2026-06-06 code/docs closeout; real LLM health-check remediation
+  completed in follow-up
 - Active slice: Phase 17: Creation-First Codex Autonomy
 - Active plan source:
   `docs/superpowers/plans/2026-05-30-phase-17-creation-first-codex-autonomy.md`
@@ -44,13 +45,16 @@ round.
 - Added adapter-level retries for transient HTTP 200 Responses payloads that
   contain no extractable output text, while preserving fail-closed behavior
   after repeated empty outputs.
+- Added a real-provider compatibility fallback that calls Chat Completions only
+  after repeated empty Responses payloads. The fallback preserves strict JSON
+  schema requests, redaction, real-LLM gating, and fail-closed parsing.
 - Added this round's Phase 17 completion report.
 
 ## Verification Evidence
 
 - Non-real-LLM project verification:
   `uv run --extra dev pytest -q -m 'not llm_integration'` passed with
-  1079 tests and 10 deselected.
+  1080 tests and 10 deselected after the compatibility fallback.
 - Focused Phase 17 verification:
   `uv run --extra dev pytest tests/test_creation_cycle.py tests/test_creation_cycle_cli.py tests/test_codex_runner.py tests/test_autonomy_worktrees.py tests/test_creation_autonomy_store.py tests/test_creation_context.py tests/test_creation_cycle_markdown.py tests/test_vps_ops.py tests/test_documentation_contract.py -q`
   passed with 120 tests.
@@ -60,19 +64,44 @@ round.
   check for adapter-level empty-output retry also passed.
 - Focused LLM adapter/runtime non-integration verification:
   `uv run --extra dev pytest tests/test_llm_configured_client.py tests/test_llm_native_runtime.py tests/test_real_llm_test_policy_contract.py tests/test_llm_integration_policy_unit.py -q -m 'not llm_integration'`
-  passed with 45 tests and 1 deselected.
+  passed with 46 tests and 1 deselected after the compatibility fallback.
+- Real LLM health check after remediation:
+  `uv run crypto-alpha-agent llm-health-check` passed with
+  `llm_provider=real`, `llm_model=gpt-5.5`, `schema_name=LLMHealthCheckResult`,
+  `json_schema`, `research_only`, `uses_real_capital=false`, and
+  `live_order_routing=false`.
+- Real LLM health-check integration test after remediation:
+  `uv run --extra dev pytest tests/test_real_llm_integration_policy.py::test_real_llm_health_check_cli_uses_configured_llm_without_secret_leaks -q`
+  passed.
+- Real LLM integration verification after remediation:
+  `uv run --extra dev pytest tests/test_real_llm_integration_policy.py -q`
+  passed with 9 tests in 7 minutes 20 seconds before the final retry-helper
+  refactor, and
+  `uv run --extra dev pytest tests/test_llm_configured_client.py::test_real_configured_llm_smoke_returns_valid_research_proposal_without_secret_leaks -q`
+  passed with 1 test. After the final retry-helper refactor,
+  `uv run crypto-alpha-agent llm-health-check` and focused adapter fallback
+  tests were rerun and passed.
 - Focused lint:
   `uv run --extra dev ruff check src/crypto_alpha_agent/llm/responses.py tests/llm_integration_policy.py tests/test_llm_integration_policy_unit.py tests/test_llm_configured_client.py`
   passed.
 - Pre-closeout broad lint and diff checks:
   `uv run --extra dev ruff check .` passed and `git diff --check` passed.
-- Full verification with real LLM integration currently fails:
+- Full verification with real LLM integration before remediation failed:
   `uv run --extra dev pytest -q` reported 10 real-LLM integration failures and
   1075 passing tests before the diagnostics patch.
-- Current `llm-health-check` fails closed with exit code 2:
+- Historical `llm-health-check` failure before remediation was exit code 2:
   `llm_provider_unavailable: LLM provider response did not contain output text:
   status=completed output_len=0 input_tokens=5374 output_tokens=49
-  total_tokens=5423`.
+  total_tokens=5423`. The current health-check command now passes with the
+  real configured provider.
+- A full `uv run --extra dev pytest -q` run was started after remediation and
+  progressed through the non-LLM suite plus multiple real-LLM tests, but was
+  terminated after more than 16 minutes without a final pytest summary because
+  one real provider call stopped producing output. The focused non-LLM suite
+  passed after the final retry-helper refactor. A final rerun of
+  `tests/test_real_llm_integration_policy.py -q` was also terminated after more
+  than 13 minutes without a final pytest summary because a real provider call
+  again stopped producing output.
 - Final `uv run --extra dev ruff check .`, `git diff --check`, and path secret
   scan passed before closeout commit. Staged diff and staged secret scan are
   required immediately before commit.
@@ -169,12 +198,14 @@ Docker/systemd operations layer for unattended evidence collection, Phase 16
 makes that runtime pullable from GHCR by default, and Phase 17 adds the
 Codex-backed creation loop.
 
-The current hard operational blocker is the configured real LLM provider route:
-it returns successful Responses API envelopes with no extractable model output.
-Because product commands require the real LLM gate, this correctly blocks
-`llm-health-check`, full real-LLM integration verification, scheduled product
-jobs, and `creation-cycle` product success until the provider/base URL/model
-configuration is remediated.
+The previous hard operational blocker was the configured real LLM provider's
+Responses route returning successful envelopes with no extractable model
+output. The adapter now retries those empty Responses payloads and then uses the
+same provider/model through Chat Completions as a compatibility fallback while
+preserving strict schema requests and fail-closed parsing. `llm-health-check`
+now passes against the real configured provider. Broad unattended product
+operation still depends on the external provider continuing to respond within
+reasonable time limits.
 
 Reality audit: `docs/goals/project-reality-audit-2026-05-29.md` records that
 the owner's broader autonomy target is larger than the completed Phase 0
@@ -271,4 +302,4 @@ If work continues after Phase 13:
 | 15 | 2026-05-29 | Phase 14 LLM-native autonomous iteration controller | focused Phase 14 tests 16 passed; pytest 965 passed; ruff passed; diff check passed; staged secret scan required before commit | Phase 14 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 16 | 2026-05-29 | Phase 15 VPS Docker operations runtime | focused VPS/docs contracts 24 passed; pytest 982 passed; final ruff, diff, staged diff, and staged secret checks required before commit | Phase 15 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 17 | 2026-05-29 | Phase 16 GHCR container publishing | focused GHCR/docs/runtime/planner contracts 81 passed; real LLM planner smoke 1 passed; pytest 990 passed; final ruff, diff, staged diff, and staged secret checks required before commit | Phase 16 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
-| 18 | 2026-06-06 | Phase 17 creation-first Codex autonomy closeout | non-LLM pytest 1079 passed; focused Phase 17 tests 120 passed; adapter diagnostics and retry checks passed; focused LLM non-integration tests 45 passed, 1 deselected; real LLM health check blocked by provider empty output | `22df14c docs: close out creation autonomy phase` | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 18 | 2026-06-06 | Phase 17 creation-first Codex autonomy closeout | non-LLM pytest 1080 passed; focused Phase 17 tests 120 passed; adapter diagnostics and retry checks passed; focused LLM non-integration tests 46 passed, 1 deselected; real LLM health check passed after provider compatibility fallback; full real-provider suites remain sensitive to provider stalls | `22df14c docs: close out creation autonomy phase` plus remediation follow-up | `https://github.com/WW-shan/Crypto_Research_Agent` |

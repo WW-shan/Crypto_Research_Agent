@@ -720,6 +720,64 @@ def test_responses_adapter_retries_empty_output_before_success() -> None:
     assert len(session.calls) == 3
 
 
+def test_responses_adapter_falls_back_to_chat_completions_after_repeated_empty_output() -> None:
+    session = _FakeSequenceSession(
+        [
+            _FakeResponse(
+                payload={
+                    "status": "completed",
+                    "output": [],
+                    "usage": {"output_tokens": 5},
+                }
+            ),
+            _FakeResponse(
+                payload={
+                    "status": "completed",
+                    "output": [],
+                    "usage": {"output_tokens": 5},
+                }
+            ),
+            _FakeResponse(
+                payload={
+                    "status": "completed",
+                    "output": [],
+                    "usage": {"output_tokens": 5},
+                }
+            ),
+            _FakeResponse(
+                payload={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": (
+                                    '{"status":"ok","schema_name":"LLMHealthCheckResult",'
+                                    '"capabilities":["json_schema","research_only"],'
+                                    '"uses_real_capital":false,"live_order_routing":false}'
+                                )
+                            }
+                        }
+                    ]
+                }
+            ),
+        ]
+    )
+    adapter = OpenAIResponsesAdapter(_settings(base_url="https://provider.example/v1"), session=session)
+
+    result = adapter(LLMHealthCheckTask(command="llm-health-check"))
+
+    assert json.loads(result)["schema_name"] == "LLMHealthCheckResult"
+    assert len(session.calls) == 4
+    assert session.calls[3]["url"] == "https://provider.example/v1/chat/completions"
+    chat_payload = session.calls[3]["json"]
+    assert chat_payload["model"] == "gpt-test"
+    assert chat_payload["messages"][0]["role"] == "system"
+    assert chat_payload["messages"][1]["role"] == "user"
+    assert "LLMHealthCheckResult" in chat_payload["messages"][1]["content"]
+    assert chat_payload["response_format"]["type"] == "json_schema"
+    assert chat_payload["response_format"]["json_schema"]["name"] == "LLMHealthCheckResult"
+    assert chat_payload["response_format"]["json_schema"]["strict"] is True
+
+
 def test_build_configured_llm_returns_adapter_when_settings_exist(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

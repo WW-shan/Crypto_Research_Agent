@@ -40,6 +40,7 @@ class OpenAIResponsesAdapter:
             "Authorization": f"Bearer {self.settings.api_key.get_secret_value()}",
             "Content-Type": "application/json",
         }
+        empty_output_error: LLMProviderError | None = None
         for attempt in range(1, _PROVIDER_REQUEST_ATTEMPTS + 1):
             response = self._post_with_retries(payload=payload, headers=headers)
             try:
@@ -54,17 +55,64 @@ class OpenAIResponsesAdapter:
                 return _extract_response_text(response_payload)
             except LLMProviderError as exc:
                 if attempt == _PROVIDER_REQUEST_ATTEMPTS or not _is_empty_output_error(exc):
+                    if _is_empty_output_error(exc):
+                        empty_output_error = exc
+                        break
                     raise
                 continue
+        if empty_output_error is not None:
+            return self._call_chat_completions_fallback(
+                payload=payload,
+                headers=headers,
+                empty_output_error=empty_output_error,
+            )
         raise AssertionError("unreachable provider output retry state")
 
     def _post_with_retries(
         self, *, payload: dict[str, Any], headers: dict[str, str]
     ) -> Any:
+        return self._post_json_with_retries(
+            url=self._responses_url(),
+            payload=payload,
+            headers=headers,
+        )
+
+    def _call_chat_completions_fallback(
+        self,
+        *,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        empty_output_error: LLMProviderError,
+    ) -> str:
+        chat_payload = _chat_completions_payload_from_responses_payload(payload)
+        response = self._post_json_with_retries(
+            url=self._chat_completions_url(),
+            payload=chat_payload,
+            headers=headers,
+        )
+        try:
+            response_payload = response.json()
+        except Exception as exc:  # noqa: BLE001 - provider JSON parse boundary.
+            raise LLMProviderError(
+                self._redact(
+                    "LLM provider chat fallback returned invalid JSON: "
+                    f"{type(exc).__name__}"
+                )
+            ) from None
+        try:
+            return _extract_chat_completion_text(response_payload)
+        except LLMProviderError as exc:
+            raise LLMProviderError(
+                f"{empty_output_error}; chat fallback failed: {exc}"
+            ) from None
+
+    def _post_json_with_retries(
+        self, *, url: str, payload: dict[str, Any], headers: dict[str, str]
+    ) -> Any:
         for attempt in range(1, _PROVIDER_REQUEST_ATTEMPTS + 1):
             try:
                 response = self.session.post(
-                    self._responses_url(),
+                    url,
                     headers=headers,
                     json=payload,
                     timeout=self.settings.timeout_seconds,
@@ -100,6 +148,16 @@ class OpenAIResponsesAdapter:
         if base_url.endswith("/v1"):
             return f"{base_url}/responses"
         return f"{base_url}/v1/responses"
+
+    def _chat_completions_url(self) -> str:
+        base_url = self.settings.base_url.rstrip("/")
+        if base_url.endswith("/responses"):
+            base_url = base_url[: -len("/responses")]
+        if base_url.endswith("/chat/completions"):
+            return base_url
+        if base_url.endswith("/v1"):
+            return f"{base_url}/chat/completions"
+        return f"{base_url}/v1/chat/completions"
 
     def _render_input(self, task: Any) -> str:
         if hasattr(task, "model_dump"):
@@ -171,6 +229,94 @@ def _extract_output_item_text(item: Any) -> str | None:
     text = item.get("text")
     if isinstance(text, str) and text.strip():
         return text.strip()
+    return None
+
+
+def _extract_chat_completion_text(payload: Any) -> str:
+    if isinstance(payload, dict):
+        choices = payload.get("choices")
+        if isinstance(choices, list):
+            for choice in choices:
+                if not isinstance(choice, dict):
+                    continue
+                message = choice.get("message")
+                if not isinstance(message, dict):
+                    continue
+                content = message.get("content")
+                if isinstance(content, str) and content.strip():
+                    return content.strip()
+    raise LLMProviderError(
+        "LLM provider chat fallback did not contain output text: "
+        + _safe_chat_completion_shape(payload)
+    )
+
+
+def _safe_chat_completion_shape(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return f"payload_type={type(payload).__name__}"
+    parts = []
+    choices = payload.get("choices")
+    if isinstance(choices, list):
+        parts.append(f"choices_len={len(choices)}")
+        finish_reasons = sorted(
+            {
+                str(choice.get("finish_reason"))
+                for choice in choices
+                if isinstance(choice, dict) and choice.get("finish_reason") is not None
+            }
+        )
+        if finish_reasons:
+            parts.append("finish_reasons=" + ",".join(finish_reasons))
+    usage = payload.get("usage")
+    if isinstance(usage, dict):
+        for name in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            value = usage.get(name)
+            if isinstance(value, int):
+                parts.append(f"{name}={value}")
+    error = payload.get("error")
+    if isinstance(error, dict):
+        error_type = error.get("type")
+        if isinstance(error_type, str):
+            parts.append(f"error_type={error_type}")
+    return " ".join(parts) or "shape=unavailable"
+
+
+def _chat_completions_payload_from_responses_payload(
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    chat_payload: dict[str, Any] = {
+        "model": payload["model"],
+        "messages": [
+            {
+                "role": "system",
+                "content": "Return only valid JSON. Do not wrap JSON in markdown fences.",
+            },
+            {"role": "user", "content": str(payload["input"])},
+        ],
+    }
+    response_format = _chat_response_format_from_text_format(payload.get("text"))
+    if response_format is not None:
+        chat_payload["response_format"] = response_format
+    return chat_payload
+
+
+def _chat_response_format_from_text_format(text_value: Any) -> dict[str, Any] | None:
+    if not isinstance(text_value, dict):
+        return None
+    text_format = text_value.get("format")
+    if not isinstance(text_format, dict):
+        return None
+    if text_format.get("type") == "json_schema":
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": text_format.get("name"),
+                "strict": text_format.get("strict"),
+                "schema": text_format.get("schema"),
+            },
+        }
+    if text_format.get("type") == "json_object":
+        return {"type": "json_object"}
     return None
 
 
