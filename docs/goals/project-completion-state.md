@@ -6,60 +6,76 @@ round.
 
 ## Current Round
 
-- Round: 17
-- Status: Phase 16 GHCR Container Publishing complete and verified in the
-  implementation worktree
-- Started: 2026-05-29
-- Completed: 2026-05-29
-- Active slice: Phase 16: GHCR Container Publishing
+- Round: 18
+- Status: Phase 17 Creation-First Codex Autonomy implemented locally and
+  non-LLM verification passed; full product verification is blocked by the
+  current real LLM provider route returning empty Responses output
+- Started: 2026-06-06
+- Completed: 2026-06-06 code/docs closeout; real LLM provider remediation
+  remains open
+- Active slice: Phase 17: Creation-First Codex Autonomy
 - Active plan source:
-  `docs/superpowers/plans/2026-05-29-phase-16-ghcr-container-publishing.md`
+  `docs/superpowers/plans/2026-05-30-phase-17-creation-first-codex-autonomy.md`
 - Phase report:
-  `docs/goals/phase-reports/2026-05-29-phase-16-ghcr-container-publishing-completion-report.md`
+  `docs/goals/phase-reports/2026-06-06-phase-17-creation-first-codex-autonomy-completion-report.md`
 
 ## Completed This Round
 
-- Added the Phase 16 design spec and implementation plan for GHCR container
-  publishing.
-- Added `.github/workflows/publish-container.yml` to publish
-  `ghcr.io/ww-shan/crypto-alpha-agent` from the repository `Dockerfile`.
-- Published container tags include `linux/amd64` and `linux/arm64` manifests.
-- Changed `docker-compose.yml` to default to
-  `ghcr.io/ww-shan/crypto-alpha-agent:main` while preserving
-  `CRYPTO_ALPHA_AGENT_IMAGE=crypto-alpha-agent:local` for explicit local
-  builds and local soak runs.
-- Updated VPS deployment docs so maintenance pulls the GHCR image, runs
-  `llm-health-check`, and keeps any GHCR login token host-local.
-- Hardened real LLM structured-output handling with bounded retries for
-  transient invalid JSON, schema-invalid, or structurally invalid planner
-  outputs while preserving fail-closed behavior for unsafe outputs.
-- Expanded research-only judgement decisions observed from the real LLM while
-  keeping governance action enums and live-capital/live-routing guards strict.
-- Added this round's Phase completion report.
+- Added the Phase 17 design spec and implementation plan for creation-first
+  Codex autonomy.
+- Added the `creation-cycle` CLI command and `crypto_alpha_agent.autonomy`
+  package for creation objects, context loading, artifact storage, Codex
+  execution, task worktrees, runner verification, patch export, and persistent
+  autonomy worktree promotion.
+- Added VPS creation-cycle operations through `ops/creation-cycle.sh`,
+  `crypto-alpha-creation.service`, and `crypto-alpha-creation.timer`.
+- Hardened creation-cycle verification so generated work accepts only pytest
+  command forms and runs them in a Docker sandbox with no network, dropped
+  capabilities, no-new-privileges, a read-only filesystem, and only the task
+  worktree mounted.
+- Hardened creation-cycle review, Markdown escaping, IO failure handling,
+  pytest no-op rejection, pytest config isolation, active worktree validation,
+  and promotion behavior through follow-up local commits.
+- Diagnosed the current real LLM provider failure: the configured Responses
+  route returns HTTP 200 with `status=completed`, token usage, and no
+  `output_text` or `output` items. Product commands correctly fail closed.
+- Added safe adapter diagnostics for empty Responses output and real LLM test
+  harness retry classification for that provider failure.
+- Added adapter-level retries for transient HTTP 200 Responses payloads that
+  contain no extractable output text, while preserving fail-closed behavior
+  after repeated empty outputs.
+- Added this round's Phase 17 completion report.
 
 ## Verification Evidence
 
-- Baseline VPS contract before Phase 16 code edits:
-  `uv run --extra dev pytest tests/test_vps_ops.py -q` passed with 14 tests.
-- TDD RED check was observed for GHCR contracts:
-  `uv run --extra dev pytest tests/test_vps_ops.py -q` failed because the
-  GHCR workflow, GHCR compose default, and VPS GHCR documentation did not
-  exist yet.
-- Focused GHCR/docs contract verification:
-  `uv run --extra dev pytest tests/test_vps_ops.py tests/test_documentation_contract.py -q`
-  passed with 26 tests.
-- TDD RED/GREEN covered research-only judgement vocabulary, runtime
-  structured-output retry, and planner structural-output retry.
-- Focused regression bundle:
-  `uv run --extra dev pytest tests/test_vps_ops.py tests/test_documentation_contract.py tests/test_ai_experiment_planner.py tests/test_llm_native_runtime.py tests/test_llm_native_judgements.py tests/test_llm_configured_client.py::test_responses_adapter_uses_json_schema_format_for_judgement_task -q`
-  passed with 81 tests.
-- Real LLM planner smoke:
-  `uv run --extra dev pytest tests/test_real_llm_integration_policy.py::test_real_plan_experiments_cli_uses_configured_llm_without_secret_leaks -q`
-  passed with 1 test.
-- Full verification:
-  `uv run --extra dev pytest -q` passed with 990 tests.
-- `uv run --extra dev ruff check .`, `git diff --check`, staged diff checks,
-  and staged secret scan are required before commit.
+- Non-real-LLM project verification:
+  `uv run --extra dev pytest -q -m 'not llm_integration'` passed with
+  1079 tests and 10 deselected.
+- Focused Phase 17 verification:
+  `uv run --extra dev pytest tests/test_creation_cycle.py tests/test_creation_cycle_cli.py tests/test_codex_runner.py tests/test_autonomy_worktrees.py tests/test_creation_autonomy_store.py tests/test_creation_context.py tests/test_creation_cycle_markdown.py tests/test_vps_ops.py tests/test_documentation_contract.py -q`
+  passed with 120 tests.
+- TDD RED/GREEN for empty Responses output diagnostics:
+  `uv run --extra dev pytest tests/test_llm_configured_client.py::test_responses_adapter_empty_output_error_includes_safe_response_summary tests/test_llm_integration_policy_unit.py -q`
+  failed before implementation and then passed with 3 tests. A follow-up RED/GREEN
+  check for adapter-level empty-output retry also passed.
+- Focused LLM adapter/runtime non-integration verification:
+  `uv run --extra dev pytest tests/test_llm_configured_client.py tests/test_llm_native_runtime.py tests/test_real_llm_test_policy_contract.py tests/test_llm_integration_policy_unit.py -q -m 'not llm_integration'`
+  passed with 45 tests and 1 deselected.
+- Focused lint:
+  `uv run --extra dev ruff check src/crypto_alpha_agent/llm/responses.py tests/llm_integration_policy.py tests/test_llm_integration_policy_unit.py tests/test_llm_configured_client.py`
+  passed.
+- Pre-closeout broad lint and diff checks:
+  `uv run --extra dev ruff check .` passed and `git diff --check` passed.
+- Full verification with real LLM integration currently fails:
+  `uv run --extra dev pytest -q` reported 10 real-LLM integration failures and
+  1075 passing tests before the diagnostics patch.
+- Current `llm-health-check` fails closed with exit code 2:
+  `llm_provider_unavailable: LLM provider response did not contain output text:
+  status=completed output_len=0 input_tokens=5374 output_tokens=49
+  total_tokens=5423`.
+- Final `uv run --extra dev ruff check .`, `git diff --check`, and path secret
+  scan passed before closeout commit. Staged diff and staged secret scan are
+  required immediately before commit.
 - Staged review before commit is required to include `git diff --cached
   --check`, `git diff --cached --name-only`, `git diff --cached --no-ext-diff
   --unified=0`, and
@@ -115,10 +131,19 @@ evidence-grounded AI research planning, and profit governance review active:
 - Phase 16 GHCR container publishing that lets VPS deployments pull
   `ghcr.io/ww-shan/crypto-alpha-agent:main` by default, while local builds can
   explicitly use `CRYPTO_ALPHA_AGENT_IMAGE=crypto-alpha-agent:local`.
+- Phase 17 creation-first Codex autonomy that stores creation backlog and task
+  artifacts, asks the configured planning LLM for creation objects, runs Codex
+  in isolated git worktrees, accepts only pytest verification commands, runs
+  verification in a Docker sandbox, exports patches, promotes passing task
+  worktrees to the persistent autonomy worktree, and writes latest creation
+  reports.
 - Bounded retries for real LLM structured-output schema drift in runtime
   judgement calls and experiment planning, without accepting live capital,
   live order routing, charter violations, unsupported validators, unsupported
   data fields, or missing evidence refs.
+- Safe diagnostics for real LLM Responses payloads that return HTTP success but
+  no extractable output text, while keeping raw provider payloads and secrets
+  out of logs, reports, memory, and tests.
 
 ## Known Hard Boundaries
 
@@ -137,31 +162,50 @@ evidence-grounded AI research planning, and profit governance review active:
 
 ## Known Remaining Gaps
 
-The Phase 0 through Phase 16 charter-compliant evidence-factory roadmap is
-implemented and verified in the current worktree. The LLM-native runtime
-follow-up removed deterministic-only product success paths. Phase 15 adds the
-VPS Docker/systemd operations layer for unattended evidence collection, and
-Phase 16 makes that runtime pullable from GHCR by default.
+The Phase 0 through Phase 17 charter-compliant evidence-factory and autonomy
+roadmap is implemented locally. The LLM-native runtime follow-up removed
+deterministic-only product success paths. Phase 15 adds the VPS
+Docker/systemd operations layer for unattended evidence collection, Phase 16
+makes that runtime pullable from GHCR by default, and Phase 17 adds the
+Codex-backed creation loop.
+
+The current hard operational blocker is the configured real LLM provider route:
+it returns successful Responses API envelopes with no extractable model output.
+Because product commands require the real LLM gate, this correctly blocks
+`llm-health-check`, full real-LLM integration verification, scheduled product
+jobs, and `creation-cycle` product success until the provider/base URL/model
+configuration is remediated.
 
 Reality audit: `docs/goals/project-reality-audit-2026-05-29.md` records that
 the owner's broader autonomy target is larger than the completed Phase 0
 through Phase 13 roadmap. Relative to that owner autonomy target, these
 implementation gaps remain:
 
-- `iteration-cycle` now starts the closed auto-iteration loop by asking the
+- `iteration-cycle` starts the closed auto-iteration loop by asking the
   configured real planning LLM for strict `IterationCandidate` records and
   guarding them against uncited evidence, missing tests, missing source probes,
   direct code-write authority, live capital, and live order routing.
-- VPS unattended operation is now available through Docker Compose and systemd
+- `creation-cycle` now starts the code-writing loop by asking the configured
+  planning LLM for a strict `CreationObject`, running Codex in an isolated
+  worktree, running pytest-only verification in a Docker sandbox, exporting a
+  patch, and promoting passing task worktrees to an autonomy worktree. It still
+  does not merge to `main`, push to GitHub, trade, route orders, or access
+  wallets by itself.
+- The autonomous code-writing loop is therefore implemented only as an
+  isolated, reviewable worktree-and-patch loop; it is not an unattended
+  production merge, publish, or live-execution loop.
+- VPS unattended operation is available through Docker Compose and systemd
   timers with a GHCR-published container default, but it only repeats the
-  existing LLM-native evidence/report/review jobs and does not create an
-  internal daemon or live execution path.
-- autonomous code-writing loop remains proposal-only;
+  existing LLM-native evidence/report/review/creation jobs and does not create
+  an internal daemon or live execution path.
 - autonomous new data source discovery remains probe-gated beyond the curated
   source-probe and query catalogs;
-- accepted iteration candidates still require human review and separate TDD
+- accepted iteration candidates still require review and separate TDD
   implementation before any source, strategy, experiment, or code-change
-  candidate can become product code.
+  candidate can become `main` product code;
+- local `main` is ahead of `origin/main` and requires final staged review,
+  secret scan, commit/push of the closeout updates, and a healthy LLM route
+  before product runtime can be declared fully green.
 
 Operational evidence collection also remains necessary:
 
@@ -227,3 +271,4 @@ If work continues after Phase 13:
 | 15 | 2026-05-29 | Phase 14 LLM-native autonomous iteration controller | focused Phase 14 tests 16 passed; pytest 965 passed; ruff passed; diff check passed; staged secret scan required before commit | Phase 14 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 16 | 2026-05-29 | Phase 15 VPS Docker operations runtime | focused VPS/docs contracts 24 passed; pytest 982 passed; final ruff, diff, staged diff, and staged secret checks required before commit | Phase 15 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 17 | 2026-05-29 | Phase 16 GHCR container publishing | focused GHCR/docs/runtime/planner contracts 81 passed; real LLM planner smoke 1 passed; pytest 990 passed; final ruff, diff, staged diff, and staged secret checks required before commit | Phase 16 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 18 | 2026-06-06 | Phase 17 creation-first Codex autonomy closeout | non-LLM pytest 1079 passed; focused Phase 17 tests 120 passed; adapter diagnostics and retry checks passed; focused LLM non-integration tests 45 passed, 1 deselected; real LLM health check blocked by provider empty output | pending closeout commit | `https://github.com/WW-shan/Crypto_Research_Agent` |

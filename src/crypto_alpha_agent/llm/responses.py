@@ -40,16 +40,23 @@ class OpenAIResponsesAdapter:
             "Authorization": f"Bearer {self.settings.api_key.get_secret_value()}",
             "Content-Type": "application/json",
         }
-        response = self._post_with_retries(payload=payload, headers=headers)
-        try:
-            response_payload = response.json()
-        except Exception as exc:  # noqa: BLE001 - provider JSON parse boundary.
-            raise LLMProviderError(
-                self._redact(
-                    f"LLM provider returned invalid JSON: {type(exc).__name__}"
-                )
-            ) from None
-        return _extract_response_text(response_payload)
+        for attempt in range(1, _PROVIDER_REQUEST_ATTEMPTS + 1):
+            response = self._post_with_retries(payload=payload, headers=headers)
+            try:
+                response_payload = response.json()
+            except Exception as exc:  # noqa: BLE001 - provider JSON parse boundary.
+                raise LLMProviderError(
+                    self._redact(
+                        f"LLM provider returned invalid JSON: {type(exc).__name__}"
+                    )
+                ) from None
+            try:
+                return _extract_response_text(response_payload)
+            except LLMProviderError as exc:
+                if attempt == _PROVIDER_REQUEST_ATTEMPTS or not _is_empty_output_error(exc):
+                    raise
+                continue
+        raise AssertionError("unreachable provider output retry state")
 
     def _post_with_retries(
         self, *, payload: dict[str, Any], headers: dict[str, str]
@@ -145,7 +152,10 @@ def _extract_response_text(payload: Any) -> str:
                 text = _extract_output_item_text(item)
                 if text:
                     return text
-    raise LLMProviderError("LLM provider response did not contain output text")
+    raise LLMProviderError(
+        "LLM provider response did not contain output text: "
+        + _safe_response_shape(payload)
+    )
 
 
 def _extract_output_item_text(item: Any) -> str | None:
@@ -162,6 +172,48 @@ def _extract_output_item_text(item: Any) -> str | None:
     if isinstance(text, str) and text.strip():
         return text.strip()
     return None
+
+
+def _safe_response_shape(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return f"payload_type={type(payload).__name__}"
+    parts = []
+    status = payload.get("status")
+    if isinstance(status, str):
+        parts.append(f"status={status}")
+    output = payload.get("output")
+    if isinstance(output, list):
+        parts.append(f"output_len={len(output)}")
+        item_types = sorted(
+            {
+                str(item.get("type"))
+                for item in output
+                if isinstance(item, dict) and item.get("type") is not None
+            }
+        )
+        if item_types:
+            parts.append("output_types=" + ",".join(item_types))
+    usage = payload.get("usage")
+    if isinstance(usage, dict):
+        for name in ("input_tokens", "output_tokens", "total_tokens"):
+            value = usage.get(name)
+            if isinstance(value, int):
+                parts.append(f"{name}={value}")
+    incomplete_details = payload.get("incomplete_details")
+    if isinstance(incomplete_details, dict):
+        reason = incomplete_details.get("reason")
+        if isinstance(reason, str):
+            parts.append(f"incomplete_reason={reason}")
+    error = payload.get("error")
+    if isinstance(error, dict):
+        error_type = error.get("type")
+        if isinstance(error_type, str):
+            parts.append(f"error_type={error_type}")
+    return " ".join(parts) or "shape=unavailable"
+
+
+def _is_empty_output_error(exc: LLMProviderError) -> bool:
+    return "LLM provider response did not contain output text" in str(exc)
 
 
 def _text_format_for_task(task: Any) -> dict[str, Any] | None:

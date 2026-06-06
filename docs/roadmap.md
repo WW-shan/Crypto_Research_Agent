@@ -353,27 +353,38 @@ strict `IterationCandidate` JSON, and then applies deterministic guards for
 evidence refs, required tests, source probe plans, direct-code-write authority,
 real capital, live routing, and charter safety.
 
-This is a safe autonomy increment, not full self-improvement. The full owner
-autonomy target is not yet implemented. The command records
-`auto_executes_changes=false`, does not execute generated code, does not
-promote data sources, does not run scheduler jobs, and cannot report product
-success if the real LLM gate or structured output validation fails.
+Phase 17 adds the first Codex-backed creation loop: `creation-cycle`. It asks
+the configured planning LLM for a strict `CreationObject`, stores task
+artifacts and backlog state, runs Codex in an isolated git worktree, accepts
+only pytest verification command forms, executes verification in a Docker
+sandbox, exports a patch, and promotes passing task worktrees to the persistent
+autonomy worktree. It does not merge to `main`, push to GitHub, trade, route
+orders, access wallets, or bypass review.
 
-Relative to the completed Phase 0 through Phase 14 roadmap, this broader owner
+This is a safe autonomy increment, not unrestricted self-improvement. The full
+owner autonomy target is not yet implemented. The autonomous code-writing loop
+now exists as an isolated worktree-and-patch loop, but product success still
+requires a healthy real LLM route and deterministic guard validation, and
+promotion to `main` remains an operator-reviewed action.
+
+Relative to the completed Phase 0 through Phase 17 roadmap, this broader owner
 autonomy target still has these gaps:
 
-- autonomous code-writing loop remains proposal-only;
 - autonomous new data source discovery remains probe-gated outside the curated
   source-probe and query catalogs;
-- closed auto-iteration loop is started by `iteration-cycle`, but repeated
-  execution, evidence re-ingestion, and implementation of accepted candidates
-  still require human review and separate TDD work.
+- closed auto-iteration has separate `iteration-cycle` and `creation-cycle`
+  pieces, but repeated evidence re-ingestion, promotion to `main`, and GitHub
+  publication still require review and explicit operator action;
+- the current configured real LLM provider route returns successful Responses
+  envelopes with no extractable model output, so product commands fail closed
+  until provider/base URL/model configuration is remediated.
 
 The current implementation does have bounded AI experiment planning,
 source-probe workflows, expansion-preparation reports, evidence runs,
-governance, LLM-native command gates, and guarded iteration candidates. Those
-are necessary inputs for the autonomy target, but they are not the same thing
-as self-coding or autonomous unknown-source discovery.
+governance, LLM-native command gates, guarded iteration candidates, and an
+isolated Codex creation loop. Those are necessary inputs for the autonomy
+target, but they are not the same thing as fully autonomous unknown-source
+discovery, unattended promotion to `main`, or live execution.
 
 Any next phase for this owner autonomy target must keep the existing LLM-native
 rule: if the real LLM connection, structured JSON schema validation, evidence

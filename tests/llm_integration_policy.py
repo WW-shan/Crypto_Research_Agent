@@ -184,6 +184,8 @@ def _iter_key_values(value: Any, path: tuple[str, ...] = ()) -> Iterable[tuple[t
 
 def _is_retryable_real_llm_failure(stderr: str) -> bool:
     lowered = stderr.lower()
+    if "llm provider response did not contain output text" in lowered:
+        return True
     if "llm provider request failed" not in lowered:
         return False
     if "timeout" in lowered or "time-out" in lowered or "temporarily unavailable" in lowered:

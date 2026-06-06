@@ -646,6 +646,37 @@ def test_responses_adapter_provider_errors_are_redacted() -> None:
     assert len(adapter.session.calls) == 1
 
 
+def test_responses_adapter_empty_output_error_includes_safe_response_summary() -> None:
+    response = _FakeResponse(
+        payload={
+            "id": "resp_fake",
+            "object": "response",
+            "status": "completed",
+            "error": None,
+            "incomplete_details": None,
+            "output": [],
+            "usage": {
+                "input_tokens": 12,
+                "output_tokens": 5,
+                "total_tokens": 17,
+            },
+        }
+    )
+    adapter = OpenAIResponsesAdapter(_settings(), session=_FakeSession(response))
+
+    with pytest.raises(LLMProviderError) as exc_info:
+        adapter(_DummyTask(task_id="adapter-empty-output", objective="Return JSON"))
+
+    message = str(exc_info.value)
+    assert "LLM provider response did not contain output text" in message
+    assert "status=completed" in message
+    assert "output_len=0" in message
+    assert "output_tokens=5" in message
+    assert "fake-api-key-value" not in message
+    assert "https://provider.example" not in message
+    assert "provider.example" not in message
+
+
 def test_responses_adapter_retries_transient_provider_status_before_success() -> None:
     session = _FakeSequenceSession(
         [
@@ -659,6 +690,34 @@ def test_responses_adapter_retries_transient_provider_status_before_success() ->
 
     assert result == '{"status":"ok"}'
     assert len(session.calls) == 2
+
+
+def test_responses_adapter_retries_empty_output_before_success() -> None:
+    session = _FakeSequenceSession(
+        [
+            _FakeResponse(
+                payload={
+                    "status": "completed",
+                    "output": [],
+                    "usage": {"output_tokens": 5},
+                }
+            ),
+            _FakeResponse(
+                payload={
+                    "status": "completed",
+                    "output": [],
+                    "usage": {"output_tokens": 5},
+                }
+            ),
+            _FakeResponse(payload={"output_text": '{"status":"ok"}'}),
+        ]
+    )
+    adapter = OpenAIResponsesAdapter(_settings(), session=session)
+
+    result = adapter(_DummyTask(task_id="adapter-task-empty-output-retry", objective="Return JSON"))
+
+    assert result == '{"status":"ok"}'
+    assert len(session.calls) == 3
 
 
 def test_build_configured_llm_returns_adapter_when_settings_exist(
