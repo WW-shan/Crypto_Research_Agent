@@ -203,9 +203,9 @@ implementation gaps remain:
 - accepted iteration candidates still require review and separate TDD
   implementation before any source, strategy, experiment, or code-change
   candidate can become `main` product code;
-- local `main` is ahead of `origin/main` and requires final staged review,
-  secret scan, commit/push of the closeout updates, and a healthy LLM route
-  before product runtime can be declared fully green.
+- the Phase 17 closeout commit is ready to publish after final staged review
+  and secret scan; product runtime still requires a healthy LLM route before it
+  can be declared fully green.
 
 Operational evidence collection also remains necessary:
 
@@ -271,4 +271,4 @@ If work continues after Phase 13:
 | 15 | 2026-05-29 | Phase 14 LLM-native autonomous iteration controller | focused Phase 14 tests 16 passed; pytest 965 passed; ruff passed; diff check passed; staged secret scan required before commit | Phase 14 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 16 | 2026-05-29 | Phase 15 VPS Docker operations runtime | focused VPS/docs contracts 24 passed; pytest 982 passed; final ruff, diff, staged diff, and staged secret checks required before commit | Phase 15 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 17 | 2026-05-29 | Phase 16 GHCR container publishing | focused GHCR/docs/runtime/planner contracts 81 passed; real LLM planner smoke 1 passed; pytest 990 passed; final ruff, diff, staged diff, and staged secret checks required before commit | Phase 16 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
-| 18 | 2026-06-06 | Phase 17 creation-first Codex autonomy closeout | non-LLM pytest 1079 passed; focused Phase 17 tests 120 passed; adapter diagnostics and retry checks passed; focused LLM non-integration tests 45 passed, 1 deselected; real LLM health check blocked by provider empty output | pending closeout commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 18 | 2026-06-06 | Phase 17 creation-first Codex autonomy closeout | non-LLM pytest 1079 passed; focused Phase 17 tests 120 passed; adapter diagnostics and retry checks passed; focused LLM non-integration tests 45 passed, 1 deselected; real LLM health check blocked by provider empty output | `22df14c docs: close out creation autonomy phase` | `https://github.com/WW-shan/Crypto_Research_Agent` |
