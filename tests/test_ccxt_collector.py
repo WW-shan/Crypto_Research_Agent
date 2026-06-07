@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -115,3 +116,23 @@ def test_passes_exchange_specific_params_to_ccxt_methods():
     assert exchange.ohlcv_params == {"price": "mark"}
     assert exchange.funding_params == {"until": 1747353600000}
     assert exchange.open_interest_params == {"category": "linear"}
+
+
+def test_initializes_ccxt_exchange_with_configured_proxy(monkeypatch):
+    constructed_configs = []
+
+    class FakeCcxtExchange:
+        def __init__(self, config=None):
+            constructed_configs.append(config)
+
+    fake_ccxt = SimpleNamespace(binance=FakeCcxtExchange)
+    monkeypatch.setattr("crypto_alpha_agent.data.ccxt_collector.ccxt", fake_ccxt)
+    proxy_value = "http://unit-test-proxy.invalid:18080"
+    monkeypatch.setenv("CRYPTO_ALPHA_AGENT_PROXY", proxy_value)
+
+    collector = CcxtResearchCollector(exchange_id="binance")
+
+    assert isinstance(collector.exchange, FakeCcxtExchange)
+    assert constructed_configs == [
+        {"proxies": {"http": proxy_value, "https": proxy_value}}
+    ]

@@ -210,6 +210,21 @@ no_proxy=
 CRYPTO_ALPHA_AGENT_PROXY=
 ```
 
+For local ad hoc shell runs that rely on `.env`, export the local operator
+configuration before invoking product commands:
+
+```bash
+set -a
+source .env
+set +a
+```
+
+The command output must still redact proxy values. CCXT-backed ingestion reads
+the exported proxy variables and passes them to auto-created ccxt exchange
+instances; if the variables are only present in `.env` but not exported to the
+process environment, ad hoc `ingest` and `evidence-run` commands can fall back
+to the direct route and timeout on exchange endpoints.
+
 Dune is optional and credentialed. If used, load `DUNE_API_KEY` from a local
 operator config outside git or from the shell environment. Do not paste real
 keys into docs, commands saved in shell history, reports, or commits.

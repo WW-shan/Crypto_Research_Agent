@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 from typing import Any
 
@@ -12,10 +13,20 @@ from crypto_alpha_agent.data.models import (
     OpenInterestRecord,
 )
 
+_PROXY_ENV_NAMES = (
+    "CRYPTO_ALPHA_AGENT_PROXY",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+)
+
 
 class CcxtResearchCollector:
     def __init__(self, exchange=None, exchange_id: str = "binance"):
-        self.exchange = exchange or getattr(ccxt, exchange_id)()
+        self.exchange = exchange or getattr(ccxt, exchange_id)(_ccxt_exchange_config_from_env())
 
     def fetch_ohlcv(
         self,
@@ -168,4 +179,19 @@ def _payload_optional_float(payload: dict[str, Any], *keys: str) -> float | None
     for key in keys:
         if key in payload and payload[key] is not None:
             return float(payload[key])
+    return None
+
+
+def _ccxt_exchange_config_from_env() -> dict[str, Any]:
+    proxy = _proxy_value()
+    if not proxy:
+        return {}
+    return {"proxies": {"http": proxy, "https": proxy}}
+
+
+def _proxy_value() -> str | None:
+    for name in _PROXY_ENV_NAMES:
+        value = os.environ.get(name)
+        if value:
+            return value
     return None

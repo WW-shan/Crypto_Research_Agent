@@ -48,6 +48,20 @@ round.
 - Added a real-provider compatibility fallback that calls Chat Completions only
   after repeated empty Responses payloads. The fallback preserves strict JSON
   schema requests, redaction, real-LLM gating, and fail-closed parsing.
+- Diagnosed the next operational evidence blocker: ad hoc shell runs were not
+  exporting the local proxy variables from `.env`, and CCXT-created exchange
+  instances did not receive proxy configuration even after those variables were
+  exported. Direct source probes timed out for exchange endpoints while
+  proxy-routed probes succeeded.
+- Added CCXT proxy propagation from local proxy environment variables so
+  `CcxtResearchCollector` passes a `proxies` config to auto-created ccxt
+  exchange instances without logging or persisting proxy values.
+- Recovered the daily evidence run through the proxy route:
+  `proxy-fixed-20260607T142806Z` completed successfully with
+  `network_route=proxy`, no source-health failures, 200 CCXT OHLCV records,
+  200 CCXT funding records, 30 DexScreener records, and 15940 DefiLlama records.
+  The configured `funding_extremity_price_confirmation` family remained skipped
+  because governance memory keeps it stopped.
 - Added this round's Phase 17 completion report.
 
 ## Verification Evidence
@@ -73,6 +87,23 @@ round.
 - Real LLM health-check integration test after remediation:
   `uv run --extra dev pytest tests/test_real_llm_integration_policy.py::test_real_llm_health_check_cli_uses_configured_llm_without_secret_leaks -q`
   passed.
+- TDD RED/GREEN for CCXT proxy propagation:
+  `uv run --extra dev pytest tests/test_ccxt_collector.py::test_initializes_ccxt_exchange_with_configured_proxy -q`
+  failed before implementation with constructed CCXT config `[None]`, then
+  passed after `CcxtResearchCollector` began passing a proxy config.
+- Focused CCXT collector verification:
+  `uv run --extra dev pytest tests/test_ccxt_collector.py -q` passed with
+  7 tests.
+- Real proxy-routed CCXT ingest verification:
+  `bash -lc 'set -a; source .env >/dev/null 2>&1; set +a; uv run --extra dev crypto-alpha-agent ingest --source ccxt --allow-network --ccxt-feed ohlcv --exchange binance --symbol BTC/USDT --timeframe 1h --limit 5 --db var/research.sqlite --current-capital-usd 300'`
+  passed, writing 5 public BTC/USDT OHLCV records through the local proxy route
+  with `uses_real_capital=false` and `live_order_routing=false`.
+- Real proxy-routed evidence-run verification:
+  `proxy-fixed-20260607T142806Z` passed and wrote
+  `var/reports/daily/2026-06-07-proxy-fixed.md`,
+  `var/reports/research/2026-06-07-proxy-fixed.md`,
+  `var/reports/daily/2026-06-07-proxy-fixed.evidence-run.json`, and
+  `var/run-manifests/evidence-run/proxy-fixed-20260607T142806Z.json`.
 - Real LLM integration verification after remediation:
   `uv run --extra dev pytest tests/test_real_llm_integration_policy.py -q`
   passed with 9 tests in 7 minutes 20 seconds before the final retry-helper
@@ -206,6 +237,16 @@ preserving strict schema requests and fail-closed parsing. `llm-health-check`
 now passes against the real configured provider. Broad unattended product
 operation still depends on the external provider continuing to respond within
 reasonable time limits.
+
+The latest public-data blocker was also remediated locally. The operator proxy
+was present in `.env`, but ad hoc shell commands did not export it, and
+auto-created CCXT exchange instances did not receive a ccxt `proxies` config.
+`CcxtResearchCollector` now forwards local proxy environment values to ccxt,
+and the successful `proxy-fixed-20260607T142806Z` evidence run confirms that
+CCXT OHLCV/funding, DexScreener, and DefiLlama collection work through the
+proxy route. Strategy validation remains blocked by governance state because
+`funding_extremity_price_confirmation` is stopped; do not use
+`--allow-stopped-family` without explicit owner review.
 
 Reality audit: `docs/goals/project-reality-audit-2026-05-29.md` records that
 the owner's broader autonomy target is larger than the completed Phase 0
