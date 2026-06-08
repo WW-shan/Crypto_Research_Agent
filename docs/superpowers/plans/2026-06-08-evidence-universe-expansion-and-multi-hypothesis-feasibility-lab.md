@@ -151,7 +151,7 @@ git commit -m "feat: expand public data source gate"
 - Create: `src/crypto_alpha_agent/pipeline/evidence_universe.py`
 - Test: `tests/test_evidence_universe.py`
 
-- [ ] **Step 1: Add RED tests for universe construction**
+- [x] **Step 1: Add RED tests for universe construction**
 
 Add tests that seed market candles, derivatives records, source-health rows, DefiLlama snapshots, and DexScreener snapshots, then assert the universe report includes:
 
@@ -163,7 +163,7 @@ Add tests that seed market candles, derivatives records, source-health rows, Def
 - `point_in_time_universe=true` only when the universe does not use a future discovery list to evaluate past windows;
 - `uses_real_capital=false` and `live_order_routing=false`.
 
-- [ ] **Step 2: Run the universe RED tests**
+- [x] **Step 2: Run the universe RED tests**
 
 Run:
 
@@ -173,7 +173,7 @@ uv run --extra dev pytest tests/test_evidence_universe.py -q
 
 Expected: FAIL because `evidence_universe.py` does not exist.
 
-- [ ] **Step 3: Implement strict universe models**
+- [x] **Step 3: Implement strict universe models**
 
 Create strict Pydantic models:
 
@@ -193,11 +193,11 @@ Reason codes must include at least:
 - `watchlist_only_source`
 - `source_probe_required`
 
-- [ ] **Step 4: Implement `build_evidence_universe_report`**
+- [x] **Step 4: Implement `build_evidence_universe_report`**
 
 The function must load only local records from `ResearchDataStore`, produce no new source records, and be deterministic for the same database input.
 
-- [ ] **Step 5: Run focused universe tests**
+- [x] **Step 5: Run focused universe tests**
 
 Run:
 
@@ -207,7 +207,7 @@ uv run --extra dev pytest tests/test_evidence_universe.py -q
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit Task 2**
+- [x] **Step 6: Commit Task 2**
 
 Run:
 
