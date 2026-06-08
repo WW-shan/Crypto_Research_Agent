@@ -222,7 +222,7 @@ git commit -m "feat: add evidence universe builder"
 - Create: `src/crypto_alpha_agent/pipeline/candidate_screens.py`
 - Test: `tests/test_candidate_screens.py`
 
-- [ ] **Step 1: Add RED tests for candidate catalog**
+- [x] **Step 1: Add RED tests for candidate catalog**
 
 Add tests that assert the catalog contains these screen IDs:
 
@@ -235,7 +235,7 @@ Add tests that assert the catalog contains these screen IDs:
 
 Each screen must declare required record types, minimum history bars, cost model requirement, lookahead risk level, execution role, and blocked reasons.
 
-- [ ] **Step 2: Run candidate screen RED tests**
+- [x] **Step 2: Run candidate screen RED tests**
 
 Run:
 
@@ -245,7 +245,7 @@ uv run --extra dev pytest tests/test_candidate_screens.py -q
 
 Expected: FAIL because the module does not exist.
 
-- [ ] **Step 3: Implement strict screen catalog models**
+- [x] **Step 3: Implement strict screen catalog models**
 
 Create:
 
@@ -255,11 +255,11 @@ Create:
 
 The catalog must be read-only and must not import or mutate `default_strategy_registry`.
 
-- [ ] **Step 4: Implement deterministic screen evaluators**
+- [x] **Step 4: Implement deterministic screen evaluators**
 
 Implement evaluators that can return blocked results when required records are missing. Positive signals are allowed only when they are derived from historical records already present in SQLite.
 
-- [ ] **Step 5: Run focused candidate screen tests**
+- [x] **Step 5: Run focused candidate screen tests**
 
 Run:
 
@@ -269,7 +269,7 @@ uv run --extra dev pytest tests/test_candidate_screens.py -q
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit Task 3**
+- [x] **Step 6: Commit Task 3**
 
 Run:
 
