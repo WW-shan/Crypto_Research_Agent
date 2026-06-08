@@ -260,3 +260,4 @@ def test_research_task_can_include_ai_research_context(tmp_path) -> None:
     assert research_context["source_health_summaries"][0]["source"] == "ccxt"
     assert research_context["stopped_strategy_families"] == ["funding_extremity_price_confirmation"]
     assert research_context["registered_validators"]
+    assert "live_order_routing" not in captured[0].model_dump_json()

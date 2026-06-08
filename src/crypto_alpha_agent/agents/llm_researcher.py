@@ -244,6 +244,8 @@ def _rename_prompt_context_keys(value: Any) -> Any:
         return renamed
     if isinstance(value, list):
         return [_rename_prompt_context_keys(item) for item in value]
+    if value == "live_order_routing":
+        return "execution_enabled"
     return value
 
 
