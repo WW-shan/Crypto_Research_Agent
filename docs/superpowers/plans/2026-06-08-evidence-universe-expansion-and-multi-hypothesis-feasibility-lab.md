@@ -457,7 +457,7 @@ git commit -m "feat: persist candidate feasibility states"
 - Modify: `docs/goals/project-completion-state.md`
 - Test: `tests/test_documentation_contract.py`
 
-- [ ] **Step 1: Add documentation contract tests**
+- [x] **Step 1: Add documentation contract tests**
 
 Add tests that assert `docs/roadmap.md` and `docs/goals/project-completion-state.md` mention:
 
@@ -469,7 +469,7 @@ Add tests that assert `docs/roadmap.md` and `docs/goals/project-completion-state
 - `cost sensitivity`;
 - `live execution` remains blocked.
 
-- [ ] **Step 2: Run documentation RED tests**
+- [x] **Step 2: Run documentation RED tests**
 
 Run:
 
@@ -479,7 +479,7 @@ uv run --extra dev pytest tests/test_documentation_contract.py -q
 
 Expected: FAIL until docs are updated.
 
-- [ ] **Step 3: Update the persistent path map**
+- [x] **Step 3: Update the persistent path map**
 
 Record this sequence:
 
@@ -493,7 +493,7 @@ Record this sequence:
 8. Governance state machine and stopped/redesign memory.
 9. Automated daily collection and ranking reports.
 
-- [ ] **Step 4: Run documentation tests**
+- [x] **Step 4: Run documentation tests**
 
 Run:
 
@@ -503,7 +503,7 @@ uv run --extra dev pytest tests/test_documentation_contract.py -q
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 6**
+- [x] **Step 5: Commit Task 6**
 
 Run:
 

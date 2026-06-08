@@ -99,6 +99,43 @@ The next phase must expand every upstream evidence layer in this order:
    generate pass/fail rankings, and send only passed candidates to a later
    backtest or paper queue. Stopped families must not be silently rerun.
 
+### Persisted Round 22 Path Map
+
+1. **Source and universe expansion:** expand public long-history market data
+   first, then qualify DefiLlama and DexScreener discovery inputs as
+   watchlist/regime context rather than execution evidence.
+2. **Data-quality and lookahead-risk gate:** require coverage, staleness,
+   duplicate, timestamp-alignment, point-in-time universe, source-health, and
+   proxy/direct route diagnostics before candidate scoring.
+3. **Candidate screen registry:** keep the candidate screen registry read-only
+   and separate from the strategy registry.
+4. **Multi-hypothesis feasibility lab:** score multiple candidates with sample
+   count, asset coverage, split coverage, gross/net mean, win rate, turnover,
+   selected symbol counts, per-split net expectancy, and cost sensitivity.
+5. **Event-driven backtest readiness and cost realism:** only candidates with
+   `feasibility_passed` may enter a later backtest design, and that backtest
+   must include double-sided fees, slippage, spread/liquidity assumptions,
+   latency buffers, min notional, precision, partial/missed fills,
+   monthly/yearly breakdowns, and lookahead-analysis style checks.
+6. **Paper queue only after feasibility plus backtest pass:** only candidates
+   with `backtest_passed` may enter `paper_collecting`.
+7. **30/60/90 paper observation tracking:** paper must compare backtest
+   expected versus actual at 30/60/90 observations and track closed trades,
+   failed trades, missed trades, net PnL, drawdown, cost drag, signal decay,
+   and paper failure reasons.
+8. **Governance state machine and stopped/redesign memory:** persist
+   `candidate`, `source_qualified`, `feasibility_passed`, `backtest_passed`,
+   `paper_collecting`, `stopped`, and `redesign_required` state plus rejection
+   reasons.
+9. **Automated daily collection and ranking reports:** daily automation may
+   update long-history and recent derivatives data, run discovery, run the
+   multi-hypothesis lab, write pass/fail rankings, and send only state-qualified
+   candidates to later backtest or paper queues.
+
+Live execution remains blocked. Round 22 does not add wallet access, exchange
+order routing, real-capital deployment, live orders, or any live execution
+surface.
+
 ### Persisted Round 22 Non-Goals
 
 - Do not directly register the current four derivatives candidates.

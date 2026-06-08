@@ -529,6 +529,31 @@ def test_project_reality_audit_documents_phase_status_and_owner_target_gaps() ->
     )
 
 
+def test_evidence_universe_path_map_is_persisted() -> None:
+    roadmap = _normalized(DOC_PATHS["roadmap"])
+    state = _normalized(ROOT / "docs" / "goals" / "project-completion-state.md")
+
+    required_terms = [
+        "Evidence Universe Expansion and Multi-Hypothesis Feasibility Lab",
+        "source and universe expansion",
+        "data-quality and lookahead-risk gate",
+        "candidate screen registry",
+        "multi-hypothesis feasibility lab",
+        "event-driven backtest readiness and cost realism",
+        "paper queue only after feasibility plus backtest pass",
+        "30/60/90 paper observation tracking",
+        "governance state machine and stopped/redesign memory",
+        "automated daily collection and ranking reports",
+        "backtest_passed",
+        "paper_collecting",
+        "lookahead",
+        "cost sensitivity",
+        "live execution remains blocked",
+    ]
+    _assert_contains(roadmap, required_terms)
+    _assert_contains(state, required_terms)
+
+
 def test_phase14_iteration_cycle_contract_is_documented() -> None:
     phase_report_path = (
         ROOT

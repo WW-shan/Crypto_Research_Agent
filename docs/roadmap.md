@@ -339,6 +339,44 @@ ideas before strategy registration.
 
 The active path map is:
 
+Persistent Round 22 path map:
+
+1. **Source and universe expansion**
+   - Expand long-history public market data first, then qualify DefiLlama and
+     DexScreener discovery inputs as regime/watchlist context.
+2. **Data-quality and lookahead-risk gate**
+   - Require coverage, staleness, duplicate, timestamp-alignment,
+     point-in-time universe, source-health, and route diagnostics before any
+     candidate can be scored.
+3. **Candidate screen registry**
+   - Keep candidate screens read-only and separate from the strategy registry.
+4. **Multi-hypothesis feasibility lab**
+   - Compare candidates with walk-forward metrics, pass/block reasons,
+     turnover, asset coverage, and cost sensitivity.
+5. **Event-driven backtest readiness and cost realism**
+   - Only candidates with `feasibility_passed` may enter a later event-driven
+     backtest design with double-sided fees, slippage, spread/liquidity,
+     latency, min-notional, precision, partial/missed-fill, monthly/yearly, and
+     lookahead checks.
+6. **Paper queue only after feasibility plus backtest pass**
+   - Only candidates with `backtest_passed` can move to `paper_collecting`.
+7. **30/60/90 paper observation tracking**
+   - Paper collection must compare backtest expected versus paper actual at
+     30/60/90 observations, including cost drag, failed/missed trades,
+     drawdown, PnL, and signal decay.
+8. **Governance state machine and stopped/redesign memory**
+   - Candidate memory must preserve `candidate`, `source_qualified`,
+     `feasibility_passed`, `backtest_passed`, `paper_collecting`, `stopped`,
+     and `redesign_required` states plus failure reasons.
+9. **Automated daily collection and ranking reports**
+   - Daily automation may update data, run discovery, run the
+     multi-hypothesis lab, and write pass/fail rankings; it must not send
+     anything to backtest or paper without the required prior states.
+
+Live execution remains blocked. This path map does not authorize wallet
+access, exchange order routing, real-capital deployment, or any live execution
+surface.
+
 1. **Data universe expansion**
    - Use Binance Public Data for longer market history across a wider liquid
      universe, including klines/trades/aggregate trades where feasible.
