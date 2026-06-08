@@ -312,6 +312,17 @@ the same feasibility gate before product strategy code is added. The prior
 `ingest` LLM readiness stall was not reproduced under bounded diagnostics and
 is currently a provider-latency risk rather than a confirmed product bug.
 
+Derivatives-conditioned feasibility lab update on 2026-06-08: the next
+read-only slice extends `strategy-feasibility` to compare Binance USD-M
+derivatives-conditioned candidates before any strategy family is registered.
+The lab keeps strategy registration and paper simulation blocked unless a
+candidate passes walk-forward cost-adjusted expectancy gates. The first local
+lab run remained blocked with `non_positive_cost_adjusted_expectancy` for
+`long_short_crowding_contrarian`, `taker_imbalance_reversal`,
+`premium_basis_risk_filter`, and `momentum_derivatives_confirmation`, so no
+strategy-registration plan was opened. The actual lab result is recorded in the
+2026-06-08 derivatives-conditioned feasibility lab phase report.
+
 The roadmap below is the post-milestone work needed to move from "working
 evidence factory" to "profit evidence." None of these phases should weaken the
 charter. A phase is complete only when it improves the system's ability to

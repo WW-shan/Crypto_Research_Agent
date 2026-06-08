@@ -6,91 +6,81 @@ round.
 
 ## Current Round
 
-- Round: 20
-- Status: Profit Evidence Redesign completed as a data/feasibility slice. New
-  public Binance USD-M derivatives ingestion works. The initial multi-symbol
-  candle gap was resolved with 1000 aligned BTC/ETH/SOL 1h candles, but the
-  proposed large-liquid momentum regime remains blocked before strategy
-  registration because all three walk-forward splits have negative
-  cost-adjusted expectancy.
+- Round: 21
+- Status: Derivatives-Conditioned Feasibility Lab completed as a read-only
+  feasibility slice. The lab tested Binance USD-M derivatives-conditioned
+  candidates before strategy registration; all four candidates were blocked by
+  `non_positive_cost_adjusted_expectancy`, so no strategy registry entry, paper
+  runner, wallet path, live order route, or live-capital path was added.
 - Started: 2026-06-08
-- Completed: 2026-06-08 data/feasibility closeout; focused tests, full pytest,
-  ruff, diff check, staged diff, and staged secret checks passed for the first
-  slice; follow-up feasibility diagnostics, focused tests, full pytest, ruff,
-  and diff checks passed before the follow-up closeout commit.
-- Active slice: Profit Evidence Redesign
+- Completed: 2026-06-08 after focused feasibility and CLI tests,
+  documentation contract tests, full pytest, ruff, diff checks, staged diff
+  review, and staged secret scan.
+- Active slice: Derivatives-Conditioned Feasibility Lab
 - Active design source:
-  `docs/superpowers/specs/2026-06-08-profit-evidence-redesign-design.md`
+  `docs/superpowers/specs/2026-06-08-derivatives-conditioned-feasibility-lab-design.md`
 - Active plan source:
-  `docs/superpowers/plans/2026-06-08-profit-evidence-redesign.md`
+  `docs/superpowers/plans/2026-06-08-derivatives-conditioned-feasibility-lab.md`
 - Phase report:
-  `docs/goals/phase-reports/2026-06-08-profit-evidence-redesign-report.md`
+  `docs/goals/phase-reports/2026-06-08-derivatives-conditioned-feasibility-lab-report.md`
 
 ## Completed This Round
 
-- Added the Profit Evidence Redesign design spec and implementation plan.
-- Used deep Smart Search evidence to choose public Binance USD-M derivatives
-  data as the next safe data upgrade after stopped funding-family governance.
-- Added `binance_usdm_taker_buy_sell_volume` source-probe coverage and verified
-  it through the proxy route with HTTP 200, parsed payload, one typed row,
-  `provider_status=ResearchUsable`, `uses_real_capital=false`, and
-  `live_order_routing=false`.
-- Added strict typed records and public ingestion for Binance USD-M
-  premium-index klines, basis, global long/short account ratio, and taker
-  buy/sell volume.
-- Added `ingest --source binance-usdm` CLI support and source-health writes for
-  all four derivatives feeds.
-- Live public-data smoke ingestion wrote 24 rows each for
-  `premium_index_kline`, `basis`, `long_short_account_ratio`, and
+- Added RED tests for a derivatives-conditioned feasibility lab covering
+  missing derivatives history, blocked candidate diagnostics, feasible and
+  rejected candidate combinations, duplicate timestamp fail-closed behavior,
+  default candidates, period filtering, custom symbol maps, and CLI artifacts.
+- Added strict lab models, symbol normalization, Binance USD-M derivatives row
+  alignment, per-symbol coverage diagnostics, and four read-only candidate
+  evaluators:
+  `long_short_crowding_contrarian`, `taker_imbalance_reversal`,
+  `premium_basis_risk_filter`, and `momentum_derivatives_confirmation`.
+- Added `strategy-feasibility --mode derivatives-conditioned-lab` with
+  Markdown and JSON artifacts, lab-only derivative symbol mapping,
+  candidate-selection, period, split-count, and cost controls.
+- Collected 500 recent rows for BTCUSDT, ETHUSDT, and SOLUSDT across each
+  Binance USD-M derivatives feed:
+  `basis`, `long_short_account_ratio`, `premium_index_kline`, and
   `taker_buy_sell_volume`.
-- Added the read-only `strategy-feasibility` command for
-  `large-liquid-momentum-regime`.
-- Ran local feasibility and blocked strategy registration with
-  `insufficient_aligned_history`: the database has 434 BTC/USDT 1h candles but
-  0 ETH/USDT and 0 SOL/USDT 1h candles.
-- Continued the feasibility follow-up by ingesting 1000 BTC/USDT, ETH/USDT,
-  and SOL/USDT 1h candles through the proxy-routed CCXT/Binance path.
-- Re-ran `strategy-feasibility`; aligned records rose to 1000 for all three
-  symbols, but the regime stayed blocked with
+- Re-ran local feasibility on BTC/USDT, ETH/USDT, and SOL/USDT 1h candles. Each
+  symbol had 1000 market candles and 493 aligned market/derivatives records.
+- The lab report stayed `blocked` with report reason
   `non_positive_cost_adjusted_expectancy`.
-- Fixed the feasibility report to preserve walk-forward metrics when a
-  positive-expectancy gate blocks, so future reports show how far a candidate
-  misses the target.
-- Reproduced the prior CLI LLM gate concern with bounded subprocess timeouts:
-  `llm-health-check`, `ingest --offline-check`, and
-  `ingest --source binance-usdm` all exited 0 in roughly 9 to 10 seconds.
-- Added this round's phase report documenting the data upgrade, blocker, and
-  next safe action.
+- Candidate outcomes:
+  `long_short_crowding_contrarian`, `taker_imbalance_reversal`,
+  `premium_basis_risk_filter`, and `momentum_derivatives_confirmation` were all
+  blocked with `non_positive_cost_adjusted_expectancy`.
+- Added this round's phase report documenting Smart Search evidence, local
+  coverage, candidate metrics, verification, and the registration decision.
 
 ## Verification Evidence
 
-- `uv run --extra dev pytest tests/test_source_probe.py -q` passed.
-- `uv run --extra dev pytest tests/test_binance_usdm_derivatives_ingestion.py
-  tests/test_cli_ingest.py tests/test_documentation_contract.py -q` passed
-  with 37 tests.
-- `uv run --extra dev pytest tests/test_strategy_feasibility.py
-  tests/test_documentation_contract.py -q` passed with 15 tests.
-- Related ruff checks for new and touched files passed.
-- Proxy-routed `binance_usdm_taker_buy_sell_volume` source-probe exited 0 with
-  HTTP 200, parsed payload, `typed_record_count=1`,
-  `provider_status=ResearchUsable`, `uses_real_capital=false`, and
-  `live_order_routing=false`.
-- Direct live ingestion through the new functions wrote 24 rows per new
-  Binance USD-M derivatives feed and successful source-health rows for all
-  four feeds.
-- SQLite inspection showed 24 rows each for `premium_index_kline`, `basis`,
-  `long_short_account_ratio`, and `taker_buy_sell_volume`.
-- `strategy-feasibility` exited 0 and produced
-  `var/reports/strategy-feasibility/latest.md` plus
-  `var/reports/strategy-feasibility/latest.json`; the report is blocked with
-  reason `insufficient_aligned_history`.
-- Follow-up OHLCV ingestion wrote 1000 rows each for BTC/USDT, ETH/USDT, and
-  SOL/USDT 1h candles; SQLite inspection showed 1000 aligned hours.
-- Follow-up `strategy-feasibility` stayed blocked with
-  `non_positive_cost_adjusted_expectancy`; split cost-adjusted return means
-  were approximately -0.001058, -0.001416, and -0.002189.
+- `uv run --extra dev pytest tests/test_strategy_feasibility.py -k
+  'derivatives_conditioned_lab and not cli' -q` passed with 12 tests and 7
+  deselected tests after the model implementation.
 - `uv run --extra dev pytest tests/test_strategy_feasibility.py -q` passed with
-  5 tests after preserving blocked split diagnostics.
+  21 tests after CLI wiring.
+- `uv run --extra dev pytest tests/test_documentation_contract.py -q` passed
+  with 11 tests after CLI wiring.
+- `uv run --extra dev pytest tests/test_strategy_feasibility.py
+  tests/test_cli_ingest.py tests/test_documentation_contract.py -q` passed
+  with 42 tests during final closeout.
+- `uv run --extra dev pytest -q` passed with 1136 tests during final closeout.
+- `uv run --extra dev ruff check .` returned `All checks passed!`.
+- Diff checks, staged diff review, and staged secret scan passed before
+  closeout commit.
+- Each Task 4 network ingestion command exited 0 and reported
+  `records_fetched=500` and `records_written=500`.
+- SQLite inspection showed 1500 rows per derivatives record type across
+  BTCUSDT, ETHUSDT, and SOLUSDT.
+- Local market candle coverage remained 1000 rows each for BTC/USDT, ETH/USDT,
+  and SOL/USDT.
+- `strategy-feasibility --mode derivatives-conditioned-lab` exited 0 and wrote
+  `var/reports/strategy-feasibility/derivatives-conditioned-lab.md` and
+  `var/reports/strategy-feasibility/derivatives-conditioned-lab.json`.
+- The local lab artifact reports `readiness=blocked`, report reason
+  `non_positive_cost_adjusted_expectancy`, and `uses_real_capital=false` plus
+  `live_order_routing=false`.
 
 ## Current Project Target
 
@@ -214,16 +204,22 @@ valid progress path.
 The 2026-06-08 Profit Evidence Redesign added the next data slice: Binance
 USD-M premium-index klines, basis, global long/short account ratio, and taker
 buy/sell volume now have typed models, ingestion, source-health, tests, and
-live public-data smoke evidence. Strategy registration remains blocked. The
-initial `insufficient_aligned_history` blocker was resolved by collecting 1000
-aligned BTC/ETH/SOL 1h candles, but the large-liquid momentum regime still
-failed feasibility with `non_positive_cost_adjusted_expectancy` across all
-three walk-forward splits. The next smallest useful work is not strategy
-registration; it is a redesigned hypothesis or a different charter-compliant
-family that can pass the same feasibility gate before code is added. The
-previous CLI `ingest` LLM readiness stall was not reproduced under bounded
+live public-data smoke evidence. The initial `insufficient_aligned_history`
+blocker was resolved by collecting 1000 aligned BTC/ETH/SOL 1h candles, but
+the large-liquid momentum regime still failed feasibility with
+`non_positive_cost_adjusted_expectancy` across all three walk-forward splits.
+The previous CLI `ingest` LLM readiness stall was not reproduced under bounded
 diagnostics and should be treated as provider-latency risk rather than a
 confirmed product bug.
+
+The 2026-06-08 Derivatives-Conditioned Feasibility Lab then tested four
+derivatives-conditioned hypotheses against the available BTC/ETH/SOL market and
+Binance USD-M context. Strategy registration remains blocked because every
+candidate failed the positive cost-adjusted expectancy gate with
+`non_positive_cost_adjusted_expectancy`. The next smallest useful work is not a
+strategy registry change; it is a new evidence-first hypothesis, a different
+charter-compliant family, or a data-window design that can pass the feasibility
+gate before product strategy code is added.
 
 Reality audit: `docs/goals/project-reality-audit-2026-05-29.md` records that
 the owner's broader autonomy target is larger than the completed Phase 0
@@ -325,3 +321,4 @@ If work continues after Phase 13:
 | 18 | 2026-06-06 | Phase 17 creation-first Codex autonomy closeout | non-LLM pytest 1080 passed; focused Phase 17 tests 120 passed; adapter diagnostics and retry checks passed; focused LLM non-integration tests 46 passed, 1 deselected; real LLM health check passed after provider compatibility fallback; full real-provider suites remain sensitive to provider stalls | `22df14c docs: close out creation autonomy phase` plus remediation follow-up | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 19 | 2026-06-08 | Evidence Recovery Campaign | source-probe OI list/proxy qualification passed; CCXT OI ingest wrote 24 records; OI crowding run wrote 1 validation and 1 blocked paper outcome; mean-reversion fallback wrote 1 validation and 1 blocked paper outcome; governance report stopped all executable funding families; ruff, diff, staged diff, and staged secret checks passed | Evidence Recovery Campaign closeout commits pushed to `main` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 20 | 2026-06-08 | Profit Evidence Redesign | focused tests 54 passed; full pytest 1119 passed; follow-up pytest 1120 passed; ruff passed; diff/staged checks passed; staged secret scan returned []; Binance USD-M derivatives ingest wrote 24 rows per new feed; follow-up OHLCV ingest wrote 1000 rows each for BTC/ETH/SOL; strategy feasibility blocked with `non_positive_cost_adjusted_expectancy` | Profit Evidence Redesign closeout and follow-up commits pushed to `main` | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 21 | 2026-06-08 | Derivatives-Conditioned Feasibility Lab | focused feasibility tests 21 passed; final focused suite 42 passed; documentation contract tests 11 passed; full pytest 1136 passed; ruff passed; diff/staged checks passed; staged secret scan returned []; Binance USD-M derivatives lab ingested 500 rows per feed/symbol and blocked all four candidates with `non_positive_cost_adjusted_expectancy` before strategy registration | Derivatives-Conditioned Feasibility Lab closeout commits pushed to `main` | `https://github.com/WW-shan/Crypto_Research_Agent` |

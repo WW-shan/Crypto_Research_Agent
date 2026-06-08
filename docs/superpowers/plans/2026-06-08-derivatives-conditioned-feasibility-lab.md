@@ -49,7 +49,7 @@ The plan assumes this spec has been reviewed:
 **Files:**
 - Modify: `tests/test_strategy_feasibility.py`
 
-- [ ] **Step 1: Add derivatives model imports for test fixtures**
+- [x] **Step 1: Add derivatives model imports for test fixtures**
 
 At the existing import line:
 
@@ -70,7 +70,7 @@ from crypto_alpha_agent.data.models import (
 )
 ```
 
-- [ ] **Step 2: Add RED test for missing derivatives history**
+- [x] **Step 2: Add RED test for missing derivatives history**
 
 Append this test after
 `test_large_liquid_momentum_feasibility_keeps_metrics_when_expectancy_blocks`:
@@ -108,7 +108,7 @@ def test_derivatives_conditioned_lab_blocks_missing_derivatives_history(tmp_path
     assert metric.split_metrics == []
 ```
 
-- [ ] **Step 3: Run the missing-history RED test**
+- [x] **Step 3: Run the missing-history RED test**
 
 Run:
 
@@ -119,7 +119,7 @@ uv run --extra dev pytest tests/test_strategy_feasibility.py::test_derivatives_c
 Expected: FAIL with an import error for
 `build_derivatives_conditioned_lab_report`.
 
-- [ ] **Step 4: Add RED test that blocked candidates preserve metrics**
+- [x] **Step 4: Add RED test that blocked candidates preserve metrics**
 
 Append this test after the missing-history test:
 
@@ -153,7 +153,7 @@ def test_derivatives_conditioned_lab_keeps_metrics_when_expectancy_blocks(tmp_pa
     assert all(split.cost_adjusted_return_mean <= 0 for split in metric.split_metrics)
 ```
 
-- [ ] **Step 5: Run the blocked-metrics RED test**
+- [x] **Step 5: Run the blocked-metrics RED test**
 
 Run:
 
@@ -164,7 +164,7 @@ uv run --extra dev pytest tests/test_strategy_feasibility.py::test_derivatives_c
 Expected: FAIL with an import error for
 `build_derivatives_conditioned_lab_report`.
 
-- [ ] **Step 6: Add RED test for one passing candidate and one rejected candidate**
+- [x] **Step 6: Add RED test for one passing candidate and one rejected candidate**
 
 Append this test after the blocked-metrics test:
 
@@ -218,7 +218,7 @@ def test_derivatives_conditioned_lab_reports_passing_and_rejected_candidates(tmp
     ].reason_codes
 ```
 
-- [ ] **Step 7: Run the mixed-candidate RED test**
+- [x] **Step 7: Run the mixed-candidate RED test**
 
 Run:
 
@@ -229,7 +229,7 @@ uv run --extra dev pytest tests/test_strategy_feasibility.py::test_derivatives_c
 Expected: FAIL with an import error for
 `build_derivatives_conditioned_lab_report`.
 
-- [ ] **Step 8: Add RED CLI test for lab Markdown and JSON output**
+- [x] **Step 8: Add RED CLI test for lab Markdown and JSON output**
 
 Append this test after `test_strategy_feasibility_cli_writes_markdown_and_json`:
 
@@ -290,7 +290,7 @@ def test_strategy_feasibility_cli_writes_derivatives_lab_markdown_and_json(capsy
     assert "long_short_crowding_contrarian" in markdown
 ```
 
-- [ ] **Step 9: Run the CLI RED test**
+- [x] **Step 9: Run the CLI RED test**
 
 Run:
 
@@ -301,7 +301,7 @@ uv run --extra dev pytest tests/test_strategy_feasibility.py::test_strategy_feas
 Expected: FAIL because argparse rejects
 `derivatives-conditioned-lab` as an invalid `--mode` choice.
 
-- [ ] **Step 10: Add deterministic derivatives fixture helpers**
+- [x] **Step 10: Add deterministic derivatives fixture helpers**
 
 Append these helpers before `_record_ids`:
 
@@ -412,7 +412,7 @@ def _seed_derivatives_context(
     ResearchDataStore(db_path).upsert_records(records)
 ```
 
-- [ ] **Step 11: Run the new test file after helpers are added**
+- [x] **Step 11: Run the new test file after helpers are added**
 
 Run:
 
@@ -423,7 +423,7 @@ uv run --extra dev pytest tests/test_strategy_feasibility.py -q
 Expected: FAIL. Existing large-liquid tests still pass; new lab tests fail
 because the lab builder and CLI mode do not exist.
 
-- [ ] **Step 12: Commit RED tests**
+- [x] **Step 12: Commit RED tests**
 
 Run:
 
@@ -441,7 +441,7 @@ implementation step.
 - Modify: `src/crypto_alpha_agent/pipeline/strategy_feasibility.py`
 - Test: `tests/test_strategy_feasibility.py`
 
-- [ ] **Step 1: Extend feasibility mode and add candidate literals**
+- [x] **Step 1: Extend feasibility mode and add candidate literals**
 
 In `strategy_feasibility.py`, replace:
 
@@ -470,7 +470,7 @@ _ALL_DERIVATIVES_LAB_CANDIDATES: tuple[DerivativesLabCandidate, ...] = (
 )
 ```
 
-- [ ] **Step 2: Add strict lab report models**
+- [x] **Step 2: Add strict lab report models**
 
 After `StrategyFeasibilityReport`, add:
 
@@ -519,7 +519,7 @@ class DerivativesConditionedLabReport(_StrictFeasibilityModel):
     live_order_routing: Literal[False] = False
 ```
 
-- [ ] **Step 3: Add internal derivatives row and signal dataclasses**
+- [x] **Step 3: Add internal derivatives row and signal dataclasses**
 
 After `_Observation`, add:
 
@@ -541,7 +541,7 @@ class _CandidateSignal:
     score: float
 ```
 
-- [ ] **Step 4: Add public symbol normalization helper**
+- [x] **Step 4: Add public symbol normalization helper**
 
 Before `build_large_liquid_momentum_feasibility_report`, add:
 
@@ -553,7 +553,7 @@ def normalize_binance_usdm_symbol(symbol: str) -> str:
     return base.replace("/", "")
 ```
 
-- [ ] **Step 5: Add the lab report builder**
+- [x] **Step 5: Add the lab report builder**
 
 After `build_large_liquid_momentum_feasibility_report`, add:
 
@@ -645,7 +645,7 @@ def build_derivatives_conditioned_lab_report(
     )
 ```
 
-- [ ] **Step 6: Add candidate normalization**
+- [x] **Step 6: Add candidate normalization**
 
 After `_dedupe_preserving_order`, add:
 
@@ -658,7 +658,7 @@ def _normalize_lab_candidates(
     return _dedupe_preserving_order(candidates)
 ```
 
-- [ ] **Step 7: Add derivatives row loading**
+- [x] **Step 7: Add derivatives row loading**
 
 Before `_derivative_record_counts`, add:
 
@@ -724,7 +724,7 @@ def _derivatives_rows_by_symbol(
     return rows
 ```
 
-- [ ] **Step 8: Add coverage computation**
+- [x] **Step 8: Add coverage computation**
 
 Before `_derivative_record_counts`, add:
 
@@ -773,7 +773,7 @@ def _derivatives_coverage(
     return coverage, duplicate_blocked
 ```
 
-- [ ] **Step 9: Add candidate evaluation**
+- [x] **Step 9: Add candidate evaluation**
 
 Before `_derivative_record_counts`, add:
 
@@ -828,7 +828,7 @@ def _evaluate_derivatives_candidate(
     )
 ```
 
-- [ ] **Step 10: Add observation construction and signal formulas**
+- [x] **Step 10: Add observation construction and signal formulas**
 
 Before `_derivative_record_counts`, add:
 
@@ -929,7 +929,7 @@ def _candidate_signal(
     return _CandidateSignal(symbol=symbol, score=momentum)
 ```
 
-- [ ] **Step 11: Run focused tests after model implementation**
+- [x] **Step 11: Run focused tests after model implementation**
 
 Run:
 
@@ -940,7 +940,7 @@ uv run --extra dev pytest tests/test_strategy_feasibility.py::test_derivatives_c
 Expected: PASS for the three model-level lab tests. CLI test still fails until
 Task 3.
 
-- [ ] **Step 12: Run ruff on touched implementation files**
+- [x] **Step 12: Run ruff on touched implementation files**
 
 Run:
 
@@ -950,7 +950,7 @@ uv run --extra dev ruff check src/crypto_alpha_agent/pipeline/strategy_feasibili
 
 Expected: `All checks passed!`
 
-- [ ] **Step 13: Commit model implementation**
+- [x] **Step 13: Commit model implementation**
 
 Run:
 
@@ -968,7 +968,7 @@ Expected: commit succeeds.
 - Modify: `src/crypto_alpha_agent/cli.py`
 - Test: `tests/test_strategy_feasibility.py`
 
-- [ ] **Step 1: Add lab Markdown renderer**
+- [x] **Step 1: Add lab Markdown renderer**
 
 In `strategy_feasibility.py`, add this function after
 `render_strategy_feasibility_markdown`:
@@ -1071,7 +1071,7 @@ def render_derivatives_conditioned_lab_markdown(
     return "\n".join(lines) + "\n"
 ```
 
-- [ ] **Step 2: Update CLI imports**
+- [x] **Step 2: Update CLI imports**
 
 In `src/crypto_alpha_agent/cli.py`, replace:
 
@@ -1093,7 +1093,7 @@ from crypto_alpha_agent.pipeline.strategy_feasibility import (
 )
 ```
 
-- [ ] **Step 3: Extend `strategy-feasibility` parser choices and arguments**
+- [x] **Step 3: Extend `strategy-feasibility` parser choices and arguments**
 
 In `build_parser`, replace the mode parser block:
 
@@ -1157,7 +1157,7 @@ Then add these arguments after `--current-capital-usd`:
     )
 ```
 
-- [ ] **Step 4: Add mapping parser helper**
+- [x] **Step 4: Add mapping parser helper**
 
 Before `_handle_strategy_feasibility`, add:
 
@@ -1176,7 +1176,7 @@ def _parse_derivatives_symbol_map(values: list[str]) -> dict[str, str]:
     return mapping
 ```
 
-- [ ] **Step 5: Dispatch the lab mode in `_handle_strategy_feasibility`**
+- [x] **Step 5: Dispatch the lab mode in `_handle_strategy_feasibility`**
 
 Replace `_handle_strategy_feasibility` with:
 
@@ -1223,7 +1223,7 @@ def _handle_strategy_feasibility(args: argparse.Namespace) -> dict[str, Any]:
     return payload
 ```
 
-- [ ] **Step 6: Run CLI and full strategy feasibility tests**
+- [x] **Step 6: Run CLI and full strategy feasibility tests**
 
 Run:
 
@@ -1233,7 +1233,7 @@ uv run --extra dev pytest tests/test_strategy_feasibility.py -q
 
 Expected: all tests in `tests/test_strategy_feasibility.py` pass.
 
-- [ ] **Step 7: Run parser documentation contract tests**
+- [x] **Step 7: Run parser documentation contract tests**
 
 Run:
 
@@ -1243,7 +1243,7 @@ uv run --extra dev pytest tests/test_documentation_contract.py -q
 
 Expected: all documentation contract tests pass.
 
-- [ ] **Step 8: Run ruff on CLI and feasibility files**
+- [x] **Step 8: Run ruff on CLI and feasibility files**
 
 Run:
 
@@ -1253,7 +1253,7 @@ uv run --extra dev ruff check src/crypto_alpha_agent/cli.py src/crypto_alpha_age
 
 Expected: `All checks passed!`
 
-- [ ] **Step 9: Commit CLI implementation**
+- [x] **Step 9: Commit CLI implementation**
 
 Run:
 
@@ -1270,7 +1270,7 @@ Expected: commit succeeds.
 - Runtime artifacts only under `var/`
 - Modify later docs in Task 5 after results are known
 
-- [ ] **Step 1: Confirm current local data coverage**
+- [x] **Step 1: Confirm current local data coverage**
 
 Run:
 
@@ -1282,7 +1282,7 @@ Expected: market candles show BTC/USDT, ETH/USDT, and SOL/USDT with 1000 rows
 each. Existing Binance USD-M derivatives rows may show only BTCUSDT and 24
 rows.
 
-- [ ] **Step 2: Ingest 500 recent long/short rows for BTCUSDT**
+- [x] **Step 2: Ingest 500 recent long/short rows for BTCUSDT**
 
 Run:
 
@@ -1292,7 +1292,7 @@ uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source b
 
 Expected: command exits 0 and reports `written` greater than 0.
 
-- [ ] **Step 3: Ingest 500 recent long/short rows for ETHUSDT**
+- [x] **Step 3: Ingest 500 recent long/short rows for ETHUSDT**
 
 Run:
 
@@ -1302,7 +1302,7 @@ uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source b
 
 Expected: command exits 0 and reports `written` greater than 0.
 
-- [ ] **Step 4: Ingest 500 recent long/short rows for SOLUSDT**
+- [x] **Step 4: Ingest 500 recent long/short rows for SOLUSDT**
 
 Run:
 
@@ -1312,7 +1312,7 @@ uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source b
 
 Expected: command exits 0 and reports `written` greater than 0.
 
-- [ ] **Step 5: Ingest 500 recent taker buy/sell rows for BTCUSDT**
+- [x] **Step 5: Ingest 500 recent taker buy/sell rows for BTCUSDT**
 
 Run:
 
@@ -1322,7 +1322,7 @@ uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source b
 
 Expected: command exits 0 and reports `written` greater than 0.
 
-- [ ] **Step 6: Ingest 500 recent taker buy/sell rows for ETHUSDT**
+- [x] **Step 6: Ingest 500 recent taker buy/sell rows for ETHUSDT**
 
 Run:
 
@@ -1332,7 +1332,7 @@ uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source b
 
 Expected: command exits 0 and reports `written` greater than 0.
 
-- [ ] **Step 7: Ingest 500 recent taker buy/sell rows for SOLUSDT**
+- [x] **Step 7: Ingest 500 recent taker buy/sell rows for SOLUSDT**
 
 Run:
 
@@ -1342,7 +1342,7 @@ uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source b
 
 Expected: command exits 0 and reports `written` greater than 0.
 
-- [ ] **Step 8: Ingest 500 recent premium-index klines for BTCUSDT**
+- [x] **Step 8: Ingest 500 recent premium-index klines for BTCUSDT**
 
 Run:
 
@@ -1352,7 +1352,7 @@ uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source b
 
 Expected: command exits 0 and reports `written` greater than 0.
 
-- [ ] **Step 9: Ingest 500 recent premium-index klines for ETHUSDT**
+- [x] **Step 9: Ingest 500 recent premium-index klines for ETHUSDT**
 
 Run:
 
@@ -1362,7 +1362,7 @@ uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source b
 
 Expected: command exits 0 and reports `written` greater than 0.
 
-- [ ] **Step 10: Ingest 500 recent premium-index klines for SOLUSDT**
+- [x] **Step 10: Ingest 500 recent premium-index klines for SOLUSDT**
 
 Run:
 
@@ -1372,7 +1372,7 @@ uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source b
 
 Expected: command exits 0 and reports `written` greater than 0.
 
-- [ ] **Step 11: Ingest 500 recent basis rows for BTCUSDT**
+- [x] **Step 11: Ingest 500 recent basis rows for BTCUSDT**
 
 Run:
 
@@ -1382,7 +1382,7 @@ uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source b
 
 Expected: command exits 0 and reports `written` greater than 0.
 
-- [ ] **Step 12: Ingest 500 recent basis rows for ETHUSDT**
+- [x] **Step 12: Ingest 500 recent basis rows for ETHUSDT**
 
 Run:
 
@@ -1392,7 +1392,7 @@ uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source b
 
 Expected: command exits 0 and reports `written` greater than 0.
 
-- [ ] **Step 13: Ingest 500 recent basis rows for SOLUSDT**
+- [x] **Step 13: Ingest 500 recent basis rows for SOLUSDT**
 
 Run:
 
@@ -1402,7 +1402,7 @@ uv run --extra dev crypto-alpha-agent ingest --db var/research.sqlite --source b
 
 Expected: command exits 0 and reports `written` greater than 0.
 
-- [ ] **Step 14: Re-check local derivatives coverage**
+- [x] **Step 14: Re-check local derivatives coverage**
 
 Run:
 
@@ -1414,7 +1414,7 @@ Expected: BTCUSDT, ETHUSDT, and SOLUSDT have nonzero rows for all four
 derivatives record types. If a provider returns fewer than 500 because of
 availability, record the exact count in the phase report.
 
-- [ ] **Step 15: Run the derivatives-conditioned lab**
+- [x] **Step 15: Run the derivatives-conditioned lab**
 
 Run:
 
@@ -1427,7 +1427,7 @@ Expected: command exits 0, writes Markdown and JSON, and reports either:
 - `readiness=feasible` with at least one candidate feasible; or
 - `readiness=blocked` with stable reason codes and split diagnostics.
 
-- [ ] **Step 16: Copy latest lab artifacts for operator convenience**
+- [x] **Step 16: Copy latest lab artifacts for operator convenience**
 
 Run:
 
@@ -1446,7 +1446,7 @@ Expected: copied files exist under ignored `var/`. Do not stage them.
 - Create: `docs/goals/phase-reports/2026-06-08-derivatives-conditioned-feasibility-lab-report.md`
 - Modify: `docs/superpowers/plans/2026-06-08-derivatives-conditioned-feasibility-lab.md`
 
-- [ ] **Step 1: Update project completion state current round**
+- [x] **Step 1: Update project completion state current round**
 
 In `docs/goals/project-completion-state.md`, replace the current Round 20
 status block with a Round 21 block that records:
@@ -1475,7 +1475,7 @@ include the candidate names and exact reason codes. If the lab is feasible,
 state that the next work is a separate strategy-registration design and that no
 strategy code was added in this round.
 
-- [ ] **Step 2: Add Round 21 to history**
+- [x] **Step 2: Add Round 21 to history**
 
 Append this row to the Round History table, replacing the verification phrase
 with the exact observed counts before committing:
@@ -1484,7 +1484,7 @@ with the exact observed counts before committing:
 | 21 | 2026-06-08 | Derivatives-Conditioned Feasibility Lab | focused feasibility and CLI tests passed; full pytest passed; ruff passed; diff/staged checks passed; staged secret scan returned []; Binance USD-M derivatives lab produced candidate diagnostics before any strategy registration | Derivatives-Conditioned Feasibility Lab commit pushed to `main` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 ```
 
-- [ ] **Step 3: Update roadmap active profit-evidence section**
+- [x] **Step 3: Update roadmap active profit-evidence section**
 
 In `docs/roadmap.md`, update the paragraph that starts with
 `Profit evidence redesign update on 2026-06-08` by adding this follow-up
@@ -1507,17 +1507,9 @@ The first local lab run remained blocked with `non_positive_cost_adjusted_expect
 for all candidates, so no strategy-registration plan was opened.
 ```
 
-or:
-
-```markdown
-The first local lab run found `CANDIDATE_NAME` feasible; the next work is a
-separate strategy-registration design, not direct registry modification in the
-lab slice.
-```
-
 Use the exact candidate and reason-code values from the JSON report.
 
-- [ ] **Step 4: Write the phase report**
+- [x] **Step 4: Write the phase report**
 
 Create `docs/goals/phase-reports/2026-06-08-derivatives-conditioned-feasibility-lab-report.md`
 with this structure:
@@ -1583,14 +1575,14 @@ strategy-registration design is allowed next.
 Replace the instructional text with actual results before staging. Keep the
 headings exactly as above so future agents can scan the report consistently.
 
-- [ ] **Step 5: Mark this plan's completed checkboxes**
+- [x] **Step 5: Mark this plan's completed checkboxes**
 
 In this plan file, change each completed step's checkbox from `- [ ]` to
 `- [x]` as execution proceeds. Append a short `## Actual Result` section at the
 end with the lab readiness, candidate results, verification summary, commit,
 and push status.
 
-- [ ] **Step 6: Run documentation contract tests**
+- [x] **Step 6: Run documentation contract tests**
 
 Run:
 
@@ -1600,7 +1592,7 @@ uv run --extra dev pytest tests/test_documentation_contract.py -q
 
 Expected: all tests pass.
 
-- [ ] **Step 7: Commit documentation updates**
+- [x] **Step 7: Commit documentation updates**
 
 Run:
 
@@ -1616,7 +1608,7 @@ Expected: commit succeeds.
 **Files:**
 - Verify all changed tracked files.
 
-- [ ] **Step 1: Run focused feasibility and CLI tests**
+- [x] **Step 1: Run focused feasibility and CLI tests**
 
 Run:
 
@@ -1626,7 +1618,7 @@ uv run --extra dev pytest tests/test_strategy_feasibility.py tests/test_cli_inge
 
 Expected: all selected tests pass.
 
-- [ ] **Step 2: Run full pytest**
+- [x] **Step 2: Run full pytest**
 
 Run:
 
@@ -1636,7 +1628,7 @@ uv run --extra dev pytest -q
 
 Expected: full test suite passes.
 
-- [ ] **Step 3: Run ruff**
+- [x] **Step 3: Run ruff**
 
 Run:
 
@@ -1646,7 +1638,7 @@ uv run --extra dev ruff check .
 
 Expected: `All checks passed!`
 
-- [ ] **Step 4: Run unstaged diff check**
+- [x] **Step 4: Run unstaged diff check**
 
 Run:
 
@@ -1656,7 +1648,7 @@ git diff --check
 
 Expected: no output and exit 0.
 
-- [ ] **Step 5: Inspect working tree**
+- [x] **Step 5: Inspect working tree**
 
 Run:
 
@@ -1667,7 +1659,7 @@ git status --short --branch
 Expected: only intended files are modified or staged. `var/` artifacts must not
 appear as staged files.
 
-- [ ] **Step 6: Stage any final tracked changes**
+- [x] **Step 6: Stage any final tracked changes**
 
 Run:
 
@@ -1677,7 +1669,7 @@ git add src/crypto_alpha_agent/pipeline/strategy_feasibility.py src/crypto_alpha
 
 Expected: only intended tracked files are staged.
 
-- [ ] **Step 7: Run staged diff checks**
+- [x] **Step 7: Run staged diff checks**
 
 Run:
 
@@ -1690,7 +1682,7 @@ git diff --cached --stat
 Expected: whitespace check exits 0; name list and stat contain only intended
 code, test, and docs files.
 
-- [ ] **Step 8: Run staged secret scan**
+- [x] **Step 8: Run staged secret scan**
 
 Run:
 
@@ -1700,7 +1692,7 @@ uv run python -m crypto_alpha_agent.security.secret_scan --staged --fail-on-empt
 
 Expected: `[]`.
 
-- [ ] **Step 9: Inspect staged diff for forbidden paths**
+- [x] **Step 9: Inspect staged diff for forbidden paths**
 
 Run:
 
@@ -1712,7 +1704,7 @@ Expected: no API keys, bearer tokens, private keys, seed phrases, `.env`
 contents, SQLite dumps, generated `var/` artifacts, wallet loading, live order
 routing, or `uses_real_capital=true`.
 
-- [ ] **Step 10: Commit final slice if there are staged changes**
+- [x] **Step 10: Commit final slice if there are staged changes**
 
 Run:
 
@@ -1724,7 +1716,7 @@ Expected: commit succeeds if final changes remain after earlier task commits.
 If all implementation and docs changes were already committed in earlier tasks,
 this command should not be run.
 
-- [ ] **Step 11: Push main**
+- [x] **Step 11: Push main**
 
 Run:
 
@@ -1734,7 +1726,7 @@ git push origin main
 
 Expected: push succeeds.
 
-- [ ] **Step 12: Confirm clean synchronized worktree**
+- [x] **Step 12: Confirm clean synchronized worktree**
 
 Run:
 
@@ -1785,3 +1777,36 @@ Two execution options:
    review between tasks.
 2. Inline Execution - execute tasks in this session using `executing-plans`
    with checkpoints.
+
+## Actual Result
+
+- Lab readiness: `blocked`.
+- Report reason codes: `non_positive_cost_adjusted_expectancy`.
+- Local coverage: BTC/USDT, ETH/USDT, and SOL/USDT each had 1000 market
+  candles, 500 records for each derivatives feed, and 493 aligned
+  market/derivatives records.
+- Candidate results:
+  - `long_short_crowding_contrarian`: blocked with
+    `non_positive_cost_adjusted_expectancy`; observations 491; net mean
+    -0.0005793479847853515; split net means -0.0006046264302122882,
+    -0.00024592520433118714, and -0.00009748984824635497.
+  - `taker_imbalance_reversal`: blocked with
+    `non_positive_cost_adjusted_expectancy`; observations 492; net mean
+    -0.000431171117083367; split net means -0.000658372949526737,
+    -0.0008965914216619971, and 0.000347163847484194.
+  - `premium_basis_risk_filter`: blocked with
+    `non_positive_cost_adjusted_expectancy`; observations 491; net mean
+    -0.0006688325383074194; split net means -0.0011450362603508074,
+    -0.000411893774893493, and 0.00033193163994549264.
+  - `momentum_derivatives_confirmation`: blocked with
+    `non_positive_cost_adjusted_expectancy`; observations 176; net mean
+    -0.000967730200042078; split net means -0.0001942394487509473,
+    -0.001054052042053019, and -0.0008452017705897148.
+- Strategy registration: remains blocked; no registry entry, paper runner,
+  wallet path, live order route, or live-capital path was added.
+- Verification summary: focused final suite passed with 42 tests, full pytest
+  passed with 1136 tests, ruff passed, diff/staged checks passed, and staged
+  secret scan returned `[]`.
+- Commit status: implementation commits plus documentation closeout commit
+  completed.
+- Push status: pushed to `origin/main`.
