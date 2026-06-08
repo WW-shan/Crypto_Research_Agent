@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from crypto_alpha_agent.cli import main
 from crypto_alpha_agent.data.models import (
     BasisRecord,
@@ -93,6 +95,23 @@ def test_large_liquid_momentum_feasibility_keeps_metrics_when_expectancy_blocks(
     assert all(metric.cost_adjusted_return_mean <= 0 for metric in report.split_metrics)
 
 
+def test_large_liquid_momentum_feasibility_rejects_invalid_min_split_count(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+
+    from crypto_alpha_agent.pipeline.strategy_feasibility import (
+        build_large_liquid_momentum_feasibility_report,
+    )
+
+    with pytest.raises(ValueError, match="min_split_count"):
+        build_large_liquid_momentum_feasibility_report(
+            db_path,
+            symbols=SYMBOLS,
+            timeframe="1h",
+            current_capital_usd=300,
+            min_split_count=0,
+        )
+
+
 def test_derivatives_conditioned_lab_blocks_missing_derivatives_history(tmp_path):
     db_path = tmp_path / "research.sqlite"
     _seed_market_candles(db_path, count=120)
@@ -123,8 +142,30 @@ def test_derivatives_conditioned_lab_blocks_missing_derivatives_history(tmp_path
     assert metric.candidate == "long_short_crowding_contrarian"
     assert metric.readiness == "blocked"
     assert "insufficient_derivatives_history" in metric.reason_codes
+    assert metric.gross_return_mean is None
+    assert metric.cost_adjusted_return_mean is None
+    assert metric.win_rate is None
     assert metric.split_metrics == []
     assert _record_snapshot(db_path) == before
+
+
+def test_derivatives_conditioned_lab_rejects_invalid_min_split_count(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+
+    from crypto_alpha_agent.pipeline.strategy_feasibility import (
+        build_derivatives_conditioned_lab_report,
+    )
+
+    with pytest.raises(ValueError, match="min_split_count"):
+        build_derivatives_conditioned_lab_report(
+            db_path,
+            symbols=SYMBOLS,
+            timeframe="1h",
+            current_capital_usd=300,
+            derivatives_period="1h",
+            candidates=["long_short_crowding_contrarian"],
+            min_split_count=0,
+        )
 
 
 def test_derivatives_conditioned_lab_keeps_metrics_when_expectancy_blocks(tmp_path):
@@ -163,6 +204,43 @@ def test_derivatives_conditioned_lab_keeps_metrics_when_expectancy_blocks(tmp_pa
     assert "non_positive_cost_adjusted_expectancy" in metric.reason_codes
     assert len(metric.split_metrics) >= 3
     assert all(split.cost_adjusted_return_mean <= 0 for split in metric.split_metrics)
+
+
+def test_derivatives_conditioned_lab_blocks_insufficient_split_observations(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    _seed_directional_market_candles(db_path, count=30)
+    _seed_derivatives_context(
+        db_path,
+        count=30,
+        long_short_ratios={
+            "BTCUSDT": 0.55,
+            "ETHUSDT": 1.10,
+            "SOLUSDT": 1.08,
+        },
+    )
+
+    from crypto_alpha_agent.pipeline.strategy_feasibility import (
+        build_derivatives_conditioned_lab_report,
+    )
+
+    report = build_derivatives_conditioned_lab_report(
+        db_path,
+        symbols=SYMBOLS,
+        timeframe="1h",
+        current_capital_usd=300,
+        derivatives_period="1h",
+        candidates=["long_short_crowding_contrarian"],
+        min_split_count=3,
+    )
+
+    assert report.readiness == "blocked"
+    assert "insufficient_walk_forward_splits" in report.reason_codes
+    metric = report.candidate_metrics[0]
+    assert metric.readiness == "blocked"
+    assert "insufficient_walk_forward_splits" in metric.reason_codes
+    assert 0 < metric.observations < 6
+    assert len(metric.split_metrics) == 3
+    assert all(split.test_observations > 0 for split in metric.split_metrics)
 
 
 def test_derivatives_conditioned_lab_reports_passing_and_rejected_candidates(tmp_path):
@@ -418,7 +496,15 @@ def test_large_liquid_momentum_feasibility_blocks_duplicate_timestamps(tmp_path)
 def test_derivatives_conditioned_lab_blocks_duplicate_timestamps(tmp_path):
     db_path = tmp_path / "research.sqlite"
     _seed_directional_market_candles(db_path, count=180)
-    _seed_derivatives_context(db_path, count=180)
+    _seed_derivatives_context(
+        db_path,
+        count=180,
+        long_short_ratios={
+            "BTCUSDT": 0.55,
+            "ETHUSDT": 1.10,
+            "SOLUSDT": 1.08,
+        },
+    )
     duplicate = _candle("BTC/USDT", 10, close=110.0).to_source_record()
     ResearchDataStore(db_path).upsert_records(
         [
@@ -458,6 +544,178 @@ def test_derivatives_conditioned_lab_blocks_duplicate_timestamps(tmp_path):
     btc_coverage = coverage_by_symbol["BTC/USDT"]
     assert btc_coverage.duplicate_timestamps == 1
     assert "duplicate_timestamps" in btc_coverage.blocked_reasons
+
+
+def test_derivatives_conditioned_lab_blocks_duplicate_derivatives_timestamps(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    _seed_directional_market_candles(db_path, count=180)
+    _seed_derivatives_context(
+        db_path,
+        count=180,
+        long_short_ratios={
+            "BTCUSDT": 0.55,
+            "ETHUSDT": 1.10,
+            "SOLUSDT": 1.08,
+        },
+    )
+    duplicate = LongShortRatioRecord(
+        source="binance_usdm",
+        venue="binance",
+        symbol="BTCUSDT",
+        period="1h",
+        timestamp=START + timedelta(hours=10),
+        long_short_ratio=0.55,
+        long_account=0.55 / 1.55,
+        short_account=1.0 - 0.55 / 1.55,
+        raw={"fixture": "duplicate_long_short"},
+    ).to_source_record()
+    ResearchDataStore(db_path).upsert_records(
+        [
+            SourceRecord(
+                record_id=f"{duplicate.record_id}:duplicate",
+                source=duplicate.source,
+                record_type=duplicate.record_type,
+                observed_at=duplicate.observed_at,
+                payload=duplicate.payload,
+            )
+        ]
+    )
+
+    from crypto_alpha_agent.pipeline.strategy_feasibility import (
+        build_derivatives_conditioned_lab_report,
+    )
+
+    report = build_derivatives_conditioned_lab_report(
+        db_path,
+        symbols=SYMBOLS,
+        timeframe="1h",
+        current_capital_usd=300,
+        derivatives_period="1h",
+        candidates=["long_short_crowding_contrarian"],
+        min_split_count=3,
+    )
+
+    assert report.readiness == "blocked"
+    assert "duplicate_timestamps" in report.reason_codes
+    metric = report.candidate_metrics[0]
+    assert metric.readiness == "blocked"
+    assert "duplicate_timestamps" in metric.reason_codes
+    assert metric.observations == 0
+    assert metric.split_metrics == []
+    coverage_by_symbol = {item.symbol: item for item in report.coverage}
+    btc_coverage = coverage_by_symbol["BTC/USDT"]
+    assert btc_coverage.duplicate_timestamps == 1
+    assert "duplicate_timestamps" in btc_coverage.blocked_reasons
+
+
+def test_derivatives_conditioned_lab_ignores_non_perpetual_basis_records(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    _seed_directional_market_candles(db_path, count=180)
+    _seed_derivatives_context(
+        db_path,
+        count=180,
+        long_short_ratios={
+            "BTCUSDT": 0.55,
+            "ETHUSDT": 1.10,
+            "SOLUSDT": 1.08,
+        },
+    )
+    delivery_basis = BasisRecord(
+        source="binance_usdm",
+        venue="binance",
+        pair="BTCUSDT",
+        contract_type="CURRENT_QUARTER",
+        period="1h",
+        timestamp=START + timedelta(hours=10),
+        index_price=100.0,
+        futures_price=100.1,
+        basis=0.1,
+        basis_rate=0.001,
+        annualized_basis_rate=None,
+        raw={"fixture": "delivery_basis"},
+    ).to_source_record()
+    ResearchDataStore(db_path).upsert_records(
+        [
+            SourceRecord(
+                record_id=f"{delivery_basis.record_id}:delivery",
+                source=delivery_basis.source,
+                record_type=delivery_basis.record_type,
+                observed_at=delivery_basis.observed_at,
+                payload=delivery_basis.payload,
+            )
+        ]
+    )
+
+    from crypto_alpha_agent.pipeline.strategy_feasibility import (
+        build_derivatives_conditioned_lab_report,
+    )
+
+    report = build_derivatives_conditioned_lab_report(
+        db_path,
+        symbols=SYMBOLS,
+        timeframe="1h",
+        current_capital_usd=300,
+        derivatives_period="1h",
+        candidates=["long_short_crowding_contrarian"],
+        min_split_count=3,
+    )
+
+    assert report.readiness == "feasible"
+    assert "duplicate_timestamps" not in report.reason_codes
+    coverage_by_symbol = {item.symbol: item for item in report.coverage}
+    btc_coverage = coverage_by_symbol["BTC/USDT"]
+    assert btc_coverage.basis_records == 180
+    assert btc_coverage.duplicate_timestamps == 0
+    assert "duplicate_timestamps" not in btc_coverage.blocked_reasons
+    assert report.derivatives_record_counts["basis"] == 541
+
+
+def test_derivatives_conditioned_lab_blocks_ambiguous_derivatives_symbol_mapping(
+    tmp_path,
+):
+    db_path = tmp_path / "research.sqlite"
+    requested_symbols = ["BTC/USDT", "ETH/USDT"]
+    _seed_directional_market_candles(db_path, count=180)
+    _seed_derivatives_context(
+        db_path,
+        count=180,
+        long_short_ratios={
+            "BTCUSDT": 0.55,
+            "ETHUSDT": 1.10,
+            "SOLUSDT": 1.08,
+        },
+    )
+
+    from crypto_alpha_agent.pipeline.strategy_feasibility import (
+        build_derivatives_conditioned_lab_report,
+    )
+
+    report = build_derivatives_conditioned_lab_report(
+        db_path,
+        symbols=requested_symbols,
+        timeframe="1h",
+        current_capital_usd=300,
+        derivatives_symbols={
+            "BTC/USDT": "BTCUSDT",
+            "ETH/USDT": "BTCUSDT",
+        },
+        derivatives_period="1h",
+        candidates=["long_short_crowding_contrarian"],
+        min_split_count=3,
+    )
+
+    assert report.readiness == "blocked"
+    assert "ambiguous_derivatives_symbol_mapping" in report.reason_codes
+    metric = report.candidate_metrics[0]
+    assert metric.readiness == "blocked"
+    assert "ambiguous_derivatives_symbol_mapping" in metric.reason_codes
+    assert metric.observations == 0
+    assert metric.split_metrics == []
+    assert [item.symbol for item in report.coverage] == requested_symbols
+    assert all(
+        "ambiguous_derivatives_symbol_mapping" in item.blocked_reasons
+        for item in report.coverage
+    )
 
 
 def test_strategy_feasibility_cli_writes_markdown_and_json(capsys, tmp_path):
