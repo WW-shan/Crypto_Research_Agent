@@ -519,7 +519,7 @@ git commit -m "docs: persist evidence universe path map"
 - Modify: `docs/goals/project-completion-state.md`
 - Modify: `docs/roadmap.md`
 
-- [ ] **Step 1: Run source probes**
+- [x] **Step 1: Run source probes**
 
 Run source probes for the expanded data sources:
 
@@ -532,11 +532,11 @@ uv run --extra dev crypto-alpha-agent source-probe --db var/research.sqlite --ta
 
 Expected: each network probe either writes a parsed source-health record or records a blocked provider/source failure with no secrets and no live execution.
 
-- [ ] **Step 2: Collect or confirm long-history market coverage**
+- [x] **Step 2: Collect or confirm long-history market coverage**
 
 Run a bounded public-data collection for a liquid universe. The implementation must choose symbols that are already normalized by the universe builder, starting with BTC/USDT, ETH/USDT, SOL/USDT and then expanding only when source health and storage coverage are clean.
 
-- [ ] **Step 3: Run the multi-hypothesis lab**
+- [x] **Step 3: Run the multi-hypothesis lab**
 
 Run the chosen CLI command with:
 
@@ -547,7 +547,7 @@ Run the chosen CLI command with:
 
 Expected: candidates either pass all gates or produce explicit blocked reasons. Passing feasibility is not paper approval.
 
-- [ ] **Step 4: Write the phase report**
+- [x] **Step 4: Write the phase report**
 
 The phase report must list:
 
@@ -563,7 +563,7 @@ The phase report must list:
 - verification commands and outputs;
 - explicit confirmation that live execution, wallet access, and order routing remain absent.
 
-- [ ] **Step 5: Run final verification**
+- [x] **Step 5: Run final verification**
 
 Run:
 
@@ -575,7 +575,7 @@ uv run --extra dev ruff check .
 
 Expected: all pass before closeout.
 
-- [ ] **Step 6: Secret and diff checks**
+- [x] **Step 6: Secret and diff checks**
 
 Run:
 
@@ -587,7 +587,7 @@ uv run --extra dev python -m crypto_alpha_agent.security.secret_scan --staged
 
 Expected: no whitespace errors and secret scan returns no findings.
 
-- [ ] **Step 7: Commit Task 7**
+- [x] **Step 7: Commit Task 7**
 
 Run:
 

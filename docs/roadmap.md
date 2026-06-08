@@ -323,10 +323,11 @@ lab run remained blocked with `non_positive_cost_adjusted_expectancy` for
 strategy-registration plan was opened. The actual lab result is recorded in the
 2026-06-08 derivatives-conditioned feasibility lab phase report.
 
-Evidence universe expansion path map on 2026-06-08: the next planned phase is
-Evidence Universe Expansion and Multi-Hypothesis Feasibility Lab. The full
-implementation plan is
+Evidence universe expansion lab result on 2026-06-08: the Evidence Universe Expansion and Multi-Hypothesis Feasibility Lab
+is implemented as a read-only upstream funnel. The full implementation plan is
 `docs/superpowers/plans/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab.md`,
+its phase report is
+`docs/goals/phase-reports/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab-report.md`,
 and its Smart Search evidence is preserved at
 `var/smart-search-evidence/2026-06-08-expand-profit-evidence-loop/`.
 
@@ -334,8 +335,26 @@ This path changes the next target from "try another narrow strategy" to
 "expand the upstream evidence funnel." The current product already has the
 evidence factory, LLM-native research gates, source-health rows, feasibility
 reports, paper simulation, governance reports, and safe Codex creation loop.
-The missing capability is a wider, stricter way to discover and reject strategy
-ideas before strategy registration.
+Round 22 now adds the wider, stricter way to discover and reject strategy ideas
+before strategy registration.
+
+The local bounded evidence run collected Binance Public Data USD-M futures 1h
+market candles for BTC/USDT, ETH/USDT, and SOL/USDT for May 2026, 744 rows per
+symbol and 2232 total `market_candle` rows. DefiLlama source probes succeeded
+for yield pools and fundamentals, while the DexScreener pairs probe failed
+closed with `request_failed:ConnectTimeout`. The multi-hypothesis lab evaluated
+six read-only candidate screens with 5/10/20/50 bps cost sensitivity and three
+walk-forward splits where samples existed. All candidates remained blocked:
+computed market-only screens had negative cost-adjusted expectancy and unstable
+walk-forward performance; derivatives basis and crowding screens lacked the
+required derivatives universe; DeFi/DEX discovery remained watchlist-only and
+data-insufficient.
+
+No candidate reached `feasibility_passed`, so no candidate is eligible for the
+later event-driven backtest phase, paper collection, tiny-live review, or live
+readiness. The next practical evidence work is data-depth expansion and
+hypothesis redesign before another feasibility run, not strategy registration
+or trading execution.
 
 The active path map is:
 

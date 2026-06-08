@@ -6,52 +6,54 @@ round.
 
 ## Current Round
 
-- Round: 21
-- Status: Derivatives-Conditioned Feasibility Lab completed as a read-only
-  feasibility slice. The lab tested Binance USD-M derivatives-conditioned
-  candidates before strategy registration; all four candidates were blocked by
-  `non_positive_cost_adjusted_expectancy`, so no strategy registry entry, paper
-  runner, wallet path, live order route, or live-capital path was added.
+- Round: 22
+- Status: Evidence Universe Expansion and Multi-Hypothesis Feasibility Lab
+  completed as a read-only upstream evidence funnel. The phase expanded source
+  qualification, Binance Public Data USD-M futures market history ingestion,
+  point-in-time universe diagnostics, read-only candidate screens,
+  multi-hypothesis feasibility, and candidate state memory before any strategy
+  registration or paper handoff.
 - Started: 2026-06-08
-- Completed: 2026-06-08 after focused feasibility and CLI tests,
-  documentation contract tests, full pytest, ruff, diff checks, staged diff
-  review, and staged secret scan.
-- Active slice: Derivatives-Conditioned Feasibility Lab
+- Completed: 2026-06-08 after source qualification, bounded market-data
+  collection, multi-hypothesis lab execution, phase-report persistence,
+  focused tests, full pytest, ruff, diff checks, staged diff review, staged
+  secret scan, commit, and push.
+- Active slice: Evidence Universe Expansion and Multi-Hypothesis Feasibility
+  Lab
 - Active design source:
-  `docs/superpowers/specs/2026-06-08-derivatives-conditioned-feasibility-lab-design.md`
+  `docs/superpowers/plans/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab.md`
 - Active plan source:
-  `docs/superpowers/plans/2026-06-08-derivatives-conditioned-feasibility-lab.md`
+  `docs/superpowers/plans/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab.md`
 - Phase report:
-  `docs/goals/phase-reports/2026-06-08-derivatives-conditioned-feasibility-lab-report.md`
+  `docs/goals/phase-reports/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab-report.md`
 
 ## Next Planned Round
 
-- Round: 22
-- Status: Planned and not implemented. Owner requested full persistence of the
-  next path after deep research confirmed that the project must expand the
-  upstream research funnel rather than trading execution.
-- Planned slice:
-  Evidence Universe Expansion and Multi-Hypothesis Feasibility Lab.
-- Planned design source: the research-backed design is embedded in the plan
-  and roadmap until a separate spec is written for the implementation slice.
-- Planned plan source:
-  `docs/superpowers/plans/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab.md`
+- Round: 23
+- Status: Not opened. Round 22 produced no `feasibility_passed` candidate, so
+  Event-Driven Backtest Expansion is not eligible yet.
+- Planned slice: Evidence Universe Data Depth And Hypothesis Redesign, only if
+  the owner approves another round. The practical next work is longer market
+  history, wider point-in-time universe coverage, source-qualified derivatives
+  and DeFi/DEX snapshots, and redesigned hypotheses before re-running the same
+  feasibility gates.
+- Planned design source: not written.
+- Planned plan source: not written.
 - Smart Search evidence path:
   `var/smart-search-evidence/2026-06-08-expand-profit-evidence-loop/`
-- Current actual state: the evidence factory, real LLM gates, source-health
-  workflow, strategy feasibility modes, paper simulation, governance reports,
-  and safe Codex creation loop are present, but no candidate has passed
-  cost-adjusted feasibility or produced enough paper evidence for a profit
-  decision.
-- Current blocker: strategy evidence quality. The latest derivatives lab tested
-  `long_short_crowding_contrarian`, `taker_imbalance_reversal`,
-  `premium_basis_risk_filter`, and `momentum_derivatives_confirmation`; all
-  four are blocked by `non_positive_cost_adjusted_expectancy`.
-- Expected next state: a read-only upstream funnel that builds a wider
-  point-in-time evidence universe, evaluates a larger candidate screen catalog,
-  reports multi-hypothesis feasibility with cost sensitivity and walk-forward
-  stability, persists pass/block/fail state memory, and sends only candidates
-  that pass feasibility to a later backtest phase.
+- Current actual state: Round 22 now has the read-only upstream funnel in
+  place. The local bounded lab run collected BTC/USDT, ETH/USDT, and SOL/USDT
+  Binance Public Data USD-M futures 1h candles for May 2026, qualified
+  DefiLlama source routes, recorded a DexScreener source failure, evaluated six
+  candidate screens, persisted 10 candidate-state memory records, and kept the
+  entire report `blocked`.
+- Current blocker: strategy evidence quality and data depth. No candidate
+  passed `feasibility_passed`; no candidate is eligible for event-driven
+  backtest, paper collection, tiny-live review, or live readiness.
+- Expected next state: a future round, if approved, should expand data depth
+  and redesign hypotheses before re-running the multi-hypothesis lab. It should
+  not register strategies, open a paper queue, or start backtesting until a
+  candidate passes feasibility.
 
 ### Persisted Round 22 Research Conclusions
 
@@ -170,61 +172,103 @@ surface.
 
 ## Completed This Round
 
-- Added RED tests for a derivatives-conditioned feasibility lab covering
-  missing derivatives history, blocked candidate diagnostics, feasible and
-  rejected candidate combinations, duplicate timestamp fail-closed behavior,
-  default candidates, period filtering, custom symbol maps, and CLI artifacts.
-- Added strict lab models, symbol normalization, Binance USD-M derivatives row
-  alignment, per-symbol coverage diagnostics, and four read-only candidate
-  evaluators:
-  `long_short_crowding_contrarian`, `taker_imbalance_reversal`,
-  `premium_basis_risk_filter`, and `momentum_derivatives_confirmation`.
-- Added `strategy-feasibility --mode derivatives-conditioned-lab` with
-  Markdown and JSON artifacts, lab-only derivative symbol mapping,
-  candidate-selection, period, split-count, and cost controls.
-- Collected 500 recent rows for BTCUSDT, ETHUSDT, and SOLUSDT across each
-  Binance USD-M derivatives feed:
-  `basis`, `long_short_account_ratio`, `premium_index_kline`, and
-  `taker_buy_sell_volume`.
-- Re-ran local feasibility on BTC/USDT, ETH/USDT, and SOL/USDT 1h candles. Each
-  symbol had 1000 market candles and 493 aligned market/derivatives records.
-- The lab report stayed `blocked` with report reason
-  `non_positive_cost_adjusted_expectancy`.
+- Added Binance Public Data USD-M futures monthly kline support, source-health
+  ingestion summaries, and CLI/test coverage for bounded public-data market
+  history.
+- Fixed the Binance Public Data kline parser to skip CSV header rows after a
+  live May 2026 USD-M archive exposed `open_time` headers.
+- Added source qualification for DefiLlama and DexScreener discovery routes.
+  DefiLlama yield pools and fundamentals qualified as direct, parsed,
+  research-usable routes; DexScreener pairs failed closed with
+  `request_failed:ConnectTimeout`.
+- Added the point-in-time evidence universe builder with source coverage,
+  staleness, duplicate, timestamp-alignment, source-health, route, and
+  lookahead diagnostics.
+- Added the read-only candidate screen registry with six screens:
+  `short_horizon_momentum_volatility_filter`,
+  `short_horizon_reversal_volatility_filter`,
+  `perp_spot_basis_funding_deviation`,
+  `derivatives_crowding_price_action`,
+  `defi_dex_regime_discovery`, and
+  `cross_asset_ranking_turnover_cap`.
+- Added `strategy-feasibility --mode multi-hypothesis-lab` with cost
+  sensitivity, walk-forward split metrics, turnover, sample coverage, asset
+  coverage, selected symbol counts, pass/block reasons, Markdown/JSON reports,
+  and an explicit candidate-state persistence switch.
+- Added candidate state memory and persisted 10 records in the local lab run:
+  six Round 22 screen candidates plus the four previous derivatives-conditioned
+  candidates.
+- Collected bounded Binance Public Data USD-M futures 1h candles for May 2026:
+  BTC/USDT, ETH/USDT, and SOL/USDT each wrote 744 records, for 2232 total
+  `market_candle` rows.
+- Ran the multi-hypothesis lab on BTC/USDT, ETH/USDT, and SOL/USDT with
+  5/10/20/50 bps cost sensitivity. The lab remained `blocked`.
 - Candidate outcomes:
-  `long_short_crowding_contrarian`, `taker_imbalance_reversal`,
-  `premium_basis_risk_filter`, and `momentum_derivatives_confirmation` were all
-  blocked with `non_positive_cost_adjusted_expectancy`.
-- Added this round's phase report documenting Smart Search evidence, local
-  coverage, candidate metrics, verification, and the registration decision.
+  - `short_horizon_momentum_volatility_filter`,
+    `short_horizon_reversal_volatility_filter`, and
+    `cross_asset_ranking_turnover_cap` were blocked by
+    `non_positive_cost_adjusted_expectancy`,
+    `unstable_walk_forward_performance`, and `cost_sensitivity_fragile`.
+  - `perp_spot_basis_funding_deviation` and
+    `derivatives_crowding_price_action` were blocked by
+    `insufficient_universe_coverage`.
+  - `defi_dex_regime_discovery` was blocked by `watchlist_only_source` and
+    `insufficient_universe_coverage`.
+  - The previous derivatives-conditioned candidates
+    `long_short_crowding_contrarian`, `taker_imbalance_reversal`,
+    `premium_basis_risk_filter`, and
+    `momentum_derivatives_confirmation` were persisted as
+    `redesign_required` with `non_positive_cost_adjusted_expectancy`.
+- No candidate reached `feasibility_passed`; no candidate is eligible for
+  event-driven backtest, `backtest_passed`, `paper_collecting`, tiny-live
+  review, or live readiness.
+- Added this round's phase report documenting Smart Search evidence, source
+  qualification, data coverage, candidate metrics, cost sensitivity, candidate
+  states, data-quality notes, verification, and the backtest/paper decision.
 
 ## Verification Evidence
 
-- `uv run --extra dev pytest tests/test_strategy_feasibility.py -k
-  'derivatives_conditioned_lab and not cli' -q` passed with 12 tests and 7
-  deselected tests after the model implementation.
-- `uv run --extra dev pytest tests/test_strategy_feasibility.py -q` passed with
-  21 tests after CLI wiring.
-- `uv run --extra dev pytest tests/test_documentation_contract.py -q` passed
-  with 11 tests after CLI wiring.
-- `uv run --extra dev pytest tests/test_strategy_feasibility.py
-  tests/test_cli_ingest.py tests/test_documentation_contract.py -q` passed
-  with 42 tests during final closeout.
-- `uv run --extra dev pytest -q` passed with 1136 tests during final closeout.
+- `uv run --extra dev pytest tests/test_binance_public_data.py -q` passed with
+  4 tests after the CSV-header parser fix.
+- `uv run --extra dev ruff check src/crypto_alpha_agent/data/binance_public.py
+  tests/test_binance_public_data.py` returned `All checks passed!`.
+- Source probe CLI calls failed closed before side effects in this environment
+  with `llm_configuration_missing`, `side_effects_started=false`,
+  `uses_real_capital=false`, and `live_order_routing=false`.
+- Direct source probes wrote source-health records:
+  DexScreener pairs blocked with `request_failed:ConnectTimeout`,
+  DefiLlama yield pools succeeded with 15941 typed records, and DefiLlama
+  fundamentals succeeded with 6702 typed records.
+- Bounded Binance Public Data USD-M futures collection exited 0 for BTCUSDT,
+  ETHUSDT, and SOLUSDT, each with `records_fetched=744` and
+  `records_written=744`.
+- SQLite inspection showed 2232 `market_candle` rows, 9 `source_health` rows,
+  and 744 1h May 2026 candles each for BTC/USDT, ETH/USDT, and SOL/USDT.
+- `strategy-feasibility --mode multi-hypothesis-lab` exited 0 and wrote
+  `var/reports/strategy-feasibility/multi-hypothesis-lab.md`,
+  `var/reports/strategy-feasibility/multi-hypothesis-lab.json`, and 10
+  candidate-state memory records.
+- The local lab artifact reports `readiness=blocked`, report reasons
+  `non_positive_cost_adjusted_expectancy`,
+  `unstable_walk_forward_performance`, `cost_sensitivity_fragile`,
+  `insufficient_universe_coverage`, and `watchlist_only_source`, with
+  `uses_real_capital=false` plus `live_order_routing=false`.
+- Final focused pytest passed with 98 tests:
+  `tests/test_binance_public_data.py`, `tests/test_source_probe.py`,
+  `tests/test_evidence_universe.py`, `tests/test_candidate_screens.py`,
+  `tests/test_multi_hypothesis_feasibility.py`,
+  `tests/test_candidate_state_memory.py`, `tests/test_strategy_feasibility.py`,
+  `tests/test_cli_multi_hypothesis_feasibility.py`, and
+  `tests/test_documentation_contract.py`.
+- Focused LLM prompt-contract regression passed with 30 tests:
+  `tests/test_llm_researcher_adapter.py::test_research_task_can_include_ai_research_context`,
+  `tests/test_llm_researcher_adapter.py`, and `tests/test_llm_contracts.py`.
+- Full pytest passed with 1197 tests after sourcing the main workspace `.env`
+  for the command only. The `.env` file was not copied, printed, staged, or
+  committed.
 - `uv run --extra dev ruff check .` returned `All checks passed!`.
-- Diff checks, staged diff review, and staged secret scan passed before
+- `git diff --check`, staged diff review, and staged secret scan passed before
   closeout commit.
-- Each Task 4 network ingestion command exited 0 and reported
-  `records_fetched=500` and `records_written=500`.
-- SQLite inspection showed 1500 rows per derivatives record type across
-  BTCUSDT, ETHUSDT, and SOLUSDT.
-- Local market candle coverage remained 1000 rows each for BTC/USDT, ETH/USDT,
-  and SOL/USDT.
-- `strategy-feasibility --mode derivatives-conditioned-lab` exited 0 and wrote
-  `var/reports/strategy-feasibility/derivatives-conditioned-lab.md` and
-  `var/reports/strategy-feasibility/derivatives-conditioned-lab.json`.
-- The local lab artifact reports `readiness=blocked`, report reason
-  `non_positive_cost_adjusted_expectancy`, and `uses_real_capital=false` plus
-  `live_order_routing=false`.
 
 ## Current Project Target
 
@@ -365,15 +409,22 @@ strategy registry change; it is a new evidence-first hypothesis, a different
 charter-compliant family, or a data-window design that can pass the feasibility
 gate before product strategy code is added.
 
-The persisted next path is now Round 22,
-Evidence Universe Expansion and Multi-Hypothesis Feasibility Lab. That path
-expands the upstream evidence funnel rather than execution: longer Binance
-Public Data history, wider liquid universe construction, source-qualified
-DefiLlama and DexScreener discovery inputs, point-in-time data-quality checks,
-a read-only candidate screen registry, multi-hypothesis feasibility with
-5/10/20/50 bps cost sensitivity, candidate state memory, and a later backtest
-and paper handoff only for candidates that pass feasibility. The full plan is
-`docs/superpowers/plans/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab.md`.
+Round 22, Evidence Universe Expansion and Multi-Hypothesis Feasibility Lab, is
+now implemented as a read-only upstream evidence funnel rather than execution:
+bounded Binance Public Data USD-M market-history collection, wider liquid
+universe construction, source-qualified DefiLlama discovery inputs, failed
+DexScreener route evidence, point-in-time data-quality checks, a read-only
+candidate screen registry, multi-hypothesis feasibility with 5/10/20/50 bps
+cost sensitivity, and candidate state memory. The full plan is
+`docs/superpowers/plans/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab.md`
+and the phase report is
+`docs/goals/phase-reports/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab-report.md`.
+
+The Round 22 result is still blocked: no candidate reached
+`feasibility_passed`, so the later event-driven backtest and paper handoff
+remain closed. The next safe work is not strategy registration or live
+execution; it is data-depth expansion and hypothesis redesign before another
+feasibility run.
 
 Reality audit: `docs/goals/project-reality-audit-2026-05-29.md` records that
 the owner's broader autonomy target is larger than the completed Phase 0
@@ -433,12 +484,10 @@ If work continues after Phase 13:
    clean, verified, committed, and pushed.
 3. Do not start a new product-code phase unless the owner revises the roadmap
    or approves a new evidence-first strategy redesign plan. Current useful work
-   is no longer repeating the stopped funding-family evidence runs; it is
-   designing the next charter-compliant strategy or data-campaign slice from
-   fresh source evidence and local feasibility checks. The owner-approved next
-   plan is Round 22, Evidence Universe Expansion and Multi-Hypothesis
-   Feasibility Lab, persisted at
-   `docs/superpowers/plans/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab.md`.
+   is no longer repeating the stopped funding-family evidence runs or opening
+   a backtest phase with no `feasibility_passed` candidate; it is designing the
+   next charter-compliant data-depth or hypothesis-redesign slice from source
+   evidence and local feasibility checks.
 4. Treat live execution, wallet keys, exchange order routing, private RPC,
    MEV, premium-RPC, and speed-edge paths as blocked unless the owner
    explicitly revises the charter.
@@ -479,4 +528,4 @@ If work continues after Phase 13:
 | 19 | 2026-06-08 | Evidence Recovery Campaign | source-probe OI list/proxy qualification passed; CCXT OI ingest wrote 24 records; OI crowding run wrote 1 validation and 1 blocked paper outcome; mean-reversion fallback wrote 1 validation and 1 blocked paper outcome; governance report stopped all executable funding families; ruff, diff, staged diff, and staged secret checks passed | Evidence Recovery Campaign closeout commits pushed to `main` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 20 | 2026-06-08 | Profit Evidence Redesign | focused tests 54 passed; full pytest 1119 passed; follow-up pytest 1120 passed; ruff passed; diff/staged checks passed; staged secret scan returned []; Binance USD-M derivatives ingest wrote 24 rows per new feed; follow-up OHLCV ingest wrote 1000 rows each for BTC/ETH/SOL; strategy feasibility blocked with `non_positive_cost_adjusted_expectancy` | Profit Evidence Redesign closeout and follow-up commits pushed to `main` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 21 | 2026-06-08 | Derivatives-Conditioned Feasibility Lab | focused feasibility tests 21 passed; final focused suite 42 passed; documentation contract tests 11 passed; full pytest 1136 passed; ruff passed; diff/staged checks passed; staged secret scan returned []; Binance USD-M derivatives lab ingested 500 rows per feed/symbol and blocked all four candidates with `non_positive_cost_adjusted_expectancy` before strategy registration | Derivatives-Conditioned Feasibility Lab closeout commits pushed to `main` | `https://github.com/WW-shan/Crypto_Research_Agent` |
-| 22 | 2026-06-08 | Evidence Universe Expansion and Multi-Hypothesis Feasibility Lab | planned only; Smart Search evidence persisted at `var/smart-search-evidence/2026-06-08-expand-profit-evidence-loop/`; plan persisted at `docs/superpowers/plans/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab.md`; implementation and verification pending | pending | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 22 | 2026-06-08 | Evidence Universe Expansion and Multi-Hypothesis Feasibility Lab | focused suite 98 passed; focused LLM prompt-contract regression 30 passed; full pytest 1197 passed after sourcing the main workspace `.env` for the command only; ruff passed; diff/staged checks passed; staged secret scan returned no findings; Binance Public Data USD-M 1h May 2026 collection wrote 2232 market candles across BTC/ETH/SOL; DefiLlama probes succeeded; DexScreener failed closed; multi-hypothesis lab blocked all six screens and persisted 10 candidate-state memory records; no candidate reached `feasibility_passed` | pending | `https://github.com/WW-shan/Crypto_Research_Agent` |
