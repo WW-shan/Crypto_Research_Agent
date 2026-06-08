@@ -74,6 +74,9 @@ from crypto_alpha_agent.pipeline.evidence_reports import (
     build_daily_evidence_report,
     build_weekly_evidence_report,
 )
+from crypto_alpha_agent.pipeline.candidate_state_memory import (
+    persist_candidate_state_memory,
+)
 from crypto_alpha_agent.pipeline.expansion_preparation import build_expansion_preparation_report
 from crypto_alpha_agent.pipeline.governance_reports import build_profit_governance_report
 from crypto_alpha_agent.pipeline.historical_bootstrap import build_historical_bootstrap_report
@@ -753,6 +756,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=_non_negative_finite_float,
         default=[],
         help="Multi-hypothesis cost sensitivity grid value in basis points. Repeat to override the default 5/10/20/50 grid.",
+    )
+    strategy_feasibility_parser.add_argument(
+        "--persist-candidate-state",
+        action="store_true",
+        help="Persist multi-hypothesis candidate states to --memory. Default mode stays read-only.",
     )
     strategy_feasibility_parser.set_defaults(
         handler=_handle_strategy_feasibility,
@@ -2371,6 +2379,7 @@ def _validate_derivatives_feasibility_candidates(
 
 
 def _handle_strategy_feasibility(args: argparse.Namespace) -> dict[str, Any]:
+    candidate_state_memory_records = []
     if args.mode == "multi-hypothesis-lab":
         if args.memory is None:
             args.parser.error("--memory is required for --mode multi-hypothesis-lab")
@@ -2389,8 +2398,16 @@ def _handle_strategy_feasibility(args: argparse.Namespace) -> dict[str, Any]:
         except ValueError as exc:
             args.parser.error(str(exc))
             raise AssertionError("argparse parser.error should exit") from exc
+        if args.persist_candidate_state:
+            candidate_state_memory_records = persist_candidate_state_memory(
+                report,
+                args.memory,
+            )
         markdown = render_multi_hypothesis_feasibility_markdown(report)
     elif args.mode == "derivatives-conditioned-lab":
+        if args.persist_candidate_state:
+            args.parser.error("--persist-candidate-state is only supported for --mode multi-hypothesis-lab")
+            raise AssertionError("argparse parser.error should exit")
         _validate_derivatives_feasibility_candidates(args.parser, args.candidate)
         try:
             derivatives_symbols = _parse_derivatives_symbol_map(args.derivatives_symbol)
@@ -2410,6 +2427,9 @@ def _handle_strategy_feasibility(args: argparse.Namespace) -> dict[str, Any]:
         )
         markdown = render_derivatives_conditioned_lab_markdown(report)
     else:
+        if args.persist_candidate_state:
+            args.parser.error("--persist-candidate-state is only supported for --mode multi-hypothesis-lab")
+            raise AssertionError("argparse parser.error should exit")
         if args.candidate:
             args.parser.error("--candidate is not supported for --mode large-liquid-momentum-regime")
             raise AssertionError("argparse parser.error should exit")
@@ -2430,6 +2450,8 @@ def _handle_strategy_feasibility(args: argparse.Namespace) -> dict[str, Any]:
         "uses_real_capital": False,
         "live_order_routing": False,
     }
+    if candidate_state_memory_records:
+        payload["candidate_state_memory_records"] = len(candidate_state_memory_records)
     write_text_artifact(args.out, markdown)
     write_json_artifact(args.json_out, payload)
     return payload

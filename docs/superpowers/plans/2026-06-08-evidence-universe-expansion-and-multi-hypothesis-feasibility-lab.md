@@ -391,7 +391,7 @@ git commit -m "feat: add multi-hypothesis feasibility lab"
 - Test: `tests/test_candidate_state_memory.py`
 - Test: `tests/test_multi_hypothesis_feasibility.py`
 
-- [ ] **Step 1: Add RED tests for candidate state transitions**
+- [x] **Step 1: Add RED tests for candidate state transitions**
 
 Add tests that assert:
 
@@ -402,7 +402,7 @@ Add tests that assert:
 - the four current derivatives candidates persist rejected memory with `non_positive_cost_adjusted_expectancy`;
 - repeated runs update the same candidate memory record instead of duplicating stale pass/fail records.
 
-- [ ] **Step 2: Run candidate memory RED tests**
+- [x] **Step 2: Run candidate memory RED tests**
 
 Run:
 
@@ -412,7 +412,7 @@ uv run --extra dev pytest tests/test_candidate_state_memory.py -q
 
 Expected: FAIL because the module does not exist.
 
-- [ ] **Step 3: Implement candidate state memory**
+- [x] **Step 3: Implement candidate state memory**
 
 Use existing `MemoryStore` JSONL persistence. Store candidate records with:
 
@@ -427,11 +427,11 @@ Use existing `MemoryStore` JSONL persistence. Store candidate records with:
 - `uses_real_capital=false`;
 - `live_order_routing=false`.
 
-- [ ] **Step 4: Add CLI persistence switch**
+- [x] **Step 4: Add CLI persistence switch**
 
 Add an explicit `--memory` argument and `--persist-candidate-state` gate for the lab command. The default lab run remains read-only and does not mutate memory.
 
-- [ ] **Step 5: Run focused memory tests**
+- [x] **Step 5: Run focused memory tests**
 
 Run:
 
@@ -441,7 +441,7 @@ uv run --extra dev pytest tests/test_candidate_state_memory.py tests/test_multi_
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit Task 5**
+- [x] **Step 6: Commit Task 5**
 
 Run:
 

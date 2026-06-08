@@ -8,6 +8,7 @@ import pytest
 from crypto_alpha_agent.cli import main
 from crypto_alpha_agent.data.models import DataSuitability, MarketCandle, SourceRecord
 from crypto_alpha_agent.data.store import ResearchDataStore
+from crypto_alpha_agent.memory.store import MemoryStore
 
 
 START = datetime(2026, 5, 1, tzinfo=UTC)
@@ -116,6 +117,62 @@ def test_strategy_feasibility_multi_hypothesis_cli_requires_memory_path(tmp_path
         )
 
     assert exc_info.value.code == 2
+
+
+def test_strategy_feasibility_multi_hypothesis_cli_persists_candidate_state(
+    capsys,
+    tmp_path,
+):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "candidate-memory.jsonl"
+    out_path = tmp_path / "multi-hypothesis.md"
+    json_out = tmp_path / "multi-hypothesis.json"
+    _seed_directional_market_candles(db_path, count=120)
+    ResearchDataStore(db_path).upsert_records(
+        [_source_health("binance_public", "um_futures_ohlcv", START + timedelta(hours=119))]
+    )
+
+    exit_code = main(
+        [
+            "strategy-feasibility",
+            "--db",
+            str(db_path),
+            "--memory",
+            str(memory_path),
+            "--persist-candidate-state",
+            "--mode",
+            "multi-hypothesis-lab",
+            "--symbol",
+            "BTC/USDT",
+            "--symbol",
+            "ETH/USDT",
+            "--symbol",
+            "SOL/USDT",
+            "--timeframe",
+            "1h",
+            "--candidate",
+            "short_horizon_momentum_volatility_filter",
+            "--out",
+            str(out_path),
+            "--json-out",
+            str(json_out),
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    stored = MemoryStore(memory_path).list_records()
+    by_candidate = {
+        record.opportunity["candidate_id"]: record for record in stored
+    }
+
+    assert exit_code == 0
+    assert payload["candidate_state_memory_records"] == 5
+    assert by_candidate["short_horizon_momentum_volatility_filter"].opportunity[
+        "state"
+    ] == "feasibility_passed"
+    assert by_candidate["long_short_crowding_contrarian"].rejected_reasons == [
+        "non_positive_cost_adjusted_expectancy"
+    ]
 
 
 def test_strategy_feasibility_large_liquid_cli_rejects_candidate_filter(tmp_path):

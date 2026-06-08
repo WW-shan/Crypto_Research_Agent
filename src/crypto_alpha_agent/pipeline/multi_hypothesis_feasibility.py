@@ -597,12 +597,10 @@ def _candidate_state_target(
 ) -> CandidateStateTarget:
     if not reason_codes:
         return "feasibility_passed"
-    if set(reason_codes) <= {
-        "insufficient_universe_coverage",
-        "insufficient_samples",
-        "insufficient_walk_forward_splits",
-    }:
+    if set(reason_codes) <= {"insufficient_universe_coverage"}:
         return "candidate"
+    if set(reason_codes) <= {"insufficient_samples", "insufficient_walk_forward_splits"}:
+        return "source_qualified"
     return "redesign_required"
 
 
