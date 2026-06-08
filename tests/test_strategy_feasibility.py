@@ -65,6 +65,27 @@ def test_large_liquid_momentum_feasibility_blocks_insufficient_aligned_history(t
     assert report.split_metrics == []
 
 
+def test_large_liquid_momentum_feasibility_keeps_metrics_when_expectancy_blocks(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    _seed_flat_market_candles(db_path, count=430)
+
+    from crypto_alpha_agent.pipeline.strategy_feasibility import (
+        build_large_liquid_momentum_feasibility_report,
+    )
+
+    report = build_large_liquid_momentum_feasibility_report(
+        db_path,
+        symbols=SYMBOLS,
+        timeframe="1h",
+        current_capital_usd=300,
+    )
+
+    assert report.readiness == "blocked"
+    assert "non_positive_cost_adjusted_expectancy" in report.reason_codes
+    assert len(report.split_metrics) >= 3
+    assert all(metric.cost_adjusted_return_mean <= 0 for metric in report.split_metrics)
+
+
 def test_large_liquid_momentum_feasibility_blocks_duplicate_timestamps(tmp_path):
     db_path = tmp_path / "research.sqlite"
     _seed_market_candles(db_path, count=430)
@@ -144,6 +165,15 @@ def _seed_market_candles(db_path, *, count: int) -> None:
         drift = 0.35 - symbol_index * 0.08
         for index in range(count):
             close = base + index * drift
+            records.append(_candle(symbol, index, close=close).to_source_record())
+    ResearchDataStore(db_path).upsert_records(records)
+
+
+def _seed_flat_market_candles(db_path, *, count: int) -> None:
+    records = []
+    for symbol_index, symbol in enumerate(SYMBOLS):
+        close = 100.0 + symbol_index * 50.0
+        for index in range(count):
             records.append(_candle(symbol, index, close=close).to_source_record())
     ResearchDataStore(db_path).upsert_records(records)
 

@@ -668,3 +668,51 @@ multi-agent tool in this session only permits spawning when the user explicitly
 asks for subagents, delegation, or parallel agent work. The owner asked for
 deep search and goal execution, not explicit subagents, so this plan records
 local review checkpoints instead of spawning a subagent.
+
+## Continuation: 2026-06-08 Feasibility Follow-Up
+
+- [x] **Step 9.1: Resolve aligned OHLCV blocker**
+
+Run direct, proxy-routed CCXT ingestion for BTC/USDT, ETH/USDT, and SOL/USDT
+1h candles.
+
+Actual: wrote 1000 rows for each symbol. SQLite inspection showed all three
+symbols have 1000 1h records from 2026-04-27T12:00:00+00:00 through
+2026-06-08T03:00:00+00:00 and 1000 aligned timestamps.
+
+- [x] **Step 9.2: Re-run feasibility**
+
+Run:
+
+```bash
+uv run --extra dev crypto-alpha-agent strategy-feasibility --db var/research.sqlite --mode large-liquid-momentum-regime --symbol BTC/USDT --symbol ETH/USDT --symbol SOL/USDT --timeframe 1h --out var/reports/strategy-feasibility/latest.md --json-out var/reports/strategy-feasibility/latest.json --current-capital-usd 300
+```
+
+Actual: readiness stayed `blocked`, now with
+`non_positive_cost_adjusted_expectancy`. The three split cost-adjusted return
+means were approximately -0.001058, -0.001416, and -0.002189.
+
+- [x] **Step 9.3: Preserve blocked split diagnostics**
+
+Added a focused failing test showing that feasibility reports should retain
+walk-forward metrics when positive-expectancy gating blocks. Implemented the
+minimal fix so the report keeps split diagnostics for cost-adjusted expectancy
+failures.
+
+Actual: `uv run --extra dev pytest tests/test_strategy_feasibility.py -q`
+passed with 5 tests; related ruff check passed.
+
+- [x] **Step 9.4: Re-check CLI gate stall**
+
+Ran bounded subprocess diagnostics for `llm-health-check`,
+`ingest --offline-check`, and `ingest --source binance-usdm`.
+
+Actual: all three commands exited 0 in roughly 9 to 10 seconds. The earlier
+90-second stall was not reproduced and is currently treated as external
+provider-latency risk, not a confirmed CLI routing bug.
+
+- [x] **Step 9.5: Strategy registration decision**
+
+Actual: no strategy validator, paper runner, or registry entry was added.
+`large-liquid-momentum-regime` remains blocked because aligned data is now
+available and the cost-adjusted expectancy gate still fails.

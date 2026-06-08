@@ -149,7 +149,7 @@ def build_large_liquid_momentum_feasibility_report(
         readiness="blocked" if reason_codes else "feasible",
         reason_codes=reason_codes,
         symbol_reports=symbol_reports,
-        split_metrics=[] if reason_codes else split_metrics,
+        split_metrics=split_metrics,
         derivatives_record_counts=derivative_counts,
         cost_bps=cost_bps,
         uses_real_capital=False,

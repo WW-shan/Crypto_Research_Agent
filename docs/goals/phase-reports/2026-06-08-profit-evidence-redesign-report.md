@@ -17,10 +17,12 @@ identified public Binance USD-M derivatives feeds as the next useful data
 upgrade. The implementation added typed public ingestion for premium-index
 klines, basis, global long/short account ratio, and taker buy/sell volume.
 
-The data path now works, but no new strategy family was registered. The new
-`strategy-feasibility` command blocked the large-liquid momentum regime because
-the local database contains 434 `BTC/USDT` 1h candles but no `ETH/USDT` or
-`SOL/USDT` 1h market candles, so multi-symbol aligned history is zero.
+The data path now works, but no new strategy family was registered. The first
+`strategy-feasibility` run blocked the large-liquid momentum regime because the
+local database contained 434 `BTC/USDT` 1h candles but no `ETH/USDT` or
+`SOL/USDT` 1h market candles. A follow-up data collection filled that gap with
+1000 aligned 1h candles for each symbol. The second feasibility run then
+blocked for the stronger reason: `non_positive_cost_adjusted_expectancy`.
 
 ## What Changed
 
@@ -73,6 +75,12 @@ Direct ingestion succeeded:
 
 SQLite also contains successful source-health rows for all four feeds.
 
+Follow-up CLI gate diagnostics later reran `llm-health-check`,
+`ingest --offline-check`, and `ingest --source binance-usdm` with a bounded
+120-second subprocess timeout. All three commands exited 0 in roughly 9 to 10
+seconds. That makes the earlier stall a transient provider-latency observation,
+not a reproduced CLI routing or Binance ingestion bug.
+
 ## Feasibility Result
 
 Command:
@@ -81,7 +89,7 @@ Command:
 uv run --extra dev crypto-alpha-agent strategy-feasibility --db var/research.sqlite --mode large-liquid-momentum-regime --symbol BTC/USDT --symbol ETH/USDT --symbol SOL/USDT --timeframe 1h --out var/reports/strategy-feasibility/latest.md --json-out var/reports/strategy-feasibility/latest.json --current-capital-usd 300
 ```
 
-Result:
+Initial result:
 
 - readiness: `blocked`
 - reason code: `insufficient_aligned_history`
@@ -91,19 +99,32 @@ Result:
 - aligned records: 0
 - derivatives context counts: 24 rows per new Binance USD-M feed
 
+Follow-up data collection:
+
+- BTC/USDT 1h records: 1000
+- ETH/USDT 1h records: 1000
+- SOL/USDT 1h records: 1000
+- aligned records: 1000
+
+Follow-up feasibility result:
+
+- readiness: `blocked`
+- reason code: `non_positive_cost_adjusted_expectancy`
+- split 1 cost-adjusted return mean: -0.0010583810470065262
+- split 2 cost-adjusted return mean: -0.0014155221362016344
+- split 3 cost-adjusted return mean: -0.0021886709892294295
+- split win rate: 0.3575757575757576 for all three splits
+
 ## Decision
 
-No strategy validator, paper runner, or registry entry was added. The blocked
-feasibility result is the correct outcome because registering a family without
-multi-symbol aligned history would repeat the prior failure mode: plausible
-strategy code with weak or missing evidence.
+No strategy validator, paper runner, or registry entry was added. The final
+blocked feasibility result is the correct outcome because the candidate does
+not show positive cost-adjusted expectancy across the available walk-forward
+splits.
 
 ## Next Smallest Useful Step
 
-Collect aligned 1h market candles for BTC/USDT, ETH/USDT, and SOL/USDT over
-the same window, then rerun `strategy-feasibility`. Only if the report produces
-enough walk-forward splits with positive cost-adjusted expectancy should a new
-strategy-registration plan be written.
-
-The CLI LLM readiness gate also needs bounded-timeout investigation before
-`ingest` can be used as the smoke driver for this data path.
+Do not register `large-liquid-momentum-regime` as implemented. The next useful
+work is a new hypothesis/design step that changes the signal definition or
+chooses another charter-compliant family, then runs the same feasibility gate
+before any strategy code.

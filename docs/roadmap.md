@@ -300,15 +300,17 @@ Profit evidence redesign update on 2026-06-08: the next data-campaign slice
 added public Binance USD-M premium-index kline, basis, global long/short
 account ratio, and taker buy/sell volume ingestion. Live smoke ingestion wrote
 24 rows for each new derivatives feed with source-health success rows. The new
-read-only `strategy-feasibility` command then blocked
+read-only `strategy-feasibility` command first blocked
 `large-liquid-momentum-regime` before strategy registration because local
-storage has 434 BTC/USDT 1h candles but 0 ETH/USDT and 0 SOL/USDT 1h candles,
-so multi-symbol aligned history is zero. The next practical work is aligned
-BTC/ETH/SOL 1h OHLCV collection over the same window, followed by another
-feasibility report. Do not register the momentum-regime family until that
-report has enough walk-forward splits and positive cost-adjusted expectancy.
-Also investigate the `ingest` real LLM readiness gate stall with a bounded
-timeout before relying on CLI ingest as a smoke driver.
+storage lacked ETH/USDT and SOL/USDT 1h candles. Follow-up collection resolved
+that data gap with 1000 aligned BTC/ETH/SOL 1h candles, but the regime still
+blocked with `non_positive_cost_adjusted_expectancy`; all three walk-forward
+splits were negative after 10 bps cost assumptions. Do not register the
+momentum-regime family. The next practical work is a redesigned hypothesis or a
+different charter-compliant family that starts from source evidence and passes
+the same feasibility gate before product strategy code is added. The prior
+`ingest` LLM readiness stall was not reproduced under bounded diagnostics and
+is currently a provider-latency risk rather than a confirmed product bug.
 
 The roadmap below is the post-milestone work needed to move from "working
 evidence factory" to "profit evidence." None of these phases should weaken the

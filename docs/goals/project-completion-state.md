@@ -8,14 +8,16 @@ round.
 
 - Round: 20
 - Status: Profit Evidence Redesign completed as a data/feasibility slice. New
-  public Binance USD-M derivatives ingestion works, but the proposed
-  large-liquid momentum regime is blocked before strategy registration because
-  local multi-symbol aligned 1h candle history is missing for ETH/USDT and
-  SOL/USDT.
+  public Binance USD-M derivatives ingestion works. The initial multi-symbol
+  candle gap was resolved with 1000 aligned BTC/ETH/SOL 1h candles, but the
+  proposed large-liquid momentum regime remains blocked before strategy
+  registration because all three walk-forward splits have negative
+  cost-adjusted expectancy.
 - Started: 2026-06-08
 - Completed: 2026-06-08 data/feasibility closeout; focused tests, full pytest,
-  ruff, diff check, staged diff, and staged secret checks passed; closeout
-  commit pushed to `origin/main`.
+  ruff, diff check, staged diff, and staged secret checks passed for the first
+  slice; follow-up feasibility diagnostics, focused tests, full pytest, ruff,
+  and diff checks passed before the follow-up closeout commit.
 - Active slice: Profit Evidence Redesign
 - Active design source:
   `docs/superpowers/specs/2026-06-08-profit-evidence-redesign-design.md`
@@ -46,6 +48,17 @@ round.
 - Ran local feasibility and blocked strategy registration with
   `insufficient_aligned_history`: the database has 434 BTC/USDT 1h candles but
   0 ETH/USDT and 0 SOL/USDT 1h candles.
+- Continued the feasibility follow-up by ingesting 1000 BTC/USDT, ETH/USDT,
+  and SOL/USDT 1h candles through the proxy-routed CCXT/Binance path.
+- Re-ran `strategy-feasibility`; aligned records rose to 1000 for all three
+  symbols, but the regime stayed blocked with
+  `non_positive_cost_adjusted_expectancy`.
+- Fixed the feasibility report to preserve walk-forward metrics when a
+  positive-expectancy gate blocks, so future reports show how far a candidate
+  misses the target.
+- Reproduced the prior CLI LLM gate concern with bounded subprocess timeouts:
+  `llm-health-check`, `ingest --offline-check`, and
+  `ingest --source binance-usdm` all exited 0 in roughly 9 to 10 seconds.
 - Added this round's phase report documenting the data upgrade, blocker, and
   next safe action.
 
@@ -71,6 +84,13 @@ round.
   `var/reports/strategy-feasibility/latest.md` plus
   `var/reports/strategy-feasibility/latest.json`; the report is blocked with
   reason `insufficient_aligned_history`.
+- Follow-up OHLCV ingestion wrote 1000 rows each for BTC/USDT, ETH/USDT, and
+  SOL/USDT 1h candles; SQLite inspection showed 1000 aligned hours.
+- Follow-up `strategy-feasibility` stayed blocked with
+  `non_positive_cost_adjusted_expectancy`; split cost-adjusted return means
+  were approximately -0.001058, -0.001416, and -0.002189.
+- `uv run --extra dev pytest tests/test_strategy_feasibility.py -q` passed with
+  5 tests after preserving blocked split diagnostics.
 
 ## Current Project Target
 
@@ -195,13 +215,15 @@ The 2026-06-08 Profit Evidence Redesign added the next data slice: Binance
 USD-M premium-index klines, basis, global long/short account ratio, and taker
 buy/sell volume now have typed models, ingestion, source-health, tests, and
 live public-data smoke evidence. Strategy registration remains blocked. The
-new `strategy-feasibility` report found `insufficient_aligned_history` for the
-large-liquid momentum regime because local storage has BTC/USDT 1h candles but
-no ETH/USDT or SOL/USDT 1h candles for the same window. The next smallest
-useful work is aligned multi-symbol OHLCV collection and then another
-feasibility run, not strategy code. The CLI `ingest` real LLM readiness gate
-also stalled during this slice and needs a bounded-timeout investigation before
-it can be relied on as a smoke driver.
+initial `insufficient_aligned_history` blocker was resolved by collecting 1000
+aligned BTC/ETH/SOL 1h candles, but the large-liquid momentum regime still
+failed feasibility with `non_positive_cost_adjusted_expectancy` across all
+three walk-forward splits. The next smallest useful work is not strategy
+registration; it is a redesigned hypothesis or a different charter-compliant
+family that can pass the same feasibility gate before code is added. The
+previous CLI `ingest` LLM readiness stall was not reproduced under bounded
+diagnostics and should be treated as provider-latency risk rather than a
+confirmed product bug.
 
 Reality audit: `docs/goals/project-reality-audit-2026-05-29.md` records that
 the owner's broader autonomy target is larger than the completed Phase 0
@@ -302,4 +324,4 @@ If work continues after Phase 13:
 | 17 | 2026-05-29 | Phase 16 GHCR container publishing | focused GHCR/docs/runtime/planner contracts 81 passed; real LLM planner smoke 1 passed; pytest 990 passed; final ruff, diff, staged diff, and staged secret checks required before commit | Phase 16 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 18 | 2026-06-06 | Phase 17 creation-first Codex autonomy closeout | non-LLM pytest 1080 passed; focused Phase 17 tests 120 passed; adapter diagnostics and retry checks passed; focused LLM non-integration tests 46 passed, 1 deselected; real LLM health check passed after provider compatibility fallback; full real-provider suites remain sensitive to provider stalls | `22df14c docs: close out creation autonomy phase` plus remediation follow-up | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 19 | 2026-06-08 | Evidence Recovery Campaign | source-probe OI list/proxy qualification passed; CCXT OI ingest wrote 24 records; OI crowding run wrote 1 validation and 1 blocked paper outcome; mean-reversion fallback wrote 1 validation and 1 blocked paper outcome; governance report stopped all executable funding families; ruff, diff, staged diff, and staged secret checks passed | Evidence Recovery Campaign closeout commits pushed to `main` | `https://github.com/WW-shan/Crypto_Research_Agent` |
-| 20 | 2026-06-08 | Profit Evidence Redesign | focused tests 54 passed; full pytest 1119 passed; ruff passed; diff/staged checks passed; staged secret scan returned []; Binance USD-M derivatives ingest wrote 24 rows per new feed; strategy feasibility blocked with `insufficient_aligned_history` | Profit Evidence Redesign closeout commit pushed to `main` | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 20 | 2026-06-08 | Profit Evidence Redesign | focused tests 54 passed; full pytest 1119 passed; follow-up pytest 1120 passed; ruff passed; diff/staged checks passed; staged secret scan returned []; Binance USD-M derivatives ingest wrote 24 rows per new feed; follow-up OHLCV ingest wrote 1000 rows each for BTC/ETH/SOL; strategy feasibility blocked with `non_positive_cost_adjusted_expectancy` | Profit Evidence Redesign closeout and follow-up commits pushed to `main` | `https://github.com/WW-shan/Crypto_Research_Agent` |
