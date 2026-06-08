@@ -10,10 +10,15 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from crypto_alpha_agent.data.models import SourceRecord
 from crypto_alpha_agent.data.store import ResearchDataStore
+from crypto_alpha_agent.pipeline.multi_hypothesis_feasibility import (
+    build_multi_hypothesis_feasibility_report as build_multi_hypothesis_feasibility_report,
+    render_multi_hypothesis_feasibility_markdown as render_multi_hypothesis_feasibility_markdown,
+)
 
 StrategyFeasibilityMode = Literal[
     "large-liquid-momentum-regime",
     "derivatives-conditioned-lab",
+    "multi-hypothesis-lab",
 ]
 StrategyFeasibilityReadiness = Literal["feasible", "blocked"]
 DerivativesLabCandidate = Literal[

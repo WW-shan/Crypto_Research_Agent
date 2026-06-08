@@ -288,7 +288,7 @@ git commit -m "feat: add read-only candidate screens"
 - Test: `tests/test_strategy_feasibility.py`
 - Test: `tests/test_cli_multi_hypothesis_feasibility.py`
 
-- [ ] **Step 1: Add RED tests for lab report gates**
+- [x] **Step 1: Add RED tests for lab report gates**
 
 Add tests that assert each candidate output includes:
 
@@ -317,7 +317,7 @@ Required blocked reasons:
 - `lookahead_risk`
 - `watchlist_only_source`
 
-- [ ] **Step 2: Run the lab RED tests**
+- [x] **Step 2: Run the lab RED tests**
 
 Run:
 
@@ -327,7 +327,7 @@ uv run --extra dev pytest tests/test_multi_hypothesis_feasibility.py tests/test_
 
 Expected: FAIL because the lab module and CLI mode do not exist.
 
-- [ ] **Step 3: Implement strict feasibility report models**
+- [x] **Step 3: Implement strict feasibility report models**
 
 Create:
 
@@ -338,7 +338,7 @@ Create:
 
 All models must set `extra="forbid"`, `strict=True`, and `allow_inf_nan=False`.
 
-- [ ] **Step 4: Implement report builder**
+- [x] **Step 4: Implement report builder**
 
 Implement `build_multi_hypothesis_feasibility_report` so it:
 
@@ -348,7 +348,7 @@ Implement `build_multi_hypothesis_feasibility_report` so it:
 - fails closed when any candidate uses future data, watchlist-only data as execution evidence, or insufficient cost robustness;
 - writes no database rows unless explicitly called through candidate-state memory in Task 5.
 
-- [ ] **Step 5: Wire the CLI**
+- [x] **Step 5: Wire the CLI**
 
 Add either:
 
@@ -364,7 +364,7 @@ candidate-lab
 
 Use the command shape that produces the smallest clean diff after checking `src/crypto_alpha_agent/cli.py`. The command must write Markdown and JSON artifacts and must set `llm_gate_bypass=True` only if it remains a deterministic read-only feasibility command like the current `strategy-feasibility` modes.
 
-- [ ] **Step 6: Run focused feasibility tests**
+- [x] **Step 6: Run focused feasibility tests**
 
 Run:
 
@@ -374,7 +374,7 @@ uv run --extra dev pytest tests/test_multi_hypothesis_feasibility.py tests/test_
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit Task 4**
+- [x] **Step 7: Commit Task 4**
 
 Run:
 

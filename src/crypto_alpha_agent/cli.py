@@ -91,7 +91,9 @@ from crypto_alpha_agent.pipeline.markdown import (
 from crypto_alpha_agent.pipeline.strategy_feasibility import (
     build_derivatives_conditioned_lab_report,
     build_large_liquid_momentum_feasibility_report,
+    build_multi_hypothesis_feasibility_report,
     render_derivatives_conditioned_lab_markdown,
+    render_multi_hypothesis_feasibility_markdown,
     render_strategy_feasibility_markdown,
 )
 from crypto_alpha_agent.pipeline.memory import (
@@ -687,11 +689,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     strategy_feasibility_parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite research data store.")
     strategy_feasibility_parser.add_argument(
+        "--memory",
+        type=Path,
+        help="Path to the JSONL candidate memory store for multi-hypothesis mode; Task 4 reads no memory and writes no memory.",
+    )
+    strategy_feasibility_parser.add_argument(
         "--mode",
         required=True,
         choices=(
             "large-liquid-momentum-regime",
             "derivatives-conditioned-lab",
+            "multi-hypothesis-lab",
         ),
         help="Feasibility mode to evaluate.",
     )
@@ -724,14 +732,8 @@ def build_parser() -> argparse.ArgumentParser:
     strategy_feasibility_parser.add_argument(
         "--candidate",
         action="append",
-        choices=(
-            "long_short_crowding_contrarian",
-            "taker_imbalance_reversal",
-            "premium_basis_risk_filter",
-            "momentum_derivatives_confirmation",
-        ),
         default=[],
-        help="Derivatives-conditioned lab candidate to evaluate. Repeat to select multiple candidates.",
+        help="Candidate to evaluate. Repeat to select multiple candidates; valid IDs depend on --mode.",
     )
     strategy_feasibility_parser.add_argument(
         "--min-split-count",
@@ -744,6 +746,13 @@ def build_parser() -> argparse.ArgumentParser:
         type=_non_negative_finite_float,
         default=10.0,
         help="Round-trip cost assumption in basis points.",
+    )
+    strategy_feasibility_parser.add_argument(
+        "--cost-bps-grid",
+        action="append",
+        type=_non_negative_finite_float,
+        default=[],
+        help="Multi-hypothesis cost sensitivity grid value in basis points. Repeat to override the default 5/10/20/50 grid.",
     )
     strategy_feasibility_parser.set_defaults(
         handler=_handle_strategy_feasibility,
@@ -2335,8 +2344,54 @@ def _parse_derivatives_symbol_map(values: list[str]) -> dict[str, str]:
     return parsed
 
 
+_DERIVATIVES_FEASIBILITY_CANDIDATES = {
+    "long_short_crowding_contrarian",
+    "taker_imbalance_reversal",
+    "premium_basis_risk_filter",
+    "momentum_derivatives_confirmation",
+}
+
+
+def _validate_derivatives_feasibility_candidates(
+    parser: argparse.ArgumentParser,
+    candidates: list[str],
+) -> None:
+    invalid = [
+        candidate
+        for candidate in candidates
+        if candidate not in _DERIVATIVES_FEASIBILITY_CANDIDATES
+    ]
+    if invalid:
+        parser.error(
+            "invalid derivatives-conditioned candidate(s): "
+            + ", ".join(invalid)
+            + "; expected one of "
+            + ", ".join(sorted(_DERIVATIVES_FEASIBILITY_CANDIDATES))
+        )
+
+
 def _handle_strategy_feasibility(args: argparse.Namespace) -> dict[str, Any]:
-    if args.mode == "derivatives-conditioned-lab":
+    if args.mode == "multi-hypothesis-lab":
+        if args.memory is None:
+            args.parser.error("--memory is required for --mode multi-hypothesis-lab")
+            raise AssertionError("argparse parser.error should exit")
+        try:
+            report = build_multi_hypothesis_feasibility_report(
+                args.db,
+                memory_path=args.memory,
+                symbols=args.symbol,
+                timeframe=args.timeframe,
+                current_capital_usd=args.current_capital_usd,
+                cost_bps_grid=args.cost_bps_grid or None,
+                min_split_count=args.min_split_count,
+                candidates=args.candidate,
+            )
+        except ValueError as exc:
+            args.parser.error(str(exc))
+            raise AssertionError("argparse parser.error should exit") from exc
+        markdown = render_multi_hypothesis_feasibility_markdown(report)
+    elif args.mode == "derivatives-conditioned-lab":
+        _validate_derivatives_feasibility_candidates(args.parser, args.candidate)
         try:
             derivatives_symbols = _parse_derivatives_symbol_map(args.derivatives_symbol)
         except ValueError as exc:
@@ -2355,6 +2410,9 @@ def _handle_strategy_feasibility(args: argparse.Namespace) -> dict[str, Any]:
         )
         markdown = render_derivatives_conditioned_lab_markdown(report)
     else:
+        if args.candidate:
+            args.parser.error("--candidate is not supported for --mode large-liquid-momentum-regime")
+            raise AssertionError("argparse parser.error should exit")
         report = build_large_liquid_momentum_feasibility_report(
             args.db,
             symbols=args.symbol,

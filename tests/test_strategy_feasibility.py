@@ -915,6 +915,43 @@ def test_render_derivatives_conditioned_lab_markdown_includes_lab_tables(tmp_pat
     assert "| long_short_crowding_contrarian | 0 | 0 | 0 | n/a | n/a | 0 | 0 | 0 |" in markdown
 
 
+def test_strategy_feasibility_exports_multi_hypothesis_lab_mode(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "candidate-memory.jsonl"
+    _seed_binance_public_directional_market_candles(db_path, count=120)
+    ResearchDataStore(db_path).upsert_records(
+        [_source_health("binance_public", "um_futures_ohlcv", START + timedelta(hours=119))]
+    )
+
+    from crypto_alpha_agent.pipeline.strategy_feasibility import (
+        build_multi_hypothesis_feasibility_report,
+        render_multi_hypothesis_feasibility_markdown,
+    )
+
+    before = _record_snapshot(db_path)
+    report = build_multi_hypothesis_feasibility_report(
+        db_path,
+        memory_path=memory_path,
+        symbols=SYMBOLS,
+        timeframe="1h",
+        current_capital_usd=300.0,
+        cost_bps_grid=[5.0, 10.0, 20.0, 50.0],
+        min_split_count=2,
+        candidates=["short_horizon_momentum_volatility_filter"],
+    )
+    markdown = render_multi_hypothesis_feasibility_markdown(report)
+
+    assert report.command == "strategy-feasibility"
+    assert report.mode == "multi-hypothesis-lab"
+    assert report.readiness == "feasible"
+    assert report.uses_real_capital is False
+    assert report.live_order_routing is False
+    assert "# Multi-Hypothesis Feasibility Lab" in markdown
+    assert "short_horizon_momentum_volatility_filter" in markdown
+    assert _record_snapshot(db_path) == before
+    assert not memory_path.exists()
+
+
 def _seed_market_candles(db_path, *, count: int) -> None:
     records = []
     for symbol_index, symbol in enumerate(SYMBOLS):
@@ -961,6 +998,33 @@ def _seed_directional_market_candles(db_path, *, count: int) -> None:
             else:
                 close = 50.0 - index * 0.05
             records.append(_candle(symbol, index, close=close).to_source_record())
+    ResearchDataStore(db_path).upsert_records(records)
+
+
+def _seed_binance_public_directional_market_candles(db_path, *, count: int) -> None:
+    records = []
+    for symbol in SYMBOLS:
+        for index in range(count):
+            if symbol == "BTC/USDT":
+                close = 100.0 + index * 2.0
+            elif symbol == "ETH/USDT":
+                close = 200.0 + index * 5.0
+            else:
+                close = 80.0 - index * 0.03
+            records.append(
+                MarketCandle(
+                    source="binance_public",
+                    venue="binance_usdm",
+                    symbol=symbol,
+                    timestamp=START + timedelta(hours=index),
+                    timeframe="1h",
+                    open=close,
+                    high=close * 1.001,
+                    low=close * 0.999,
+                    close=close,
+                    volume=10_000.0 + index,
+                ).to_source_record()
+            )
     ResearchDataStore(db_path).upsert_records(records)
 
 
@@ -1048,3 +1112,23 @@ def _record_snapshot(db_path) -> dict[str, dict[str, object]]:
         record.record_id: record.model_dump(mode="json")
         for record in ResearchDataStore(db_path).load_records()
     }
+
+
+def _source_health(source: str, feed: str, observed_at: datetime) -> SourceRecord:
+    return SourceRecord(
+        record_id=f"{source}:{feed}:source_health:{observed_at.isoformat()}",
+        source=source,
+        record_type="source_health",
+        observed_at=observed_at,
+        payload={
+            "source": source,
+            "feed": feed,
+            "success": True,
+            "attempts": 1,
+            "failure": None,
+            "observed_at": observed_at.isoformat(),
+            "records_fetched": 1,
+            "records_written": 1,
+            "network_route": "direct",
+        },
+    )
