@@ -15,7 +15,8 @@ round.
   validation.
 - Started: 2026-06-08
 - Completed: 2026-06-08 operations/docs closeout; final ruff, diff, staged
-  diff, and staged secret checks passed; commit and push pending
+  diff, and staged secret checks passed; closeout commits pushed to
+  `origin/main`
 - Active slice: Evidence Recovery Campaign
 - Active design source:
   `docs/superpowers/specs/2026-06-08-evidence-recovery-campaign-design.md`
@@ -112,7 +113,7 @@ round.
 - `git diff --cached --no-ext-diff --unified=0` was reviewed.
 - `uv run python -m crypto_alpha_agent.security.secret_scan --staged
   --fail-on-empty-with-untracked` returned `[]`.
-- Commit and push are required before this round is closed.
+- Closeout commits were pushed to `origin/main` after staged checks passed.
 
 ## Current Project Target
 
@@ -331,4 +332,4 @@ If work continues after Phase 13:
 | 16 | 2026-05-29 | Phase 15 VPS Docker operations runtime | focused VPS/docs contracts 24 passed; pytest 982 passed; final ruff, diff, staged diff, and staged secret checks required before commit | Phase 15 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 17 | 2026-05-29 | Phase 16 GHCR container publishing | focused GHCR/docs/runtime/planner contracts 81 passed; real LLM planner smoke 1 passed; pytest 990 passed; final ruff, diff, staged diff, and staged secret checks required before commit | Phase 16 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 18 | 2026-06-06 | Phase 17 creation-first Codex autonomy closeout | non-LLM pytest 1080 passed; focused Phase 17 tests 120 passed; adapter diagnostics and retry checks passed; focused LLM non-integration tests 46 passed, 1 deselected; real LLM health check passed after provider compatibility fallback; full real-provider suites remain sensitive to provider stalls | `22df14c docs: close out creation autonomy phase` plus remediation follow-up | `https://github.com/WW-shan/Crypto_Research_Agent` |
-| 19 | 2026-06-08 | Evidence Recovery Campaign | source-probe OI list/proxy qualification passed; CCXT OI ingest wrote 24 records; OI crowding run wrote 1 validation and 1 blocked paper outcome; mean-reversion fallback wrote 1 validation and 1 blocked paper outcome; governance report stopped all executable funding families; ruff, diff, staged diff, and staged secret checks passed | pending Evidence Recovery Campaign closeout commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 19 | 2026-06-08 | Evidence Recovery Campaign | source-probe OI list/proxy qualification passed; CCXT OI ingest wrote 24 records; OI crowding run wrote 1 validation and 1 blocked paper outcome; mean-reversion fallback wrote 1 validation and 1 blocked paper outcome; governance report stopped all executable funding families; ruff, diff, staged diff, and staged secret checks passed | Evidence Recovery Campaign closeout commits pushed to `main` | `https://github.com/WW-shan/Crypto_Research_Agent` |

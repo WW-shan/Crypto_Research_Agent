@@ -9,8 +9,8 @@
   approved phases until the project satisfies
   `docs/goals/project-completion-goal.md` or reaches a documented blocker.
 - Mode: operations and documentation only; no product-code changes.
-- Commit reference: pending closeout commit at the time this report was
-  written.
+- Commit reference: pushed closeout commit chain on `main` containing this
+  report.
 - Safety: `uses_real_capital=false`, `live_order_routing=false`, no wallet
   access, no exchange order routing, and no stopped-family override.
 
