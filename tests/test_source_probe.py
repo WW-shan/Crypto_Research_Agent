@@ -55,6 +55,7 @@ def test_source_probe_catalog_includes_phase8_targets():
         "binance_usdm_premium_index_klines",
         "binance_usdm_basis",
         "binance_usdm_global_long_short_account_ratio",
+        "binance_usdm_taker_buy_sell_volume",
         "bybit_open_interest_history",
         "okx_open_interest",
         "dexscreener_pairs",
@@ -63,6 +64,27 @@ def test_source_probe_catalog_includes_phase8_targets():
         "dune_query_result",
         "thegraph_pool_snapshot",
     }.issubset(target_ids)
+
+
+def test_source_probe_lists_binance_taker_buy_sell_volume_target():
+    target_ids = {target.target_id for target in available_probe_targets()}
+
+    assert "binance_usdm_taker_buy_sell_volume" in target_ids
+
+
+def test_binance_taker_buy_sell_volume_target_uses_public_endpoint():
+    target = next(
+        item
+        for item in available_probe_targets()
+        if item.target_id == "binance_usdm_taker_buy_sell_volume"
+    )
+
+    assert target.source == "binance_usdm"
+    assert target.feed == "taker_buy_sell_volume"
+    assert target.endpoint_family == "GET /futures/data/takerlongshortRatio"
+    assert "takerlongshortRatio" in target.url
+    assert target.credential_requirement == "none"
+    assert target.expected_fields == ("buySellRatio", "buyVol", "sellVol", "timestamp")
 
 
 def test_probe_without_network_records_blocked_source_health(tmp_path):

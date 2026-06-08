@@ -146,6 +146,21 @@ _TARGETS: tuple[SourceProbeTarget, ...] = (
         rate_limit_assumption="latest 30 days and 1000 requests per 5 minutes per Binance docs",
     ),
     SourceProbeTarget(
+        target_id="binance_usdm_taker_buy_sell_volume",
+        display_name="Binance USD-M Taker Buy/Sell Volume",
+        source="binance_usdm",
+        feed="taker_buy_sell_volume",
+        endpoint_family="GET /futures/data/takerlongshortRatio",
+        url_family="binance_usdm_taker_buy_sell_volume",
+        url=(
+            "https://fapi.binance.com/futures/data/takerlongshortRatio"
+            "?symbol=BTCUSDT&period=1h&limit=1"
+        ),
+        typed_count_path=(),
+        expected_fields=("buySellRatio", "buyVol", "sellVol", "timestamp"),
+        rate_limit_assumption="latest 30 days and 1000 requests per 5 minutes per Binance docs",
+    ),
+    SourceProbeTarget(
         target_id="bybit_open_interest_history",
         display_name="Bybit Open Interest History",
         source="bybit",

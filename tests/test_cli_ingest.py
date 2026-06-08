@@ -1,10 +1,33 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 
 from crypto_alpha_agent.cli import main
+
+
+class FakeSummary:
+    def __init__(self, *, feed: str) -> None:
+        self.feed = feed
+
+    def model_dump(self, mode: str = "json") -> dict[str, Any]:
+        return {
+            "source": "binance_usdm",
+            "db_path": "test.sqlite",
+            "feed": self.feed,
+            "symbols": ["BTCUSDT"],
+            "pairs": [],
+            "period": "1h",
+            "interval": "1h",
+            "contract_type": None,
+            "records_fetched": 1,
+            "records_written": 1,
+            "network_allowed": True,
+            "uses_real_capital": False,
+            "live_order_routing": False,
+        }
 
 
 class PassingLLM:
@@ -120,3 +143,111 @@ def test_ingest_offline_check_creates_db_and_reports_current_capital(capsys, tmp
     assert db_path.exists()
     assert captured["db_path"] == str(db_path)
     assert captured["capital_profile"]["current_capital_usd"] == 125.0
+
+
+def test_ingest_cli_runs_binance_usdm_premium_index_klines(capsys, tmp_path, monkeypatch):
+    calls = []
+
+    def fake_ingest(db_path, **kwargs):
+        calls.append((db_path, kwargs))
+        return FakeSummary(feed="premium_index_klines")
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.ingest_binance_usdm_premium_index_klines",
+        fake_ingest,
+        raising=False,
+    )
+
+    exit_code = main(
+        [
+            "ingest",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--source",
+            "binance-usdm",
+            "--allow-network",
+            "--binance-usdm-feed",
+            "premium-index-klines",
+            "--symbol",
+            "BTCUSDT",
+            "--interval",
+            "1h",
+            "--limit",
+            "1",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["ingestion"]["feed"] == "premium_index_klines"
+    assert calls[0][1]["symbol"] == "BTCUSDT"
+    assert calls[0][1]["interval"] == "1h"
+    assert calls[0][1]["allow_network"] is True
+
+
+def test_ingest_cli_runs_binance_usdm_basis(capsys, tmp_path, monkeypatch):
+    calls = []
+
+    def fake_ingest(db_path, **kwargs):
+        calls.append((db_path, kwargs))
+        return FakeSummary(feed="basis")
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.ingest_binance_usdm_basis",
+        fake_ingest,
+        raising=False,
+    )
+
+    exit_code = main(
+        [
+            "ingest",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--source",
+            "binance-usdm",
+            "--allow-network",
+            "--binance-usdm-feed",
+            "basis",
+            "--pair",
+            "BTCUSDT",
+            "--contract-type",
+            "PERPETUAL",
+            "--period",
+            "1h",
+            "--limit",
+            "1",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["ingestion"]["feed"] == "basis"
+    assert calls[0][1]["pair"] == "BTCUSDT"
+    assert calls[0][1]["contract_type"] == "PERPETUAL"
+    assert calls[0][1]["period"] == "1h"
+
+
+@pytest.mark.parametrize(
+    ("feed", "args"),
+    [
+        ("premium-index-klines", ["--interval", "1h"]),
+        ("basis", ["--pair", "BTCUSDT", "--period", "1h"]),
+        ("global-long-short-account-ratio", ["--symbol", "BTCUSDT"]),
+        ("taker-buy-sell-volume", ["--symbol", "BTCUSDT"]),
+    ],
+)
+def test_ingest_cli_rejects_incomplete_binance_usdm_arguments(tmp_path, feed, args):
+    with pytest.raises(SystemExit):
+        main(
+            [
+                "ingest",
+                "--db",
+                str(tmp_path / "research.sqlite"),
+                "--source",
+                "binance-usdm",
+                "--allow-network",
+                "--binance-usdm-feed",
+                feed,
+                *args,
+            ]
+        )

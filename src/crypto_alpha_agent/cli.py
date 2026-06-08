@@ -20,6 +20,10 @@ from crypto_alpha_agent.agents.report_summarizer import ReportType, summarize_ev
 from crypto_alpha_agent.config import LLMRole
 from crypto_alpha_agent.data.ingestion import (
     ingest_binance_public_month,
+    ingest_binance_usdm_basis,
+    ingest_binance_usdm_global_long_short_account_ratio,
+    ingest_binance_usdm_premium_index_klines,
+    ingest_binance_usdm_taker_buy_sell_volume,
     ingest_ccxt_funding_rate_history,
     ingest_ccxt_open_interest_history,
     ingest_ccxt_ohlcv,
@@ -82,6 +86,10 @@ from crypto_alpha_agent.pipeline.markdown import (
     render_profit_governance_report_markdown,
     render_research_loop_markdown,
     render_weekly_evidence_report_markdown,
+)
+from crypto_alpha_agent.pipeline.strategy_feasibility import (
+    build_large_liquid_momentum_feasibility_report,
+    render_strategy_feasibility_markdown,
 )
 from crypto_alpha_agent.pipeline.memory import (
     persist_paper_outcome_memory,
@@ -670,6 +678,38 @@ def build_parser() -> argparse.ArgumentParser:
     )
     expansion_prep_parser.set_defaults(handler=_handle_expansion_prep_report, parser=expansion_prep_parser)
 
+    strategy_feasibility_parser = subparsers.add_parser(
+        "strategy-feasibility",
+        help="Build a read-only local strategy feasibility report before registering a family.",
+    )
+    strategy_feasibility_parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite research data store.")
+    strategy_feasibility_parser.add_argument(
+        "--mode",
+        required=True,
+        choices=("large-liquid-momentum-regime",),
+        help="Feasibility mode to evaluate.",
+    )
+    strategy_feasibility_parser.add_argument(
+        "--symbol",
+        action="append",
+        required=True,
+        help="Stored market candle symbol. Repeat for multiple symbols.",
+    )
+    strategy_feasibility_parser.add_argument("--timeframe", required=True, help="Stored market candle timeframe.")
+    strategy_feasibility_parser.add_argument("--out", required=True, type=Path, help="Path for the Markdown report.")
+    strategy_feasibility_parser.add_argument("--json-out", required=True, type=Path, help="Path for the machine-readable payload JSON.")
+    strategy_feasibility_parser.add_argument(
+        "--current-capital-usd",
+        type=_non_negative_finite_float,
+        default=300.0,
+        help="Operator capital profile used for feasibility constraints.",
+    )
+    strategy_feasibility_parser.set_defaults(
+        handler=_handle_strategy_feasibility,
+        parser=strategy_feasibility_parser,
+        llm_gate_bypass=True,
+    )
+
     evidence_run_parser = subparsers.add_parser(
         "evidence-run",
         help="Run the safe end-to-end evidence pipeline without live capital.",
@@ -851,7 +891,15 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument(
         "--source",
         action="append",
-        choices=("binance-public", "ccxt", "dexscreener", "defillama", "dune", "thegraph"),
+        choices=(
+            "binance-public",
+            "binance-usdm",
+            "ccxt",
+            "dexscreener",
+            "defillama",
+            "dune",
+            "thegraph",
+        ),
         default=[],
         help="Optional real-data source declaration. Repeat for multiple sources.",
     )
@@ -874,6 +922,30 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument("--timeframe", help="CCXT OHLCV timeframe, required for --ccxt-feed ohlcv.")
     ingest_parser.add_argument("--since", type=int, help="Optional CCXT since timestamp in milliseconds.")
     ingest_parser.add_argument("--limit", type=_positive_int, help="Optional positive CCXT record limit.")
+    ingest_parser.add_argument(
+        "--binance-usdm-feed",
+        choices=(
+            "premium-index-klines",
+            "basis",
+            "global-long-short-account-ratio",
+            "taker-buy-sell-volume",
+        ),
+        help="Binance USD-M public derivatives feed to ingest.",
+    )
+    ingest_parser.add_argument("--pair", help="Binance USD-M pair for pair-scoped feeds.")
+    ingest_parser.add_argument("--contract-type", help="Binance USD-M contract type, such as PERPETUAL.")
+    ingest_parser.add_argument("--period", help="Binance USD-M statistics period, such as 1h.")
+    ingest_parser.add_argument("--interval", help="Binance USD-M kline interval, such as 1h.")
+    ingest_parser.add_argument(
+        "--start-time-ms",
+        type=int,
+        help="Optional Binance USD-M start timestamp in milliseconds.",
+    )
+    ingest_parser.add_argument(
+        "--end-time-ms",
+        type=int,
+        help="Optional Binance USD-M end timestamp in milliseconds.",
+    )
     ingest_parser.add_argument("--query", help="DexScreener search query.")
     ingest_parser.add_argument("--chain", help="DexScreener chain id for token lookup.")
     ingest_parser.add_argument(
@@ -1516,7 +1588,10 @@ def _handle_ingest(args: argparse.Namespace) -> dict[str, Any]:
     ingestion = None
     if args.offline_check and args.source:
         args.parser.error("--offline-check cannot be combined with --source")
-    if _has_onchain_ingestion_intent(args):
+    if _has_binance_usdm_ingestion_intent(args):
+        _validate_binance_usdm_ingest_args(args)
+        ingestion = _run_binance_usdm_ingestion(args)
+    elif _has_onchain_ingestion_intent(args):
         _validate_onchain_ingest_args(args)
         ingestion = _run_onchain_ingestion(args)
     elif _has_dex_or_defi_ingestion_intent(args):
@@ -2191,6 +2266,26 @@ def _handle_expansion_prep_report(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def _handle_strategy_feasibility(args: argparse.Namespace) -> dict[str, Any]:
+    report = build_large_liquid_momentum_feasibility_report(
+        args.db,
+        symbols=args.symbol,
+        timeframe=args.timeframe,
+        current_capital_usd=args.current_capital_usd,
+    )
+    payload = {
+        "command": "strategy-feasibility",
+        "out": str(args.out),
+        "json_out": str(args.json_out),
+        "report": report.model_dump(mode="json"),
+        "uses_real_capital": False,
+        "live_order_routing": False,
+    }
+    write_text_artifact(args.out, render_strategy_feasibility_markdown(report))
+    write_json_artifact(args.json_out, payload)
+    return payload
+
+
 def _apply_evidence_report_summary(
     args: argparse.Namespace,
     report: Any,
@@ -2863,6 +2958,11 @@ def _evidence_run_secret_values(args: argparse.Namespace) -> list[str | None]:
     return secrets
 
 
+def _has_binance_usdm_ingestion_intent(args: argparse.Namespace) -> bool:
+    sources = set(args.source)
+    return bool("binance-usdm" in sources or _has_binance_usdm_specific_flags(args))
+
+
 def _has_ccxt_ingestion_intent(args: argparse.Namespace) -> bool:
     ccxt_sources = [source for source in args.source if source == "ccxt"]
     return bool(
@@ -2909,6 +3009,8 @@ def _validate_onchain_ingest_args(args: argparse.Namespace) -> None:
         args.parser.error("Dune/TheGraph ingestion flags cannot be combined with CCXT flags")
     if _has_dex_or_defi_specific_flags(args):
         args.parser.error("Dune/TheGraph ingestion flags cannot be combined with DEX/DeFi flags")
+    if _has_binance_usdm_specific_flags(args):
+        args.parser.error("Dune/TheGraph ingestion flags cannot be combined with Binance USD-M flags")
 
     source = next(iter(sources))
     if source == "dune":
@@ -2957,6 +3059,8 @@ def _validate_dex_or_defi_ingest_args(args: argparse.Namespace) -> None:
         args.parser.error("--allow-network is required when --source dexscreener or --source defillama is provided")
     if _has_ccxt_specific_flags(args):
         args.parser.error("CCXT ingestion flags cannot be combined with DEX/DeFi sources")
+    if _has_binance_usdm_specific_flags(args):
+        args.parser.error("Binance USD-M flags cannot be combined with DEX/DeFi sources")
 
     source = next(iter(sources))
     if source == "dexscreener":
@@ -2984,12 +3088,39 @@ def _has_ccxt_specific_flags(args: argparse.Namespace) -> bool:
     )
 
 
+def _has_ccxt_only_flags(args: argparse.Namespace) -> bool:
+    return bool(args.ccxt_feed is not None or args.exchange != "binance" or args.timeframe is not None or args.since is not None)
+
+
+def _has_binance_usdm_specific_flags(args: argparse.Namespace) -> bool:
+    return bool(
+        args.binance_usdm_feed is not None
+        or args.pair is not None
+        or args.contract_type is not None
+        or args.period is not None
+        or args.interval is not None
+        or args.start_time_ms is not None
+        or args.end_time_ms is not None
+    )
+
+
 def _has_dex_or_defi_specific_flags(args: argparse.Namespace) -> bool:
     return bool(
         args.query is not None
         or args.chain is not None
         or args.token_address
         or args.min_tvl_usd is not None
+    )
+
+
+def _has_onchain_specific_flags(args: argparse.Namespace) -> bool:
+    return bool(
+        args.dune_query_id is not None
+        or args.dune_api_key is not None
+        or args.dune_param
+        or args.subgraph_url is not None
+        or args.graph_query is not None
+        or args.graph_variable
     )
 
 
@@ -3007,6 +3138,8 @@ def _validate_ccxt_ingest_args(args: argparse.Namespace) -> None:
         args.parser.error("CCXT ingestion flags require --source ccxt and cannot be combined with other sources")
     if not args.allow_network:
         args.parser.error("--allow-network is required when --source ccxt is provided")
+    if _has_binance_usdm_specific_flags(args):
+        args.parser.error("Binance USD-M flags cannot be combined with --source ccxt")
 
     missing = [
         option
@@ -3022,6 +3155,64 @@ def _validate_ccxt_ingest_args(args: argparse.Namespace) -> None:
         args.parser.error(f"{', '.join(missing)} required when --source ccxt is provided")
     if args.ccxt_feed == "funding-rate-history" and args.timeframe is not None:
         args.parser.error("--timeframe cannot be combined with --ccxt-feed funding-rate-history")
+
+
+def _validate_binance_usdm_ingest_args(args: argparse.Namespace) -> None:
+    if set(args.source) != {"binance-usdm"}:
+        args.parser.error(
+            "Binance USD-M ingestion flags require --source binance-usdm and cannot be combined with other sources"
+        )
+    if not args.allow_network:
+        args.parser.error("--allow-network is required when --source binance-usdm is provided")
+    if _has_ccxt_only_flags(args):
+        args.parser.error("CCXT-only flags cannot be combined with --source binance-usdm")
+    if _has_dex_or_defi_specific_flags(args):
+        args.parser.error("DEX/DeFi flags cannot be combined with --source binance-usdm")
+    if _has_onchain_specific_flags(args):
+        args.parser.error("Dune/TheGraph flags cannot be combined with --source binance-usdm")
+
+    if args.binance_usdm_feed is None:
+        args.parser.error("--binance-usdm-feed required when --source binance-usdm is provided")
+
+    if args.binance_usdm_feed == "premium-index-klines":
+        _require_binance_usdm_args(args, "--symbol", args.symbol, "--interval", args.interval)
+        _reject_binance_usdm_args(args, "--pair", args.pair, "--contract-type", args.contract_type, "--period", args.period)
+        return
+    if args.binance_usdm_feed == "basis":
+        _require_binance_usdm_args(
+            args,
+            "--pair",
+            args.pair,
+            "--contract-type",
+            args.contract_type,
+            "--period",
+            args.period,
+        )
+        _reject_binance_usdm_args(args, "--symbol", args.symbol, "--interval", args.interval)
+        return
+
+    _require_binance_usdm_args(args, "--symbol", args.symbol, "--period", args.period)
+    _reject_binance_usdm_args(args, "--pair", args.pair, "--contract-type", args.contract_type, "--interval", args.interval)
+
+
+def _require_binance_usdm_args(args: argparse.Namespace, *name_value_pairs) -> None:
+    missing = [
+        name
+        for name, value in zip(name_value_pairs[0::2], name_value_pairs[1::2], strict=True)
+        if value is None or (isinstance(value, str) and not value.strip())
+    ]
+    if missing:
+        args.parser.error(f"{', '.join(missing)} required when --source binance-usdm is provided")
+
+
+def _reject_binance_usdm_args(args: argparse.Namespace, *name_value_pairs) -> None:
+    present = [
+        name
+        for name, value in zip(name_value_pairs[0::2], name_value_pairs[1::2], strict=True)
+        if value is not None and (not isinstance(value, str) or bool(value.strip()))
+    ]
+    if present:
+        args.parser.error(f"{', '.join(present)} cannot be combined with {args.binance_usdm_feed}")
 
 
 def _run_ccxt_ingestion(args: argparse.Namespace):
@@ -3052,6 +3243,49 @@ def _run_ccxt_ingestion(args: argparse.Namespace):
         limit=args.limit,
         allow_network=True,
         exchange_id=args.exchange,
+    )
+
+
+def _run_binance_usdm_ingestion(args: argparse.Namespace):
+    if args.binance_usdm_feed == "premium-index-klines":
+        return ingest_binance_usdm_premium_index_klines(
+            args.db,
+            symbol=args.symbol,
+            interval=args.interval,
+            limit=args.limit,
+            start_time_ms=args.start_time_ms,
+            end_time_ms=args.end_time_ms,
+            allow_network=True,
+        )
+    if args.binance_usdm_feed == "basis":
+        return ingest_binance_usdm_basis(
+            args.db,
+            pair=args.pair,
+            contract_type=args.contract_type,
+            period=args.period,
+            limit=args.limit,
+            start_time_ms=args.start_time_ms,
+            end_time_ms=args.end_time_ms,
+            allow_network=True,
+        )
+    if args.binance_usdm_feed == "global-long-short-account-ratio":
+        return ingest_binance_usdm_global_long_short_account_ratio(
+            args.db,
+            symbol=args.symbol,
+            period=args.period,
+            limit=args.limit,
+            start_time_ms=args.start_time_ms,
+            end_time_ms=args.end_time_ms,
+            allow_network=True,
+        )
+    return ingest_binance_usdm_taker_buy_sell_volume(
+        args.db,
+        symbol=args.symbol,
+        period=args.period,
+        limit=args.limit,
+        start_time_ms=args.start_time_ms,
+        end_time_ms=args.end_time_ms,
+        allow_network=True,
     )
 
 

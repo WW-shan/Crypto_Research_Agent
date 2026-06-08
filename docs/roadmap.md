@@ -296,6 +296,20 @@ review. The next practical work is a new evidence-first strategy redesign or
 data-campaign slice that starts from fresh Smart Search evidence, local source
 qualification, and a small feasibility check before product code changes.
 
+Profit evidence redesign update on 2026-06-08: the next data-campaign slice
+added public Binance USD-M premium-index kline, basis, global long/short
+account ratio, and taker buy/sell volume ingestion. Live smoke ingestion wrote
+24 rows for each new derivatives feed with source-health success rows. The new
+read-only `strategy-feasibility` command then blocked
+`large-liquid-momentum-regime` before strategy registration because local
+storage has 434 BTC/USDT 1h candles but 0 ETH/USDT and 0 SOL/USDT 1h candles,
+so multi-symbol aligned history is zero. The next practical work is aligned
+BTC/ETH/SOL 1h OHLCV collection over the same window, followed by another
+feasibility report. Do not register the momentum-regime family until that
+report has enough walk-forward splits and positive cost-adjusted expectancy.
+Also investigate the `ingest` real LLM readiness gate stall with a bounded
+timeout before relying on CLI ingest as a smoke driver.
+
 The roadmap below is the post-milestone work needed to move from "working
 evidence factory" to "profit evidence." None of these phases should weaken the
 charter. A phase is complete only when it improves the system's ability to

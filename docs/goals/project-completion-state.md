@@ -6,114 +6,71 @@ round.
 
 ## Current Round
 
-- Round: 19
-- Status: Evidence Recovery Campaign completed as an operations/documentation
-  round with a documented profit-evidence blocker: public-data ingestion,
-  open-interest ingestion, validation, paper simulation, and governance paths
-  ran successfully, but both active funding families tested in this round were
-  stopped by deterministic governance after blocked paper outcomes and weak
-  validation.
+- Round: 20
+- Status: Profit Evidence Redesign completed as a data/feasibility slice. New
+  public Binance USD-M derivatives ingestion works, but the proposed
+  large-liquid momentum regime is blocked before strategy registration because
+  local multi-symbol aligned 1h candle history is missing for ETH/USDT and
+  SOL/USDT.
 - Started: 2026-06-08
-- Completed: 2026-06-08 operations/docs closeout; final ruff, diff, staged
-  diff, and staged secret checks passed; closeout commits pushed to
-  `origin/main`
-- Active slice: Evidence Recovery Campaign
+- Completed: 2026-06-08 data/feasibility closeout; focused tests, full pytest,
+  ruff, diff check, staged diff, and staged secret checks passed; closeout
+  commit pushed to `origin/main`.
+- Active slice: Profit Evidence Redesign
 - Active design source:
-  `docs/superpowers/specs/2026-06-08-evidence-recovery-campaign-design.md`
+  `docs/superpowers/specs/2026-06-08-profit-evidence-redesign-design.md`
 - Active plan source:
-  `docs/superpowers/plans/2026-06-08-evidence-recovery-campaign.md`
+  `docs/superpowers/plans/2026-06-08-profit-evidence-redesign.md`
 - Phase report:
-  `docs/goals/phase-reports/2026-06-08-evidence-recovery-campaign-report.md`
+  `docs/goals/phase-reports/2026-06-08-profit-evidence-redesign-report.md`
 
 ## Completed This Round
 
-- Added and committed the Evidence Recovery Campaign design spec:
-  `docs/superpowers/specs/2026-06-08-evidence-recovery-campaign-design.md`.
-- Added and committed the Evidence Recovery Campaign implementation plan:
-  `docs/superpowers/plans/2026-06-08-evidence-recovery-campaign.md`.
-- Confirmed the baseline evidence gap:
-  `funding_extremity_price_confirmation` had 3 old validation records and 3
-  old blocked paper outcomes, while no `open_interest` records existed before
-  this campaign.
-- Confirmed latest pre-campaign run `proxy-fixed-20260607T142806Z` restored
-  public-data collection through the proxy route but wrote no new validation
-  evidence and no paper outcomes because the default stopped family was
-  skipped.
-- Qualified Binance USD-M open-interest history through `source-probe`:
-  no-network probing failed closed with `network_not_allowed`; proxy-route
-  probing returned HTTP 200, parsed output, `typed_record_count=1`, and
-  `provider_status=ResearchUsable`.
-- Qualified local CCXT open-interest ingestion by writing 24
-  `BTC/USDT:USDT` open-interest records through the proxy route, then
-  confirmed positive open-interest values and a 2026-06-07T02:00:00Z through
-  2026-06-08T01:00:00Z observed window.
-- Ran active-family evidence recovery for
-  `funding_open_interest_crowding` with run id
-  `evidence-recovery-oi-20260608T015547Z`. The run succeeded through the proxy
-  route, wrote 200 OHLCV records, 200 funding records, 200 open-interest
-  records, 1 validation evidence item, and 1 blocked paper outcome. No stopped
-  family override was used.
-- Ran fallback active-family evidence recovery for
-  `funding_mean_reversion_after_extreme` with run id
-  `evidence-recovery-mean-reversion-20260608T020000Z`. The run succeeded
-  through the proxy route, wrote 200 OHLCV records, 200 funding records, 1
-  validation evidence item, and 1 blocked paper outcome. No stopped-family
-  override was used.
-- Confirmed both new validation rows are not approved and share these blocked
-  reasons: `no_extreme_funding`, `insufficient_trades`,
-  `non_positive_expectancy`, `non_positive_net_return`, and
-  `unstable_walk_forward_performance`.
-- Generated `var/reports/evidence-recovery/governance-latest.md`. Governance
-  now marks all three executable funding families as `stop`; DeFi, DEX, and
-  volatility watchlists remain `add_data`; the paper-only portfolio selector
-  has no candidate.
-- Added this round's campaign report documenting the blocker and next safe
-  action.
+- Added the Profit Evidence Redesign design spec and implementation plan.
+- Used deep Smart Search evidence to choose public Binance USD-M derivatives
+  data as the next safe data upgrade after stopped funding-family governance.
+- Added `binance_usdm_taker_buy_sell_volume` source-probe coverage and verified
+  it through the proxy route with HTTP 200, parsed payload, one typed row,
+  `provider_status=ResearchUsable`, `uses_real_capital=false`, and
+  `live_order_routing=false`.
+- Added strict typed records and public ingestion for Binance USD-M
+  premium-index klines, basis, global long/short account ratio, and taker
+  buy/sell volume.
+- Added `ingest --source binance-usdm` CLI support and source-health writes for
+  all four derivatives feeds.
+- Live public-data smoke ingestion wrote 24 rows each for
+  `premium_index_kline`, `basis`, `long_short_account_ratio`, and
+  `taker_buy_sell_volume`.
+- Added the read-only `strategy-feasibility` command for
+  `large-liquid-momentum-regime`.
+- Ran local feasibility and blocked strategy registration with
+  `insufficient_aligned_history`: the database has 434 BTC/USDT 1h candles but
+  0 ETH/USDT and 0 SOL/USDT 1h candles.
+- Added this round's phase report documenting the data upgrade, blocker, and
+  next safe action.
 
 ## Verification Evidence
 
-- `uv run --extra dev crypto-alpha-agent source-probe --list-targets` exited 0
-  and listed `binance_usdm_open_interest_history`.
-- `uv run --extra dev crypto-alpha-agent source-probe --db
-  var/research.sqlite --target binance_usdm_open_interest_history` exited 2
-  with `blocked_reason=network_not_allowed`, `network_route=blocked`,
-  `uses_real_capital=false`, and `live_order_routing=false`.
-- Proxy-routed source probe exited 0 with HTTP 200, parsed payload,
-  `typed_record_count=1`, `provider_status=ResearchUsable`,
-  `uses_real_capital=false`, and `live_order_routing=false`.
-- Proxy-routed CCXT open-interest ingestion exited 0 and wrote 24
-  `open_interest` records for `BTC/USDT:USDT`.
-- SQLite inspection after OI ingestion showed 24 rows for `BTC/USDT:USDT` on
-  `binance`, observed between 2026-06-07T02:00:00+00:00 and
-  2026-06-08T01:00:00+00:00, with open interest values from 98293.307 to
-  103160.276.
-- `evidence-recovery-oi-20260608T015547Z` exited 0 and wrote 1 validation
-  evidence item plus 1 blocked paper outcome for
-  `funding_open_interest_crowding`.
-- `evidence-recovery-mean-reversion-20260608T020000Z` exited 0 and wrote 1
-  validation evidence item plus 1 blocked paper outcome for
-  `funding_mean_reversion_after_extreme`.
-- SQLite ledger inspection showed both new families have blocked validation
-  reasons `no_extreme_funding`, `insufficient_trades`,
-  `non_positive_expectancy`, `non_positive_net_return`, and
-  `unstable_walk_forward_performance`.
-- `uv run --extra dev crypto-alpha-agent governance-report --db
-  var/research.sqlite --memory var/memory/evidence.jsonl --out
-  var/reports/evidence-recovery/governance-latest.md --current-capital-usd
-  300` exited 0. The report kept `Real capital: false` and
-  `Live order routing: false`, stopped all executable funding families, and
-  produced no paper portfolio candidate.
-- `uv run --extra dev ruff check .` passed.
-- `git diff --check` passed.
-- Staged file review included only:
-  `docs/goals/phase-reports/2026-06-08-evidence-recovery-campaign-report.md`,
-  `docs/goals/project-completion-state.md`, `docs/roadmap.md`, and
-  `docs/superpowers/plans/2026-06-08-evidence-recovery-campaign.md`.
-- `git diff --cached --check` passed.
-- `git diff --cached --no-ext-diff --unified=0` was reviewed.
-- `uv run python -m crypto_alpha_agent.security.secret_scan --staged
-  --fail-on-empty-with-untracked` returned `[]`.
-- Closeout commits were pushed to `origin/main` after staged checks passed.
+- `uv run --extra dev pytest tests/test_source_probe.py -q` passed.
+- `uv run --extra dev pytest tests/test_binance_usdm_derivatives_ingestion.py
+  tests/test_cli_ingest.py tests/test_documentation_contract.py -q` passed
+  with 37 tests.
+- `uv run --extra dev pytest tests/test_strategy_feasibility.py
+  tests/test_documentation_contract.py -q` passed with 15 tests.
+- Related ruff checks for new and touched files passed.
+- Proxy-routed `binance_usdm_taker_buy_sell_volume` source-probe exited 0 with
+  HTTP 200, parsed payload, `typed_record_count=1`,
+  `provider_status=ResearchUsable`, `uses_real_capital=false`, and
+  `live_order_routing=false`.
+- Direct live ingestion through the new functions wrote 24 rows per new
+  Binance USD-M derivatives feed and successful source-health rows for all
+  four feeds.
+- SQLite inspection showed 24 rows each for `premium_index_kline`, `basis`,
+  `long_short_account_ratio`, and `taker_buy_sell_volume`.
+- `strategy-feasibility` exited 0 and produced
+  `var/reports/strategy-feasibility/latest.md` plus
+  `var/reports/strategy-feasibility/latest.json`; the report is blocked with
+  reason `insufficient_aligned_history`.
 
 ## Current Project Target
 
@@ -234,6 +191,18 @@ work requires a new evidence-first design for strategy redesign or a different
 public-data-backed family; repeating the stopped funding families is not a
 valid progress path.
 
+The 2026-06-08 Profit Evidence Redesign added the next data slice: Binance
+USD-M premium-index klines, basis, global long/short account ratio, and taker
+buy/sell volume now have typed models, ingestion, source-health, tests, and
+live public-data smoke evidence. Strategy registration remains blocked. The
+new `strategy-feasibility` report found `insufficient_aligned_history` for the
+large-liquid momentum regime because local storage has BTC/USDT 1h candles but
+no ETH/USDT or SOL/USDT 1h candles for the same window. The next smallest
+useful work is aligned multi-symbol OHLCV collection and then another
+feasibility run, not strategy code. The CLI `ingest` real LLM readiness gate
+also stalled during this slice and needs a bounded-timeout investigation before
+it can be relied on as a smoke driver.
+
 Reality audit: `docs/goals/project-reality-audit-2026-05-29.md` records that
 the owner's broader autonomy target is larger than the completed Phase 0
 through Phase 13 roadmap. Relative to that owner autonomy target, these
@@ -333,3 +302,4 @@ If work continues after Phase 13:
 | 17 | 2026-05-29 | Phase 16 GHCR container publishing | focused GHCR/docs/runtime/planner contracts 81 passed; real LLM planner smoke 1 passed; pytest 990 passed; final ruff, diff, staged diff, and staged secret checks required before commit | Phase 16 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 18 | 2026-06-06 | Phase 17 creation-first Codex autonomy closeout | non-LLM pytest 1080 passed; focused Phase 17 tests 120 passed; adapter diagnostics and retry checks passed; focused LLM non-integration tests 46 passed, 1 deselected; real LLM health check passed after provider compatibility fallback; full real-provider suites remain sensitive to provider stalls | `22df14c docs: close out creation autonomy phase` plus remediation follow-up | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 19 | 2026-06-08 | Evidence Recovery Campaign | source-probe OI list/proxy qualification passed; CCXT OI ingest wrote 24 records; OI crowding run wrote 1 validation and 1 blocked paper outcome; mean-reversion fallback wrote 1 validation and 1 blocked paper outcome; governance report stopped all executable funding families; ruff, diff, staged diff, and staged secret checks passed | Evidence Recovery Campaign closeout commits pushed to `main` | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 20 | 2026-06-08 | Profit Evidence Redesign | focused tests 54 passed; full pytest 1119 passed; ruff passed; diff/staged checks passed; staged secret scan returned []; Binance USD-M derivatives ingest wrote 24 rows per new feed; strategy feasibility blocked with `insufficient_aligned_history` | Profit Evidence Redesign closeout commit pushed to `main` | `https://github.com/WW-shan/Crypto_Research_Agent` |

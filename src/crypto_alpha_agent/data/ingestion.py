@@ -6,10 +6,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from crypto_alpha_agent.data.ccxt_collector import CcxtResearchCollector
+from crypto_alpha_agent.data.binance_usdm_derivatives import BinanceUsdmDerivativesClient
 from crypto_alpha_agent.data.binance_public import BinancePublicDataClient
+from crypto_alpha_agent.data.ccxt_collector import CcxtResearchCollector
 from crypto_alpha_agent.data.defillama import DefiLlamaResearchClient
 from crypto_alpha_agent.data.dexscreener import DexScreenerClient
 from crypto_alpha_agent.data.models import (
@@ -60,6 +61,32 @@ class ResearchFeedIngestionSummary(BaseModel):
     source: str
     db_path: str
     feed: Literal["pairs", "yield_pools"]
+    records_fetched: int
+    records_written: int
+    network_allowed: bool
+    uses_real_capital: bool
+    live_order_routing: bool
+
+
+BinanceUsdmDerivativesFeed = Literal[
+    "premium_index_klines",
+    "basis",
+    "global_long_short_account_ratio",
+    "taker_buy_sell_volume",
+]
+
+
+class BinanceUsdmDerivativesIngestionSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    source: str
+    db_path: str
+    feed: BinanceUsdmDerivativesFeed
+    symbols: list[str] = Field(default_factory=list)
+    pairs: list[str] = Field(default_factory=list)
+    period: str | None = None
+    interval: str | None = None
+    contract_type: str | None = None
     records_fetched: int
     records_written: int
     network_allowed: bool
@@ -243,6 +270,140 @@ def ingest_defillama_yield_pools(
         network_allowed=True,
         uses_real_capital=False,
         live_order_routing=False,
+    )
+
+
+def ingest_binance_usdm_premium_index_klines(
+    db_path: str | Path,
+    *,
+    symbol: str,
+    interval: str,
+    limit: int | None = None,
+    start_time_ms: int | None = None,
+    end_time_ms: int | None = None,
+    allow_network: bool = False,
+    client=None,
+) -> BinanceUsdmDerivativesIngestionSummary:
+    if not allow_network:
+        raise ValueError("allow_network is required for Binance USD-M derivatives ingestion")
+
+    binance_client = client or BinanceUsdmDerivativesClient()
+    return _ingest_binance_usdm_derivatives_records(
+        db_path,
+        feed="premium_index_klines",
+        fetch_records=lambda: binance_client.fetch_premium_index_klines(
+            symbol=symbol,
+            interval=interval,
+            limit=limit,
+            start_time_ms=start_time_ms,
+            end_time_ms=end_time_ms,
+        ),
+        symbols=[symbol],
+        pairs=[],
+        interval=interval,
+        period=None,
+        contract_type=None,
+    )
+
+
+def ingest_binance_usdm_basis(
+    db_path: str | Path,
+    *,
+    pair: str,
+    contract_type: str,
+    period: str,
+    limit: int | None = None,
+    start_time_ms: int | None = None,
+    end_time_ms: int | None = None,
+    allow_network: bool = False,
+    client=None,
+) -> BinanceUsdmDerivativesIngestionSummary:
+    if not allow_network:
+        raise ValueError("allow_network is required for Binance USD-M derivatives ingestion")
+
+    binance_client = client or BinanceUsdmDerivativesClient()
+    return _ingest_binance_usdm_derivatives_records(
+        db_path,
+        feed="basis",
+        fetch_records=lambda: binance_client.fetch_basis(
+            pair=pair,
+            contract_type=contract_type,
+            period=period,
+            limit=limit,
+            start_time_ms=start_time_ms,
+            end_time_ms=end_time_ms,
+        ),
+        symbols=[],
+        pairs=[pair],
+        interval=None,
+        period=period,
+        contract_type=contract_type,
+    )
+
+
+def ingest_binance_usdm_global_long_short_account_ratio(
+    db_path: str | Path,
+    *,
+    symbol: str,
+    period: str,
+    limit: int | None = None,
+    start_time_ms: int | None = None,
+    end_time_ms: int | None = None,
+    allow_network: bool = False,
+    client=None,
+) -> BinanceUsdmDerivativesIngestionSummary:
+    if not allow_network:
+        raise ValueError("allow_network is required for Binance USD-M derivatives ingestion")
+
+    binance_client = client or BinanceUsdmDerivativesClient()
+    return _ingest_binance_usdm_derivatives_records(
+        db_path,
+        feed="global_long_short_account_ratio",
+        fetch_records=lambda: binance_client.fetch_global_long_short_account_ratio(
+            symbol=symbol,
+            period=period,
+            limit=limit,
+            start_time_ms=start_time_ms,
+            end_time_ms=end_time_ms,
+        ),
+        symbols=[symbol],
+        pairs=[],
+        interval=None,
+        period=period,
+        contract_type=None,
+    )
+
+
+def ingest_binance_usdm_taker_buy_sell_volume(
+    db_path: str | Path,
+    *,
+    symbol: str,
+    period: str,
+    limit: int | None = None,
+    start_time_ms: int | None = None,
+    end_time_ms: int | None = None,
+    allow_network: bool = False,
+    client=None,
+) -> BinanceUsdmDerivativesIngestionSummary:
+    if not allow_network:
+        raise ValueError("allow_network is required for Binance USD-M derivatives ingestion")
+
+    binance_client = client or BinanceUsdmDerivativesClient()
+    return _ingest_binance_usdm_derivatives_records(
+        db_path,
+        feed="taker_buy_sell_volume",
+        fetch_records=lambda: binance_client.fetch_taker_buy_sell_volume(
+            symbol=symbol,
+            period=period,
+            limit=limit,
+            start_time_ms=start_time_ms,
+            end_time_ms=end_time_ms,
+        ),
+        symbols=[symbol],
+        pairs=[],
+        interval=None,
+        period=period,
+        contract_type=None,
     )
 
 
@@ -434,6 +595,61 @@ def ingest_ccxt_open_interest_history(
         feed="open_interest_history",
         symbols=[symbol],
         records_fetched=len(open_interest_history),
+        records_written=records_written,
+        network_allowed=True,
+        uses_real_capital=False,
+        live_order_routing=False,
+    )
+
+
+def _ingest_binance_usdm_derivatives_records(
+    db_path: str | Path,
+    *,
+    feed: BinanceUsdmDerivativesFeed,
+    fetch_records,
+    symbols: list[str],
+    pairs: list[str],
+    interval: str | None,
+    period: str | None,
+    contract_type: str | None,
+) -> BinanceUsdmDerivativesIngestionSummary:
+    store = ResearchDataStore(db_path)
+    try:
+        typed_records = list(fetch_records())
+        records = [record.to_source_record() for record in typed_records]
+        records_written = store.upsert_records(records)
+    except Exception as exc:
+        _write_source_health(
+            store,
+            source="binance_usdm",
+            feed=feed,
+            success=False,
+            attempts=1,
+            failure=str(exc),
+            records_fetched=0,
+            records_written=0,
+        )
+        raise
+    _write_source_health(
+        store,
+        source="binance_usdm",
+        feed=feed,
+        success=True,
+        attempts=1,
+        failure=None,
+        records_fetched=len(typed_records),
+        records_written=records_written,
+    )
+    return BinanceUsdmDerivativesIngestionSummary(
+        source="binance_usdm",
+        db_path=str(db_path),
+        feed=feed,
+        symbols=symbols,
+        pairs=pairs,
+        period=period,
+        interval=interval,
+        contract_type=contract_type,
+        records_fetched=len(typed_records),
         records_written=records_written,
         network_allowed=True,
         uses_real_capital=False,

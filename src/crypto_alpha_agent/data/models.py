@@ -12,6 +12,10 @@ RecordType = Literal[
     "market_candle",
     "funding_rate",
     "open_interest",
+    "premium_index_kline",
+    "basis",
+    "long_short_account_ratio",
+    "taker_buy_sell_volume",
     "dex_pair",
     "defi_yield",
     "research_snapshot",
@@ -95,6 +99,143 @@ class OpenInterestRecord(BaseModel):
             ),
             source=self.source,
             record_type="open_interest",
+            observed_at=self.timestamp,
+            payload=self.model_dump(mode="json"),
+        )
+
+
+class PremiumIndexKlineRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    source: str
+    venue: str
+    symbol: str
+    timestamp: datetime
+    interval: str
+    open: float
+    high: float
+    low: float
+    close: float
+    suitability: DataSuitability = Field(default_factory=DataSuitability)
+    raw: dict[str, Any] = Field(default_factory=dict)
+    uses_real_capital: Literal[False] = False
+    live_order_routing: Literal[False] = False
+
+    def to_source_record(self) -> SourceRecord:
+        timestamp = self.timestamp.isoformat()
+        safe_venue = _safe_component(self.venue)
+        safe_symbol = _safe_symbol(self.symbol)
+        safe_interval = _safe_component(self.interval)
+        return SourceRecord(
+            record_id=(
+                f"{self.source}:{safe_venue}:{safe_symbol}:premium_index_kline:"
+                f"{safe_interval}:{timestamp}"
+            ),
+            source=self.source,
+            record_type="premium_index_kline",
+            observed_at=self.timestamp,
+            payload=self.model_dump(mode="json"),
+        )
+
+
+class BasisRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    source: str
+    venue: str
+    pair: str
+    contract_type: str
+    period: str
+    timestamp: datetime
+    index_price: float = Field(ge=0)
+    futures_price: float = Field(ge=0)
+    basis: float
+    basis_rate: float
+    annualized_basis_rate: float | None = None
+    suitability: DataSuitability = Field(default_factory=DataSuitability)
+    raw: dict[str, Any] = Field(default_factory=dict)
+    uses_real_capital: Literal[False] = False
+    live_order_routing: Literal[False] = False
+
+    def to_source_record(self) -> SourceRecord:
+        timestamp = self.timestamp.isoformat()
+        safe_venue = _safe_component(self.venue)
+        safe_pair = _safe_symbol(self.pair)
+        safe_contract = _safe_component(self.contract_type)
+        safe_period = _safe_component(self.period)
+        return SourceRecord(
+            record_id=(
+                f"{self.source}:{safe_venue}:{safe_pair}:basis:"
+                f"{safe_contract}:{safe_period}:{timestamp}"
+            ),
+            source=self.source,
+            record_type="basis",
+            observed_at=self.timestamp,
+            payload=self.model_dump(mode="json"),
+        )
+
+
+class LongShortRatioRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    source: str
+    venue: str
+    symbol: str
+    period: str
+    timestamp: datetime
+    long_short_ratio: float = Field(ge=0)
+    long_account: float = Field(ge=0, le=1)
+    short_account: float = Field(ge=0, le=1)
+    suitability: DataSuitability = Field(default_factory=DataSuitability)
+    raw: dict[str, Any] = Field(default_factory=dict)
+    uses_real_capital: Literal[False] = False
+    live_order_routing: Literal[False] = False
+
+    def to_source_record(self) -> SourceRecord:
+        timestamp = self.timestamp.isoformat()
+        safe_venue = _safe_component(self.venue)
+        safe_symbol = _safe_symbol(self.symbol)
+        safe_period = _safe_component(self.period)
+        return SourceRecord(
+            record_id=(
+                f"{self.source}:{safe_venue}:{safe_symbol}:long_short_account_ratio:"
+                f"{safe_period}:{timestamp}"
+            ),
+            source=self.source,
+            record_type="long_short_account_ratio",
+            observed_at=self.timestamp,
+            payload=self.model_dump(mode="json"),
+        )
+
+
+class TakerBuySellVolumeRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    source: str
+    venue: str
+    symbol: str
+    period: str
+    timestamp: datetime
+    buy_sell_ratio: float = Field(ge=0)
+    buy_volume: float = Field(ge=0)
+    sell_volume: float = Field(ge=0)
+    suitability: DataSuitability = Field(default_factory=DataSuitability)
+    raw: dict[str, Any] = Field(default_factory=dict)
+    uses_real_capital: Literal[False] = False
+    live_order_routing: Literal[False] = False
+
+    def to_source_record(self) -> SourceRecord:
+        timestamp = self.timestamp.isoformat()
+        safe_venue = _safe_component(self.venue)
+        safe_symbol = _safe_symbol(self.symbol)
+        safe_period = _safe_component(self.period)
+        return SourceRecord(
+            record_id=(
+                f"{self.source}:{safe_venue}:{safe_symbol}:taker_buy_sell_volume:"
+                f"{safe_period}:{timestamp}"
+            ),
+            source=self.source,
+            record_type="taker_buy_sell_volume",
             observed_at=self.timestamp,
             payload=self.model_dump(mode="json"),
         )
