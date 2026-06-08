@@ -20,6 +20,7 @@ from crypto_alpha_agent.agents.report_summarizer import ReportType, summarize_ev
 from crypto_alpha_agent.config import LLMRole
 from crypto_alpha_agent.data.ingestion import (
     ingest_binance_public_month,
+    ingest_binance_public_um_futures_month,
     ingest_binance_usdm_basis,
     ingest_binance_usdm_global_long_short_account_ratio,
     ingest_binance_usdm_premium_index_klines,
@@ -954,6 +955,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="CCXT feed to ingest when --source ccxt is provided.",
     )
     ingest_parser.add_argument(
+        "--public-data-market",
+        choices=("spot", "um-futures"),
+        help="Binance Public Data market namespace when --source binance-public is provided.",
+    )
+    ingest_parser.add_argument("--year", type=_positive_int, help="Positive UTC year for Binance Public Data ingestion.")
+    ingest_parser.add_argument("--month", type=_month_number, help="UTC month for Binance Public Data ingestion, 1-12.")
+    ingest_parser.add_argument(
         "--exchange",
         default="binance",
         help="CCXT exchange id for research data ingestion.",
@@ -1628,7 +1636,10 @@ def _handle_ingest(args: argparse.Namespace) -> dict[str, Any]:
     ingestion = None
     if args.offline_check and args.source:
         args.parser.error("--offline-check cannot be combined with --source")
-    if _has_binance_usdm_ingestion_intent(args):
+    if _has_binance_public_ingestion_intent(args):
+        _validate_binance_public_ingest_args(args)
+        ingestion = _run_binance_public_ingestion(args)
+    elif _has_binance_usdm_ingestion_intent(args):
         _validate_binance_usdm_ingest_args(args)
         ingestion = _run_binance_usdm_ingestion(args)
     elif _has_onchain_ingestion_intent(args):
@@ -3043,6 +3054,13 @@ def _has_binance_usdm_ingestion_intent(args: argparse.Namespace) -> bool:
     return bool("binance-usdm" in sources or _has_binance_usdm_specific_flags(args))
 
 
+def _has_binance_public_ingestion_intent(args: argparse.Namespace) -> bool:
+    sources = set(args.source)
+    if args.public_data_market is not None or args.year is not None or args.month is not None:
+        return True
+    return bool("binance-public" in sources and (args.symbol is not None or args.timeframe is not None))
+
+
 def _has_ccxt_ingestion_intent(args: argparse.Namespace) -> bool:
     ccxt_sources = [source for source in args.source if source == "ccxt"]
     return bool(
@@ -3091,6 +3109,8 @@ def _validate_onchain_ingest_args(args: argparse.Namespace) -> None:
         args.parser.error("Dune/TheGraph ingestion flags cannot be combined with DEX/DeFi flags")
     if _has_binance_usdm_specific_flags(args):
         args.parser.error("Dune/TheGraph ingestion flags cannot be combined with Binance USD-M flags")
+    if _has_binance_public_specific_flags(args):
+        args.parser.error("Dune/TheGraph ingestion flags cannot be combined with Binance Public Data flags")
 
     source = next(iter(sources))
     if source == "dune":
@@ -3141,6 +3161,8 @@ def _validate_dex_or_defi_ingest_args(args: argparse.Namespace) -> None:
         args.parser.error("CCXT ingestion flags cannot be combined with DEX/DeFi sources")
     if _has_binance_usdm_specific_flags(args):
         args.parser.error("Binance USD-M flags cannot be combined with DEX/DeFi sources")
+    if _has_binance_public_specific_flags(args):
+        args.parser.error("Binance Public Data flags cannot be combined with DEX/DeFi sources")
 
     source = next(iter(sources))
     if source == "dexscreener":
@@ -3170,6 +3192,14 @@ def _has_ccxt_specific_flags(args: argparse.Namespace) -> bool:
 
 def _has_ccxt_only_flags(args: argparse.Namespace) -> bool:
     return bool(args.ccxt_feed is not None or args.exchange != "binance" or args.timeframe is not None or args.since is not None)
+
+
+def _has_binance_public_specific_flags(args: argparse.Namespace) -> bool:
+    return bool(
+        args.public_data_market is not None
+        or args.year is not None
+        or args.month is not None
+    )
 
 
 def _has_binance_usdm_specific_flags(args: argparse.Namespace) -> bool:
@@ -3220,6 +3250,8 @@ def _validate_ccxt_ingest_args(args: argparse.Namespace) -> None:
         args.parser.error("--allow-network is required when --source ccxt is provided")
     if _has_binance_usdm_specific_flags(args):
         args.parser.error("Binance USD-M flags cannot be combined with --source ccxt")
+    if _has_binance_public_specific_flags(args):
+        args.parser.error("Binance Public Data flags cannot be combined with --source ccxt")
 
     missing = [
         option
@@ -3246,6 +3278,8 @@ def _validate_binance_usdm_ingest_args(args: argparse.Namespace) -> None:
         args.parser.error("--allow-network is required when --source binance-usdm is provided")
     if _has_ccxt_only_flags(args):
         args.parser.error("CCXT-only flags cannot be combined with --source binance-usdm")
+    if _has_binance_public_specific_flags(args):
+        args.parser.error("Binance Public Data flags cannot be combined with --source binance-usdm")
     if _has_dex_or_defi_specific_flags(args):
         args.parser.error("DEX/DeFi flags cannot be combined with --source binance-usdm")
     if _has_onchain_specific_flags(args):
@@ -3273,6 +3307,37 @@ def _validate_binance_usdm_ingest_args(args: argparse.Namespace) -> None:
 
     _require_binance_usdm_args(args, "--symbol", args.symbol, "--period", args.period)
     _reject_binance_usdm_args(args, "--pair", args.pair, "--contract-type", args.contract_type, "--interval", args.interval)
+
+
+def _validate_binance_public_ingest_args(args: argparse.Namespace) -> None:
+    if set(args.source) != {"binance-public"}:
+        args.parser.error(
+            "Binance Public Data ingestion flags require --source binance-public and cannot be combined with other sources"
+        )
+    if not args.allow_network:
+        args.parser.error("--allow-network is required when --source binance-public is provided")
+    if args.ccxt_feed is not None or args.exchange != "binance" or args.since is not None or args.limit is not None:
+        args.parser.error("CCXT-only flags cannot be combined with --source binance-public")
+    if _has_binance_usdm_specific_flags(args):
+        args.parser.error("Binance USD-M flags cannot be combined with --source binance-public")
+    if _has_dex_or_defi_specific_flags(args):
+        args.parser.error("DEX/DeFi flags cannot be combined with --source binance-public")
+    if _has_onchain_specific_flags(args):
+        args.parser.error("Dune/TheGraph flags cannot be combined with --source binance-public")
+
+    missing = [
+        option
+        for option, value in (
+            ("--public-data-market", args.public_data_market),
+            ("--symbol", args.symbol),
+            ("--timeframe", args.timeframe),
+            ("--year", args.year),
+            ("--month", args.month),
+        )
+        if value is None or (isinstance(value, str) and not value.strip())
+    ]
+    if missing:
+        args.parser.error(f"{', '.join(missing)} required when --source binance-public is provided")
 
 
 def _require_binance_usdm_args(args: argparse.Namespace, *name_value_pairs) -> None:
@@ -3323,6 +3388,26 @@ def _run_ccxt_ingestion(args: argparse.Namespace):
         limit=args.limit,
         allow_network=True,
         exchange_id=args.exchange,
+    )
+
+
+def _run_binance_public_ingestion(args: argparse.Namespace):
+    if args.public_data_market == "um-futures":
+        return ingest_binance_public_um_futures_month(
+            args.db,
+            symbol=args.symbol,
+            interval=args.timeframe,
+            year=args.year,
+            month=args.month,
+            allow_network=True,
+        )
+    return ingest_binance_public_month(
+        args.db,
+        symbol=args.symbol,
+        interval=args.timeframe,
+        year=args.year,
+        month=args.month,
+        allow_network=True,
     )
 
 

@@ -30,10 +30,45 @@ class BinancePublicDataClient:
             f"{binance_symbol}/{interval}/{binance_symbol}-{interval}-{year}-{month:02d}.zip"
         )
 
+    def build_monthly_um_futures_klines_url(
+        self, symbol: str, interval: str, year: int, month: int
+    ) -> str:
+        binance_symbol = _to_binance_symbol(symbol)
+        return (
+            f"{self.base_url}/data/futures/um/monthly/klines/"
+            f"{binance_symbol}/{interval}/{binance_symbol}-{interval}-{year}-{month:02d}.zip"
+        )
+
     def download_monthly_spot_klines(
         self, symbol: str, interval: str, year: int, month: int
     ) -> list[MarketCandle]:
         url = self.build_monthly_spot_klines_url(symbol, interval, year, month)
+        return self._download_monthly_klines(
+            url=url,
+            symbol=symbol,
+            interval=interval,
+            venue="binance",
+        )
+
+    def download_monthly_um_futures_klines(
+        self, symbol: str, interval: str, year: int, month: int
+    ) -> list[MarketCandle]:
+        url = self.build_monthly_um_futures_klines_url(symbol, interval, year, month)
+        return self._download_monthly_klines(
+            url=url,
+            symbol=symbol,
+            interval=interval,
+            venue="binance_usdm",
+        )
+
+    def _download_monthly_klines(
+        self,
+        *,
+        url: str,
+        symbol: str,
+        interval: str,
+        venue: str,
+    ) -> list[MarketCandle]:
         response = self.session.get(url, timeout=self.timeout_seconds)
         response.raise_for_status()
 
@@ -47,17 +82,32 @@ class BinancePublicDataClient:
                 for row in csv.reader(StringIO(text)):
                     if not row:
                         continue
-                    candles.append(_row_to_market_candle(row, normalized_symbol, interval, name))
+                    candles.append(
+                        _row_to_market_candle(
+                            row,
+                            normalized_symbol,
+                            interval,
+                            name,
+                            venue=venue,
+                        )
+                    )
+        if not candles:
+            raise ValueError(f"no market candles found in Binance Public Data archive: {url}")
         return candles
 
 
 def _row_to_market_candle(
-    row: list[str], normalized_symbol: str, interval: str, archive_name: str
+    row: list[str],
+    normalized_symbol: str,
+    interval: str,
+    archive_name: str,
+    *,
+    venue: str = "binance",
 ) -> MarketCandle:
     open_time, open_, high, low, close, volume = row[:6]
     return MarketCandle(
         source="binance_public",
-        venue="binance",
+        venue=venue,
         symbol=normalized_symbol,
         timestamp=_parse_binance_timestamp(open_time),
         timeframe=interval,

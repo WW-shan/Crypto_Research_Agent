@@ -95,7 +95,7 @@ This phase must not:
 - Test: `tests/test_source_probe.py`
 - Test: `tests/test_cli_ingest.py`
 
-- [ ] **Step 1: Add RED tests for Binance Public Data futures monthly klines**
+- [x] **Step 1: Add RED tests for Binance Public Data futures monthly klines**
 
 Add tests that assert:
 
@@ -103,7 +103,7 @@ Add tests that assert:
 - Parsed futures kline rows become `MarketCandle` records with `source="binance_public"`, `venue="binance_usdm"`, normalized symbol `BTC/USDT`, timeframe `1h`, non-negative OHLCV, and `uses_real_capital=false` through the stored record payload contract.
 - A bad or empty archive writes source-health failure and raises a clear ingestion error.
 
-- [ ] **Step 2: Run the futures public-data RED tests**
+- [x] **Step 2: Run the futures public-data RED tests**
 
 Run:
 
@@ -113,7 +113,7 @@ uv run --extra dev pytest tests/test_binance_public_data.py -q
 
 Expected: FAIL on the missing futures URL/client method.
 
-- [ ] **Step 3: Implement the minimal futures public-data client extension**
+- [x] **Step 3: Implement the minimal futures public-data client extension**
 
 Add methods parallel to existing spot monthly klines:
 
@@ -122,11 +122,11 @@ Add methods parallel to existing spot monthly klines:
 
 The parser must reuse the existing kline row parser shape and set `venue="binance_usdm"` for futures records.
 
-- [ ] **Step 4: Add ingestion wrapper and CLI coverage for futures public data**
+- [x] **Step 4: Add ingestion wrapper and CLI coverage for futures public data**
 
 Add an ingestion wrapper that writes typed `market_candle` records and source-health rows. The command must require `--allow-network`, must not print secrets, and must write `uses_real_capital=false` plus `live_order_routing=false` in the CLI payload.
 
-- [ ] **Step 5: Run focused source tests**
+- [x] **Step 5: Run focused source tests**
 
 Run:
 
@@ -136,7 +136,7 @@ uv run --extra dev pytest tests/test_binance_public_data.py tests/test_cli_inges
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit Task 1**
+- [x] **Step 6: Commit Task 1**
 
 Run:
 

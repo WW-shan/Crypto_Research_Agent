@@ -48,12 +48,16 @@ class MarketCandle(BaseModel):
     volume: float = Field(ge=0)
     suitability: DataSuitability = Field(default_factory=DataSuitability)
     raw: dict[str, Any] = Field(default_factory=dict)
+    uses_real_capital: Literal[False] = False
+    live_order_routing: Literal[False] = False
 
     def to_source_record(self) -> SourceRecord:
         timestamp = self.timestamp.isoformat()
-        safe_symbol = self.symbol.replace("/", "")
+        safe_venue = _safe_component(self.venue)
+        safe_symbol = _safe_symbol(self.symbol)
+        safe_timeframe = _safe_component(self.timeframe)
         return SourceRecord(
-            record_id=f"{self.source}:{safe_symbol}:{self.timeframe}:{timestamp}",
+            record_id=f"{self.source}:{safe_venue}:{safe_symbol}:{safe_timeframe}:{timestamp}",
             source=self.source,
             record_type="market_candle",
             observed_at=self.timestamp,

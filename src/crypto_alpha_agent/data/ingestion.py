@@ -110,9 +110,79 @@ def ingest_binance_public_month(
         raise ValueError("allow_network is required for Binance Public Data ingestion")
 
     binance_client = client or BinancePublicDataClient()
+    return _ingest_binance_public_month(
+        db_path,
+        symbol=symbol,
+        interval=interval,
+        year=year,
+        month=month,
+        observed_at_start=observed_at_start,
+        observed_at_end=observed_at_end,
+        fetch_candles=lambda: binance_client.download_monthly_spot_klines(
+            symbol,
+            interval,
+            year,
+            month,
+        ),
+        feed="ohlcv",
+        notes=["research_and_paper_validation_only"],
+    )
+
+
+def ingest_binance_public_um_futures_month(
+    db_path: str | Path,
+    *,
+    symbol: str,
+    interval: str,
+    year: int,
+    month: int,
+    allow_network: bool = False,
+    observed_at_start: datetime | None = None,
+    observed_at_end: datetime | None = None,
+    client=None,
+) -> IngestionSummary:
+    if not allow_network:
+        raise ValueError("allow_network is required for Binance Public Data ingestion")
+
+    binance_client = client or BinancePublicDataClient()
+    return _ingest_binance_public_month(
+        db_path,
+        symbol=symbol,
+        interval=interval,
+        year=year,
+        month=month,
+        observed_at_start=observed_at_start,
+        observed_at_end=observed_at_end,
+        fetch_candles=lambda: binance_client.download_monthly_um_futures_klines(
+            symbol,
+            interval,
+            year,
+            month,
+        ),
+        feed="um_futures_ohlcv",
+        notes=[
+            "research_and_paper_validation_only",
+            "market=um_futures",
+        ],
+    )
+
+
+def _ingest_binance_public_month(
+    db_path: str | Path,
+    *,
+    symbol: str,
+    interval: str,
+    year: int,
+    month: int,
+    observed_at_start: datetime | None,
+    observed_at_end: datetime | None,
+    fetch_candles,
+    feed: str,
+    notes: list[str],
+) -> IngestionSummary:
     store = ResearchDataStore(db_path)
     try:
-        candles = binance_client.download_monthly_spot_klines(symbol, interval, year, month)
+        candles = fetch_candles()
         windowed_candles = _filter_records_by_timestamp(
             candles,
             observed_at_start=observed_at_start,
@@ -124,7 +194,7 @@ def ingest_binance_public_month(
         _write_source_health(
             store,
             source="binance_public",
-            feed="ohlcv",
+            feed=feed,
             success=False,
             attempts=1,
             failure=str(exc),
@@ -135,7 +205,7 @@ def ingest_binance_public_month(
     _write_source_health(
         store,
         source="binance_public",
-        feed="ohlcv",
+        feed=feed,
         success=True,
         attempts=1,
         failure=None,
@@ -155,7 +225,7 @@ def ingest_binance_public_month(
         network_allowed=True,
         uses_real_capital=False,
         live_order_routing=False,
-        notes=["research_and_paper_validation_only"],
+        notes=notes,
     )
 
 
