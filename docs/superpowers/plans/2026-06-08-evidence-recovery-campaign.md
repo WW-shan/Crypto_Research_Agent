@@ -99,7 +99,7 @@ code.
 - Read: `var/reports/daily/2026-06-07-proxy-fixed.evidence-run.json`
 - Read: `var/run-manifests/evidence-run/proxy-fixed-20260607T142806Z.json`
 
-- [ ] **Step 1: Confirm current git state**
+- [x] **Step 1: Confirm current git state**
 
 Run:
 
@@ -110,7 +110,7 @@ git status --short --branch
 Expected: only committed design/plan work is ahead of `origin/main`, and there
 are no untracked runtime artifacts staged.
 
-- [ ] **Step 2: Confirm current active-family evidence gap**
+- [x] **Step 2: Confirm current active-family evidence gap**
 
 Run:
 
@@ -128,7 +128,7 @@ Expected:
 - no `open_interest` records exist before Task 2;
 - source records show existing CCXT funding and OHLCV history.
 
-- [ ] **Step 3: Confirm latest successful public-data run did not create new evidence**
+- [x] **Step 3: Confirm latest successful public-data run did not create new evidence**
 
 Run:
 
@@ -167,7 +167,7 @@ Expected:
 - Runtime write: source-health rows inside `source_records`
 - Runtime write: possible `open_interest` rows inside `source_records`
 
-- [ ] **Step 1: List source-probe targets**
+- [x] **Step 1: List source-probe targets**
 
 Run:
 
@@ -177,7 +177,7 @@ uv run --extra dev crypto-alpha-agent source-probe --list-targets
 
 Expected: output includes `binance_usdm_open_interest_history`.
 
-- [ ] **Step 2: Record no-network probe evidence**
+- [x] **Step 2: Record no-network probe evidence**
 
 Run:
 
@@ -189,11 +189,12 @@ uv run --extra dev crypto-alpha-agent source-probe \
 
 Expected:
 
-- command exits 0;
-- records a blocked/no-network source-health row;
+- command exits 2 with a blocked/no-network result;
+- records a blocked/no-network source-health row with
+  `blocked_reason=network_not_allowed`;
 - output keeps `uses_real_capital=false` and `live_order_routing=false`.
 
-- [ ] **Step 3: Probe the proxy route without exposing proxy values**
+- [x] **Step 3: Probe the proxy route without exposing proxy values**
 
 Run:
 
@@ -214,7 +215,7 @@ Expected:
 - failure is acceptable only if it records a stable source-health failure code
   that can be cited in the phase report.
 
-- [ ] **Step 4: Ingest a small CCXT open-interest-history sample**
+- [x] **Step 4: Ingest a small CCXT open-interest-history sample**
 
 Run:
 
@@ -240,7 +241,7 @@ Expected:
   records source-health failure without leaking proxy values;
 - do not edit product code in this step.
 
-- [ ] **Step 5: Inspect stored open-interest rows**
+- [x] **Step 5: Inspect stored open-interest rows**
 
 Run:
 
@@ -274,7 +275,7 @@ Expected:
 - Runtime write: `var/reports/evidence-recovery/`
 - Runtime write: `var/run-manifests/evidence-recovery/`
 
-- [ ] **Step 1: Run evidence recovery for `funding_open_interest_crowding`**
+- [x] **Step 1: Run evidence recovery for `funding_open_interest_crowding`**
 
 Run:
 
@@ -313,7 +314,7 @@ Expected:
 - if OI is qualified, steps include `ingest_ccxt_open_interest`;
 - `uses_real_capital=false` and `live_order_routing=false`.
 
-- [ ] **Step 2: Inspect the latest recovery payload**
+- [x] **Step 2: Inspect the latest recovery payload**
 
 Run:
 
@@ -348,7 +349,7 @@ Expected:
   0;
 - if paper simulation runs, `paper_outcomes_written` may be greater than 0.
 
-- [ ] **Step 3: Inspect validation and paper ledgers for the new run**
+- [x] **Step 3: Inspect validation and paper ledgers for the new run**
 
 Run:
 
@@ -381,7 +382,7 @@ Expected:
 - Runtime write: `var/reports/evidence-recovery/`
 - Runtime write: `var/run-manifests/evidence-recovery/`
 
-- [ ] **Step 1: Decide whether fallback is needed**
+- [x] **Step 1: Decide whether fallback is needed**
 
 Use Task 3 evidence:
 
@@ -390,9 +391,12 @@ Use Task 3 evidence:
 - If `funding_open_interest_crowding` is blocked by OI source support, missing
   OI records, stale OI, no OI expansion, or LLM/runtime failure, run Task 4.
 
-- [ ] **Step 2: Run evidence recovery for `funding_mean_reversion_after_extreme`**
+- [x] **Step 2: Run evidence recovery for `funding_mean_reversion_after_extreme`**
 
-Run:
+Run because the post-run governance report classified
+`funding_open_interest_crowding` as `stop`, with weak walk-forward and
+non-positive expectancy reason codes. The fallback checks whether the remaining
+active funding family can produce better evidence before this round closes.
 
 ```bash
 bash -lc 'set -a; source .env >/dev/null 2>&1; set +a; \
@@ -426,9 +430,9 @@ Expected:
 - no stopped-family override is used;
 - validation and paper ledgers agree with the payload.
 
-- [ ] **Step 3: Inspect fallback evidence**
+- [x] **Step 3: Inspect fallback evidence**
 
-Run:
+Run after the fallback evidence-run completes:
 
 ```bash
 jq '{
@@ -464,7 +468,7 @@ Expected:
   `docs/goals/phase-reports/2026-06-08-evidence-recovery-campaign-report.md`
   and create a follow-up TDD plan before code changes.
 
-- [ ] **Step 1: Decide whether a product-code blocker exists**
+- [x] **Step 1: Decide whether a product-code blocker exists**
 
 A product-code blocker exists only if a command proves a repository defect such
 as:
@@ -480,9 +484,10 @@ If all failures are provider unreachability, missing data, no OI expansion, no
 qualified trades, stopped-family memory, or insufficient sample size, skip code
 changes and proceed to documentation closeout.
 
-- [ ] **Step 2: If a product-code blocker exists, stop this plan's execution**
+- [x] **Step 2: Product-code blocker stop path not needed**
 
-Write the blocker into the campaign report with:
+No product-code blocker was found. If a future round proves one, write the
+blocker into the campaign report with:
 
 - exact command;
 - exit code;
@@ -493,7 +498,7 @@ Write the blocker into the campaign report with:
 
 Expected: no product-code file is edited under this plan.
 
-- [ ] **Step 3: If no product-code blocker exists, continue to governance**
+- [x] **Step 3: If no product-code blocker exists, continue to governance**
 
 Expected: the campaign produces either usable evidence or a data/source/strategy
 blocker that can be represented in docs without code changes.
@@ -503,7 +508,7 @@ blocker that can be represented in docs without code changes.
 **Files:**
 - Runtime write: `var/reports/evidence-recovery/governance-latest.md`
 
-- [ ] **Step 1: Build governance report after recovery run**
+- [x] **Step 1: Build governance report after recovery run**
 
 Run:
 
@@ -525,7 +530,7 @@ Expected:
 - `owner_decision_review` is not expected unless paper and walk-forward
   thresholds are actually met.
 
-- [ ] **Step 2: Inspect governance report**
+- [x] **Step 2: Inspect governance report**
 
 Run:
 
@@ -547,7 +552,7 @@ Expected:
 - Create:
   `docs/goals/phase-reports/2026-06-08-evidence-recovery-campaign-report.md`
 
-- [ ] **Step 1: Update completion state**
+- [x] **Step 1: Update completion state**
 
 Edit `docs/goals/project-completion-state.md` to record:
 
@@ -565,7 +570,7 @@ Edit `docs/goals/project-completion-state.md` to record:
   owner review;
 - no live execution and no stopped-family override.
 
-- [ ] **Step 2: Update roadmap if needed**
+- [x] **Step 2: Update roadmap if needed**
 
 If the campaign creates a new material roadmap state, edit `docs/roadmap.md`
 under the Active Next Step or post-milestone evidence section.
@@ -577,7 +582,7 @@ Expected:
 - if evidence was produced, roadmap should say the next practical work is
   accumulating out-of-sample observations for the named active family.
 
-- [ ] **Step 3: Write campaign report**
+- [x] **Step 3: Write campaign report**
 
 Create
 `docs/goals/phase-reports/2026-06-08-evidence-recovery-campaign-report.md`
@@ -603,7 +608,7 @@ with these sections:
 **Files:**
 - Review every changed tracked file.
 
-- [ ] **Step 1: Requirements review**
+- [x] **Step 1: Requirements review**
 
 Review the design spec and this plan against the current diff.
 
@@ -614,7 +619,7 @@ Expected:
 - no stopped-family override was used;
 - no live execution path was introduced.
 
-- [ ] **Step 2: Safety and quality review**
+- [x] **Step 2: Safety and quality review**
 
 Run:
 
@@ -629,7 +634,7 @@ Expected:
 - no secrets or local proxy values in tracked docs;
 - runtime evidence is referenced by path and summarized, not copied wholesale.
 
-- [ ] **Step 3: Final verification**
+- [x] **Step 3: Final verification**
 
 Run:
 
@@ -644,7 +649,7 @@ Expected:
 - ruff and diff checks pass;
 - status contains only intended tracked docs before staging.
 
-- [ ] **Step 4: Stage intended docs only**
+- [x] **Step 4: Stage intended docs only**
 
 Run:
 
@@ -663,7 +668,7 @@ git add docs/roadmap.md
 
 Expected: no `var/`, `.env`, database, memory, cache, or log file is staged.
 
-- [ ] **Step 5: Staged review and secret scan**
+- [x] **Step 5: Staged review and secret scan**
 
 Run:
 
@@ -679,7 +684,7 @@ Expected:
 - staged file list contains only intended docs;
 - secret scan returns no findings.
 
-- [ ] **Step 6: Commit and push**
+- [x] **Step 6: Commit and push**
 
 Run:
 

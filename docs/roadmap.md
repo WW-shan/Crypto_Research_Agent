@@ -281,6 +281,21 @@ infrastructure, high-capital strategies, or live trading. The remaining blocked
 item is live execution until future charter revision, specifically a future
 explicit charter revision by the owner.
 
+Evidence recovery update on 2026-06-08: the proxy-routed public-data path now
+supports CCXT OHLCV, funding history, and typed open-interest history for the
+funding/open-interest family. The recovery runs restored the validation and
+paper-simulation path for `funding_open_interest_crowding` and
+`funding_mean_reversion_after_extreme`, but both runs produced blocked paper
+outcomes with no approved validation evidence. The current governance report
+therefore stops all executable funding families:
+`funding_extremity_price_confirmation`,
+`funding_mean_reversion_after_extreme`, and
+`funding_open_interest_crowding`. Repeating those stopped families is not the
+next progress path unless the owner explicitly approves a stopped-family
+review. The next practical work is a new evidence-first strategy redesign or
+data-campaign slice that starts from fresh Smart Search evidence, local source
+qualification, and a small feasibility check before product code changes.
+
 The roadmap below is the post-milestone work needed to move from "working
 evidence factory" to "profit evidence." None of these phases should weaken the
 charter. A phase is complete only when it improves the system's ability to

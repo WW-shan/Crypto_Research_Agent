@@ -6,140 +6,113 @@ round.
 
 ## Current Round
 
-- Round: 18
-- Status: Phase 17 Creation-First Codex Autonomy implemented locally and
-  non-LLM verification passed; real LLM health check recovered through a
-  provider-compatible Chat Completions fallback after repeated empty Responses
-  output
-- Started: 2026-06-06
-- Completed: 2026-06-06 code/docs closeout; real LLM health-check remediation
-  completed in follow-up
-- Active slice: Phase 17: Creation-First Codex Autonomy
+- Round: 19
+- Status: Evidence Recovery Campaign completed as an operations/documentation
+  round with a documented profit-evidence blocker: public-data ingestion,
+  open-interest ingestion, validation, paper simulation, and governance paths
+  ran successfully, but both active funding families tested in this round were
+  stopped by deterministic governance after blocked paper outcomes and weak
+  validation.
+- Started: 2026-06-08
+- Completed: 2026-06-08 operations/docs closeout; final ruff, diff, staged
+  diff, and staged secret checks passed; commit and push pending
+- Active slice: Evidence Recovery Campaign
+- Active design source:
+  `docs/superpowers/specs/2026-06-08-evidence-recovery-campaign-design.md`
 - Active plan source:
-  `docs/superpowers/plans/2026-05-30-phase-17-creation-first-codex-autonomy.md`
+  `docs/superpowers/plans/2026-06-08-evidence-recovery-campaign.md`
 - Phase report:
-  `docs/goals/phase-reports/2026-06-06-phase-17-creation-first-codex-autonomy-completion-report.md`
+  `docs/goals/phase-reports/2026-06-08-evidence-recovery-campaign-report.md`
 
 ## Completed This Round
 
-- Added the Phase 17 design spec and implementation plan for creation-first
-  Codex autonomy.
-- Added the `creation-cycle` CLI command and `crypto_alpha_agent.autonomy`
-  package for creation objects, context loading, artifact storage, Codex
-  execution, task worktrees, runner verification, patch export, and persistent
-  autonomy worktree promotion.
-- Added VPS creation-cycle operations through `ops/creation-cycle.sh`,
-  `crypto-alpha-creation.service`, and `crypto-alpha-creation.timer`.
-- Hardened creation-cycle verification so generated work accepts only pytest
-  command forms and runs them in a Docker sandbox with no network, dropped
-  capabilities, no-new-privileges, a read-only filesystem, and only the task
-  worktree mounted.
-- Hardened creation-cycle review, Markdown escaping, IO failure handling,
-  pytest no-op rejection, pytest config isolation, active worktree validation,
-  and promotion behavior through follow-up local commits.
-- Diagnosed the current real LLM provider failure: the configured Responses
-  route returns HTTP 200 with `status=completed`, token usage, and no
-  `output_text` or `output` items. Product commands correctly fail closed.
-- Added safe adapter diagnostics for empty Responses output and real LLM test
-  harness retry classification for that provider failure.
-- Added adapter-level retries for transient HTTP 200 Responses payloads that
-  contain no extractable output text, while preserving fail-closed behavior
-  after repeated empty outputs.
-- Added a real-provider compatibility fallback that calls Chat Completions only
-  after repeated empty Responses payloads. The fallback preserves strict JSON
-  schema requests, redaction, real-LLM gating, and fail-closed parsing.
-- Diagnosed the next operational evidence blocker: ad hoc shell runs were not
-  exporting the local proxy variables from `.env`, and CCXT-created exchange
-  instances did not receive proxy configuration even after those variables were
-  exported. Direct source probes timed out for exchange endpoints while
-  proxy-routed probes succeeded.
-- Added CCXT proxy propagation from local proxy environment variables so
-  `CcxtResearchCollector` passes a `proxies` config to auto-created ccxt
-  exchange instances without logging or persisting proxy values.
-- Recovered the daily evidence run through the proxy route:
-  `proxy-fixed-20260607T142806Z` completed successfully with
-  `network_route=proxy`, no source-health failures, 200 CCXT OHLCV records,
-  200 CCXT funding records, 30 DexScreener records, and 15940 DefiLlama records.
-  The configured `funding_extremity_price_confirmation` family remained skipped
-  because governance memory keeps it stopped.
-- Added this round's Phase 17 completion report.
+- Added and committed the Evidence Recovery Campaign design spec:
+  `docs/superpowers/specs/2026-06-08-evidence-recovery-campaign-design.md`.
+- Added and committed the Evidence Recovery Campaign implementation plan:
+  `docs/superpowers/plans/2026-06-08-evidence-recovery-campaign.md`.
+- Confirmed the baseline evidence gap:
+  `funding_extremity_price_confirmation` had 3 old validation records and 3
+  old blocked paper outcomes, while no `open_interest` records existed before
+  this campaign.
+- Confirmed latest pre-campaign run `proxy-fixed-20260607T142806Z` restored
+  public-data collection through the proxy route but wrote no new validation
+  evidence and no paper outcomes because the default stopped family was
+  skipped.
+- Qualified Binance USD-M open-interest history through `source-probe`:
+  no-network probing failed closed with `network_not_allowed`; proxy-route
+  probing returned HTTP 200, parsed output, `typed_record_count=1`, and
+  `provider_status=ResearchUsable`.
+- Qualified local CCXT open-interest ingestion by writing 24
+  `BTC/USDT:USDT` open-interest records through the proxy route, then
+  confirmed positive open-interest values and a 2026-06-07T02:00:00Z through
+  2026-06-08T01:00:00Z observed window.
+- Ran active-family evidence recovery for
+  `funding_open_interest_crowding` with run id
+  `evidence-recovery-oi-20260608T015547Z`. The run succeeded through the proxy
+  route, wrote 200 OHLCV records, 200 funding records, 200 open-interest
+  records, 1 validation evidence item, and 1 blocked paper outcome. No stopped
+  family override was used.
+- Ran fallback active-family evidence recovery for
+  `funding_mean_reversion_after_extreme` with run id
+  `evidence-recovery-mean-reversion-20260608T020000Z`. The run succeeded
+  through the proxy route, wrote 200 OHLCV records, 200 funding records, 1
+  validation evidence item, and 1 blocked paper outcome. No stopped-family
+  override was used.
+- Confirmed both new validation rows are not approved and share these blocked
+  reasons: `no_extreme_funding`, `insufficient_trades`,
+  `non_positive_expectancy`, `non_positive_net_return`, and
+  `unstable_walk_forward_performance`.
+- Generated `var/reports/evidence-recovery/governance-latest.md`. Governance
+  now marks all three executable funding families as `stop`; DeFi, DEX, and
+  volatility watchlists remain `add_data`; the paper-only portfolio selector
+  has no candidate.
+- Added this round's campaign report documenting the blocker and next safe
+  action.
 
 ## Verification Evidence
 
-- Non-real-LLM project verification:
-  `uv run --extra dev pytest -q -m 'not llm_integration'` passed with
-  1080 tests and 10 deselected after the compatibility fallback.
-- Focused Phase 17 verification:
-  `uv run --extra dev pytest tests/test_creation_cycle.py tests/test_creation_cycle_cli.py tests/test_codex_runner.py tests/test_autonomy_worktrees.py tests/test_creation_autonomy_store.py tests/test_creation_context.py tests/test_creation_cycle_markdown.py tests/test_vps_ops.py tests/test_documentation_contract.py -q`
-  passed with 120 tests.
-- TDD RED/GREEN for empty Responses output diagnostics:
-  `uv run --extra dev pytest tests/test_llm_configured_client.py::test_responses_adapter_empty_output_error_includes_safe_response_summary tests/test_llm_integration_policy_unit.py -q`
-  failed before implementation and then passed with 3 tests. A follow-up RED/GREEN
-  check for adapter-level empty-output retry also passed.
-- Focused LLM adapter/runtime non-integration verification:
-  `uv run --extra dev pytest tests/test_llm_configured_client.py tests/test_llm_native_runtime.py tests/test_real_llm_test_policy_contract.py tests/test_llm_integration_policy_unit.py -q -m 'not llm_integration'`
-  passed with 46 tests and 1 deselected after the compatibility fallback.
-- Real LLM health check after remediation:
-  `uv run crypto-alpha-agent llm-health-check` passed with
-  `llm_provider=real`, `llm_model=gpt-5.5`, `schema_name=LLMHealthCheckResult`,
-  `json_schema`, `research_only`, `uses_real_capital=false`, and
-  `live_order_routing=false`.
-- Real LLM health-check integration test after remediation:
-  `uv run --extra dev pytest tests/test_real_llm_integration_policy.py::test_real_llm_health_check_cli_uses_configured_llm_without_secret_leaks -q`
-  passed.
-- TDD RED/GREEN for CCXT proxy propagation:
-  `uv run --extra dev pytest tests/test_ccxt_collector.py::test_initializes_ccxt_exchange_with_configured_proxy -q`
-  failed before implementation with constructed CCXT config `[None]`, then
-  passed after `CcxtResearchCollector` began passing a proxy config.
-- Focused CCXT collector verification:
-  `uv run --extra dev pytest tests/test_ccxt_collector.py -q` passed with
-  7 tests.
-- Real proxy-routed CCXT ingest verification:
-  `bash -lc 'set -a; source .env >/dev/null 2>&1; set +a; uv run --extra dev crypto-alpha-agent ingest --source ccxt --allow-network --ccxt-feed ohlcv --exchange binance --symbol BTC/USDT --timeframe 1h --limit 5 --db var/research.sqlite --current-capital-usd 300'`
-  passed, writing 5 public BTC/USDT OHLCV records through the local proxy route
-  with `uses_real_capital=false` and `live_order_routing=false`.
-- Real proxy-routed evidence-run verification:
-  `proxy-fixed-20260607T142806Z` passed and wrote
-  `var/reports/daily/2026-06-07-proxy-fixed.md`,
-  `var/reports/research/2026-06-07-proxy-fixed.md`,
-  `var/reports/daily/2026-06-07-proxy-fixed.evidence-run.json`, and
-  `var/run-manifests/evidence-run/proxy-fixed-20260607T142806Z.json`.
-- Real LLM integration verification after remediation:
-  `uv run --extra dev pytest tests/test_real_llm_integration_policy.py -q`
-  passed with 9 tests in 7 minutes 20 seconds before the final retry-helper
-  refactor, and
-  `uv run --extra dev pytest tests/test_llm_configured_client.py::test_real_configured_llm_smoke_returns_valid_research_proposal_without_secret_leaks -q`
-  passed with 1 test. After the final retry-helper refactor,
-  `uv run crypto-alpha-agent llm-health-check` and focused adapter fallback
-  tests were rerun and passed.
-- Focused lint:
-  `uv run --extra dev ruff check src/crypto_alpha_agent/llm/responses.py tests/llm_integration_policy.py tests/test_llm_integration_policy_unit.py tests/test_llm_configured_client.py`
-  passed.
-- Pre-closeout broad lint and diff checks:
-  `uv run --extra dev ruff check .` passed and `git diff --check` passed.
-- Full verification with real LLM integration before remediation failed:
-  `uv run --extra dev pytest -q` reported 10 real-LLM integration failures and
-  1075 passing tests before the diagnostics patch.
-- Historical `llm-health-check` failure before remediation was exit code 2:
-  `llm_provider_unavailable: LLM provider response did not contain output text:
-  status=completed output_len=0 input_tokens=5374 output_tokens=49
-  total_tokens=5423`. The current health-check command now passes with the
-  real configured provider.
-- A full `uv run --extra dev pytest -q` run was started after remediation and
-  progressed through the non-LLM suite plus multiple real-LLM tests, but was
-  terminated after more than 16 minutes without a final pytest summary because
-  one real provider call stopped producing output. The focused non-LLM suite
-  passed after the final retry-helper refactor. A final rerun of
-  `tests/test_real_llm_integration_policy.py -q` was also terminated after more
-  than 13 minutes without a final pytest summary because a real provider call
-  again stopped producing output.
-- Final `uv run --extra dev ruff check .`, `git diff --check`, and path secret
-  scan passed before closeout commit. Staged diff and staged secret scan are
-  required immediately before commit.
-- Staged review before commit is required to include `git diff --cached
-  --check`, `git diff --cached --name-only`, `git diff --cached --no-ext-diff
-  --unified=0`, and
-  `uv run python -m crypto_alpha_agent.security.secret_scan --staged --fail-on-empty-with-untracked`.
+- `uv run --extra dev crypto-alpha-agent source-probe --list-targets` exited 0
+  and listed `binance_usdm_open_interest_history`.
+- `uv run --extra dev crypto-alpha-agent source-probe --db
+  var/research.sqlite --target binance_usdm_open_interest_history` exited 2
+  with `blocked_reason=network_not_allowed`, `network_route=blocked`,
+  `uses_real_capital=false`, and `live_order_routing=false`.
+- Proxy-routed source probe exited 0 with HTTP 200, parsed payload,
+  `typed_record_count=1`, `provider_status=ResearchUsable`,
+  `uses_real_capital=false`, and `live_order_routing=false`.
+- Proxy-routed CCXT open-interest ingestion exited 0 and wrote 24
+  `open_interest` records for `BTC/USDT:USDT`.
+- SQLite inspection after OI ingestion showed 24 rows for `BTC/USDT:USDT` on
+  `binance`, observed between 2026-06-07T02:00:00+00:00 and
+  2026-06-08T01:00:00+00:00, with open interest values from 98293.307 to
+  103160.276.
+- `evidence-recovery-oi-20260608T015547Z` exited 0 and wrote 1 validation
+  evidence item plus 1 blocked paper outcome for
+  `funding_open_interest_crowding`.
+- `evidence-recovery-mean-reversion-20260608T020000Z` exited 0 and wrote 1
+  validation evidence item plus 1 blocked paper outcome for
+  `funding_mean_reversion_after_extreme`.
+- SQLite ledger inspection showed both new families have blocked validation
+  reasons `no_extreme_funding`, `insufficient_trades`,
+  `non_positive_expectancy`, `non_positive_net_return`, and
+  `unstable_walk_forward_performance`.
+- `uv run --extra dev crypto-alpha-agent governance-report --db
+  var/research.sqlite --memory var/memory/evidence.jsonl --out
+  var/reports/evidence-recovery/governance-latest.md --current-capital-usd
+  300` exited 0. The report kept `Real capital: false` and
+  `Live order routing: false`, stopped all executable funding families, and
+  produced no paper portfolio candidate.
+- `uv run --extra dev ruff check .` passed.
+- `git diff --check` passed.
+- Staged file review included only:
+  `docs/goals/phase-reports/2026-06-08-evidence-recovery-campaign-report.md`,
+  `docs/goals/project-completion-state.md`, `docs/roadmap.md`, and
+  `docs/superpowers/plans/2026-06-08-evidence-recovery-campaign.md`.
+- `git diff --cached --check` passed.
+- `git diff --cached --no-ext-diff --unified=0` was reviewed.
+- `uv run python -m crypto_alpha_agent.security.secret_scan --staged
+  --fail-on-empty-with-untracked` returned `[]`.
+- Commit and push are required before this round is closed.
 
 ## Current Project Target
 
@@ -244,9 +217,21 @@ auto-created CCXT exchange instances did not receive a ccxt `proxies` config.
 `CcxtResearchCollector` now forwards local proxy environment values to ccxt,
 and the successful `proxy-fixed-20260607T142806Z` evidence run confirms that
 CCXT OHLCV/funding, DexScreener, and DefiLlama collection work through the
-proxy route. Strategy validation remains blocked by governance state because
-`funding_extremity_price_confirmation` is stopped; do not use
-`--allow-stopped-family` without explicit owner review.
+proxy route.
+
+The 2026-06-08 Evidence Recovery Campaign removed the next ingestion blocker:
+Binance USD-M open-interest history is reachable through the proxy route, CCXT
+open-interest ingestion wrote typed `open_interest` records, and active-family
+evidence runs for `funding_open_interest_crowding` and
+`funding_mean_reversion_after_extreme` both reached validation and paper
+simulation. The remaining blocker is profit-evidence quality, not ingestion:
+all executable funding families are now stopped by governance because paper
+outcomes are blocked, sample sizes are below target, walk-forward stability is
+weak, and cost-adjusted expectancy is not positive. Do not use
+`--allow-stopped-family` without explicit owner review. The next safe product
+work requires a new evidence-first design for strategy redesign or a different
+public-data-backed family; repeating the stopped funding families is not a
+valid progress path.
 
 Reality audit: `docs/goals/project-reality-audit-2026-05-29.md` records that
 the owner's broader autonomy target is larger than the completed Phase 0
@@ -305,8 +290,10 @@ If work continues after Phase 13:
    `docs/goals/phase-reports/`, and no next Phase until the current Phase is
    clean, verified, committed, and pushed.
 3. Do not start a new product-code phase unless the owner revises the roadmap
-   or charter. Current useful work is running the evidence campaign and updating
-   review records when new evidence exists.
+   or approves a new evidence-first strategy redesign plan. Current useful work
+   is no longer repeating the stopped funding-family evidence runs; it is
+   designing the next charter-compliant strategy or data-campaign slice from
+   fresh source evidence and local feasibility checks.
 4. Treat live execution, wallet keys, exchange order routing, private RPC,
    MEV, premium-RPC, and speed-edge paths as blocked unless the owner
    explicitly revises the charter.
@@ -344,3 +331,4 @@ If work continues after Phase 13:
 | 16 | 2026-05-29 | Phase 15 VPS Docker operations runtime | focused VPS/docs contracts 24 passed; pytest 982 passed; final ruff, diff, staged diff, and staged secret checks required before commit | Phase 15 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 17 | 2026-05-29 | Phase 16 GHCR container publishing | focused GHCR/docs/runtime/planner contracts 81 passed; real LLM planner smoke 1 passed; pytest 990 passed; final ruff, diff, staged diff, and staged secret checks required before commit | Phase 16 implementation commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 18 | 2026-06-06 | Phase 17 creation-first Codex autonomy closeout | non-LLM pytest 1080 passed; focused Phase 17 tests 120 passed; adapter diagnostics and retry checks passed; focused LLM non-integration tests 46 passed, 1 deselected; real LLM health check passed after provider compatibility fallback; full real-provider suites remain sensitive to provider stalls | `22df14c docs: close out creation autonomy phase` plus remediation follow-up | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 19 | 2026-06-08 | Evidence Recovery Campaign | source-probe OI list/proxy qualification passed; CCXT OI ingest wrote 24 records; OI crowding run wrote 1 validation and 1 blocked paper outcome; mean-reversion fallback wrote 1 validation and 1 blocked paper outcome; governance report stopped all executable funding families; ruff, diff, staged diff, and staged secret checks passed | pending Evidence Recovery Campaign closeout commit | `https://github.com/WW-shan/Crypto_Research_Agent` |
