@@ -323,6 +323,96 @@ lab run remained blocked with `non_positive_cost_adjusted_expectancy` for
 strategy-registration plan was opened. The actual lab result is recorded in the
 2026-06-08 derivatives-conditioned feasibility lab phase report.
 
+Evidence universe expansion path map on 2026-06-08: the next planned phase is
+Evidence Universe Expansion and Multi-Hypothesis Feasibility Lab. The full
+implementation plan is
+`docs/superpowers/plans/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab.md`,
+and its Smart Search evidence is preserved at
+`var/smart-search-evidence/2026-06-08-expand-profit-evidence-loop/`.
+
+This path changes the next target from "try another narrow strategy" to
+"expand the upstream evidence funnel." The current product already has the
+evidence factory, LLM-native research gates, source-health rows, feasibility
+reports, paper simulation, governance reports, and safe Codex creation loop.
+The missing capability is a wider, stricter way to discover and reject strategy
+ideas before strategy registration.
+
+The active path map is:
+
+1. **Data universe expansion**
+   - Use Binance Public Data for longer market history across a wider liquid
+     universe, including klines/trades/aggregate trades where feasible.
+   - Keep Binance USD-M global long/short account ratio and taker buy/sell
+     volume as recent derivatives context because the official endpoints are
+     recent-window feeds with max `limit=500`.
+   - Continue funding, basis, premium-index, and open-interest history as
+     derivatives features where source coverage is enough.
+   - Add DefiLlama TVL, fees/revenue, DEX/perp volume, yields, and stablecoins
+     plus DexScreener pair/liquidity/volume/trending metadata as discovery and
+     regime inputs only.
+2. **Data-quality and point-in-time gate**
+   - Report coverage, staleness, duplicate timestamps, timestamp alignment,
+     source health, proxy/direct route, and missing-history reasons by source
+     and symbol.
+   - Fail closed on survivorship or lookahead risk, especially when today's
+     token universe or DEX trending list would be backfilled into historical
+     windows.
+3. **Read-only candidate screen registry**
+   - Add a candidate screen catalog, separate from the strategy registry, for
+     short-horizon momentum/reversal with volatility filters, perp/spot basis
+     and funding deviation, derivatives crowding plus price action, DeFi/DEX
+     discovery as watchlist or regime input, and cross-asset ranking with
+     turnover caps.
+   - Screens may emit evidence and blocked reasons; they may not create paper
+     runs or strategy registry entries.
+4. **Multi-hypothesis feasibility lab**
+   - Evaluate multiple candidates in one read-only report.
+   - Each candidate must report sample count, asset coverage, split coverage,
+     gross mean, net mean, win rate, turnover, selected symbol counts,
+     per-split net expectancy, and cost sensitivity at 5/10/20/50 bps.
+   - A candidate passes feasibility only if net expectancy is positive,
+     at least three chronological splits are stable, sample coverage is
+     sufficient, cost sensitivity is not fragile, and the result is not a
+     single-asset or single-window accident.
+5. **Candidate state memory**
+   - Persist candidate states as `candidate`, `source_qualified`,
+     `feasibility_passed`, `backtest_passed`, `paper_collecting`, `stopped`,
+     or `redesign_required`.
+   - Persist the current four derivatives-conditioned candidates as rejected
+     memory with `non_positive_cost_adjusted_expectancy` when the explicit
+     candidate-memory persistence switch is implemented.
+6. **Backtest expansion, later phase**
+   - Only candidates with `feasibility_passed` may enter the backtest phase.
+   - Backtests must be event-driven and cost-realistic: double-sided fees,
+     slippage, spread or liquidity assumptions, latency buffer, min notional,
+     precision, partial/missed fill, timeframe-detail checks, monthly/yearly
+     breakdowns, and lookahead-analysis style validation.
+7. **Paper evidence delta tracker, later phase**
+   - Only candidates with `backtest_passed` may enter paper collection.
+   - Paper must track backtest expected versus actual, 30/60/90 observations,
+     closed trades, failed trades, missed trades, net PnL, drawdown, cost drag,
+     signal decay, and paper failure reasons.
+8. **Automation and governance expansion**
+   - Daily operation should update long-history data and recent derivatives
+     context, run candidate discovery, run multi-hypothesis feasibility, write
+     pass/fail rankings, and send only passed candidates to later backtest or
+     paper queues.
+   - Stopped families and failed candidate screens remain in memory and should
+     not be silently rerun.
+
+Do not use this path map to justify live execution. It does not authorize
+wallet access, exchange order routing, real-capital deployment, MEV, CEX-DEX
+speed arbitrage, bridge races, flash loans, premium RPC, private order flow,
+colocation, or high-capital assumptions. It also does not authorize registering
+the four failed derivatives-conditioned candidates or sending a one-split
+positive result to paper.
+
+The research references behind this path are persisted in the plan and state
+file, including Binance derivatives endpoint limits, Binance Public Data,
+DefiLlama, DexScreener, chronological time-series splits, cost-realistic
+backtesting, lookahead-bias detection, and perpetual futures funding/basis
+research.
+
 The roadmap below is the post-milestone work needed to move from "working
 evidence factory" to "profit evidence." None of these phases should weaken the
 charter. A phase is complete only when it improves the system's ability to

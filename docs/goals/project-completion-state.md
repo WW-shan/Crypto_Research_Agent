@@ -24,6 +24,113 @@ round.
 - Phase report:
   `docs/goals/phase-reports/2026-06-08-derivatives-conditioned-feasibility-lab-report.md`
 
+## Next Planned Round
+
+- Round: 22
+- Status: Planned and not implemented. Owner requested full persistence of the
+  next path after deep research confirmed that the project must expand the
+  upstream research funnel rather than trading execution.
+- Planned slice:
+  Evidence Universe Expansion and Multi-Hypothesis Feasibility Lab.
+- Planned design source: the research-backed design is embedded in the plan
+  and roadmap until a separate spec is written for the implementation slice.
+- Planned plan source:
+  `docs/superpowers/plans/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab.md`
+- Smart Search evidence path:
+  `var/smart-search-evidence/2026-06-08-expand-profit-evidence-loop/`
+- Current actual state: the evidence factory, real LLM gates, source-health
+  workflow, strategy feasibility modes, paper simulation, governance reports,
+  and safe Codex creation loop are present, but no candidate has passed
+  cost-adjusted feasibility or produced enough paper evidence for a profit
+  decision.
+- Current blocker: strategy evidence quality. The latest derivatives lab tested
+  `long_short_crowding_contrarian`, `taker_imbalance_reversal`,
+  `premium_basis_risk_filter`, and `momentum_derivatives_confirmation`; all
+  four are blocked by `non_positive_cost_adjusted_expectancy`.
+- Expected next state: a read-only upstream funnel that builds a wider
+  point-in-time evidence universe, evaluates a larger candidate screen catalog,
+  reports multi-hypothesis feasibility with cost sensitivity and walk-forward
+  stability, persists pass/block/fail state memory, and sends only candidates
+  that pass feasibility to a later backtest phase.
+
+### Persisted Round 22 Research Conclusions
+
+The next phase must expand every upstream evidence layer in this order:
+
+1. **Data layer:** expand Binance Public Data long-history klines/trades and
+   aggregate trades for a wider liquid universe. Keep Binance USD-M global
+   long/short and taker buy/sell volume as recent derivatives context because
+   the official docs limit those endpoints to recent history with max
+   `limit=500`. Add DefiLlama TVL, fees/revenue, DEX/perp volume, yields, and
+   stablecoin data plus DexScreener pair/liquidity/volume/trending metadata as
+   discovery and regime inputs, not direct execution evidence.
+2. **Data quality layer:** add coverage, staleness, duplicate, timestamp
+   alignment, point-in-time universe, source-health, and proxy/direct route
+   diagnostics. The universe builder must fail closed on survivorship or
+   lookahead risk, especially when today's DEX or token discovery list would be
+   backfilled into historical tests.
+3. **Signal generation layer:** expand beyond the current four derivatives
+   candidates into short-horizon momentum/reversal with volatility filters,
+   perp/spot basis and funding deviation, derivatives crowding plus price
+   action, DeFi/DEX discovery as watchlist or regime input, and cross-asset
+   ranking with turnover caps.
+4. **Feasibility layer:** add a read-only multi-hypothesis lab before any
+   strategy registry change. Each candidate must report sample count, asset
+   coverage, split coverage, gross mean, net mean, win rate, turnover,
+   walk-forward net expectancy, cost sensitivity at 5/10/20/50 bps, and
+   blocked reason codes.
+5. **Backtest layer:** after feasibility passes, a separate phase must add
+   event-driven cost-realistic backtests with double-sided fees, slippage,
+   spread/liquidity assumptions, latency buffers, min notional, precision,
+   partial/missed fill handling, timeframe-detail checks, monthly/yearly
+   breakdowns, and lookahead-analysis style validation.
+6. **Paper layer:** only candidates that pass feasibility and backtest gates
+   may enter paper. Paper must record backtest expectation versus paper actual,
+   30/60/90 observations, closed trades, failed trades, missed trades, net PnL,
+   drawdown, cost drag, signal decay, and paper failure reasons.
+7. **Governance layer:** every candidate moves through
+   `candidate`, `source_qualified`, `feasibility_passed`, `backtest_passed`,
+   `paper_collecting`, `stopped`, or `redesign_required`. The current four
+   derivatives candidates should be persisted as rejected memory with
+   `non_positive_cost_adjusted_expectancy` when the candidate-memory switch is
+   implemented.
+8. **Automation layer:** daily operation should update long-history and recent
+   derivatives data, run candidate discovery, run multi-hypothesis feasibility,
+   generate pass/fail rankings, and send only passed candidates to a later
+   backtest or paper queue. Stopped families must not be silently rerun.
+
+### Persisted Round 22 Non-Goals
+
+- Do not directly register the current four derivatives candidates.
+- Do not send a one-split or single-asset positive result to paper.
+- Do not add live execution, wallet access, exchange order routing, live
+  orders, or real-capital paths.
+- Do not add MEV, CEX-DEX speed arbitrage, bridge races, flash loans, premium
+  RPC, private order flow, colocation, or high-capital assumptions.
+- Do not treat LLM autonomy expansion as the solution to the profit-evidence
+  blocker; the current bottleneck is strategy evidence quality.
+
+### Persisted Round 22 Source Evidence
+
+- Binance long/short ratio:
+  `https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Long-Short-Ratio`
+- Binance taker buy/sell volume:
+  `https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Taker-BuySell-Volume`
+- Binance public data:
+  `https://github.com/binance/binance-public-data`
+- DefiLlama docs:
+  `https://docs.llama.fi/`
+- DexScreener API:
+  `https://docs.dexscreener.com/api/reference`
+- Time-series split guidance:
+  `https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.TimeSeriesSplit.html`
+- Backtesting cost guidance:
+  `https://www.quantstart.com/articles/Successful-Backtesting-of-Algorithmic-Trading-Strategies-Part-II/`
+- Lookahead-bias check reference:
+  `https://www.freqtrade.io/en/stable/lookahead-analysis/`
+- Perpetual futures research:
+  `https://arxiv.org/html/2212.06888v5`
+
 ## Completed This Round
 
 - Added RED tests for a derivatives-conditioned feasibility lab covering
@@ -221,6 +328,16 @@ strategy registry change; it is a new evidence-first hypothesis, a different
 charter-compliant family, or a data-window design that can pass the feasibility
 gate before product strategy code is added.
 
+The persisted next path is now Round 22,
+Evidence Universe Expansion and Multi-Hypothesis Feasibility Lab. That path
+expands the upstream evidence funnel rather than execution: longer Binance
+Public Data history, wider liquid universe construction, source-qualified
+DefiLlama and DexScreener discovery inputs, point-in-time data-quality checks,
+a read-only candidate screen registry, multi-hypothesis feasibility with
+5/10/20/50 bps cost sensitivity, candidate state memory, and a later backtest
+and paper handoff only for candidates that pass feasibility. The full plan is
+`docs/superpowers/plans/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab.md`.
+
 Reality audit: `docs/goals/project-reality-audit-2026-05-29.md` records that
 the owner's broader autonomy target is larger than the completed Phase 0
 through Phase 13 roadmap. Relative to that owner autonomy target, these
@@ -281,7 +398,10 @@ If work continues after Phase 13:
    or approves a new evidence-first strategy redesign plan. Current useful work
    is no longer repeating the stopped funding-family evidence runs; it is
    designing the next charter-compliant strategy or data-campaign slice from
-   fresh source evidence and local feasibility checks.
+   fresh source evidence and local feasibility checks. The owner-approved next
+   plan is Round 22, Evidence Universe Expansion and Multi-Hypothesis
+   Feasibility Lab, persisted at
+   `docs/superpowers/plans/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab.md`.
 4. Treat live execution, wallet keys, exchange order routing, private RPC,
    MEV, premium-RPC, and speed-edge paths as blocked unless the owner
    explicitly revises the charter.
@@ -322,3 +442,4 @@ If work continues after Phase 13:
 | 19 | 2026-06-08 | Evidence Recovery Campaign | source-probe OI list/proxy qualification passed; CCXT OI ingest wrote 24 records; OI crowding run wrote 1 validation and 1 blocked paper outcome; mean-reversion fallback wrote 1 validation and 1 blocked paper outcome; governance report stopped all executable funding families; ruff, diff, staged diff, and staged secret checks passed | Evidence Recovery Campaign closeout commits pushed to `main` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 20 | 2026-06-08 | Profit Evidence Redesign | focused tests 54 passed; full pytest 1119 passed; follow-up pytest 1120 passed; ruff passed; diff/staged checks passed; staged secret scan returned []; Binance USD-M derivatives ingest wrote 24 rows per new feed; follow-up OHLCV ingest wrote 1000 rows each for BTC/ETH/SOL; strategy feasibility blocked with `non_positive_cost_adjusted_expectancy` | Profit Evidence Redesign closeout and follow-up commits pushed to `main` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 21 | 2026-06-08 | Derivatives-Conditioned Feasibility Lab | focused feasibility tests 21 passed; final focused suite 42 passed; documentation contract tests 11 passed; full pytest 1136 passed; ruff passed; diff/staged checks passed; staged secret scan returned []; Binance USD-M derivatives lab ingested 500 rows per feed/symbol and blocked all four candidates with `non_positive_cost_adjusted_expectancy` before strategy registration | Derivatives-Conditioned Feasibility Lab closeout commits pushed to `main` | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 22 | 2026-06-08 | Evidence Universe Expansion and Multi-Hypothesis Feasibility Lab | planned only; Smart Search evidence persisted at `var/smart-search-evidence/2026-06-08-expand-profit-evidence-loop/`; plan persisted at `docs/superpowers/plans/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab.md`; implementation and verification pending | pending | `https://github.com/WW-shan/Crypto_Research_Agent` |
