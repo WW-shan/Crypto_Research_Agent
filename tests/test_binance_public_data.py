@@ -74,6 +74,23 @@ def test_downloads_monthly_um_futures_klines_into_market_candles():
     assert source_record.payload["live_order_routing"] is False
 
 
+def test_downloads_monthly_um_futures_klines_skips_csv_header():
+    csv_text = (
+        "open_time,open,high,low,close,volume,close_time,quote_volume,count,"
+        "taker_buy_volume,taker_buy_quote_volume,ignore\n"
+        "1747353600000,65000,65100,64900,65050,123.4,"
+        "1747357199999,0,0,0,0,0\n"
+    )
+    session = FakeSession(_zip_csv("BTCUSDT-1h-2026-05.csv", csv_text))
+    client = BinancePublicDataClient(session=session)
+
+    candles = client.download_monthly_um_futures_klines("BTCUSDT", "1h", 2026, 5)
+
+    assert len(candles) == 1
+    assert candles[0].timestamp == datetime.fromtimestamp(1747353600, tz=UTC)
+    assert candles[0].close == 65050.0
+
+
 def test_empty_um_futures_archive_raises_clear_error():
     session = FakeSession(_zip_csv("README.txt", "no csv rows here"))
     client = BinancePublicDataClient(session=session)

@@ -80,7 +80,7 @@ class BinancePublicDataClient:
                     continue
                 text = archive.read(name).decode("utf-8")
                 for row in csv.reader(StringIO(text)):
-                    if not row:
+                    if not row or _is_kline_header(row):
                         continue
                     candles.append(
                         _row_to_market_candle(
@@ -94,6 +94,10 @@ class BinancePublicDataClient:
         if not candles:
             raise ValueError(f"no market candles found in Binance Public Data archive: {url}")
         return candles
+
+
+def _is_kline_header(row: list[str]) -> bool:
+    return bool(row) and row[0].strip().lower() in {"open_time", "open time"}
 
 
 def _row_to_market_candle(
