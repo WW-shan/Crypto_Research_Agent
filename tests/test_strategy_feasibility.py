@@ -739,6 +739,10 @@ def test_strategy_feasibility_cli_writes_markdown_and_json(capsys, tmp_path):
             "SOL/USDT",
             "--timeframe",
             "1h",
+            "--min-split-count",
+            "2",
+            "--cost-bps",
+            "5",
             "--out",
             str(out_path),
             "--json-out",
@@ -753,6 +757,8 @@ def test_strategy_feasibility_cli_writes_markdown_and_json(capsys, tmp_path):
     assert exit_code == 0
     assert payload["command"] == "strategy-feasibility"
     assert payload["report"]["readiness"] == "feasible"
+    assert payload["report"]["cost_bps"] == 5
+    assert len(payload["report"]["split_metrics"]) >= 2
     assert json_payload["report"]["uses_real_capital"] is False
     assert json_payload["report"]["live_order_routing"] is False
     assert "Large Liquid Momentum" in out_path.read_text(encoding="utf-8")
@@ -832,6 +838,81 @@ def test_strategy_feasibility_cli_writes_derivatives_lab_markdown_and_json(capsy
     assert "Live order routing: false" in markdown
     assert "long_short_crowding_contrarian" in markdown
     assert _record_snapshot(db_path) == before
+
+
+def test_strategy_feasibility_cli_rejects_malformed_derivatives_symbol(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    out_path = tmp_path / "derivatives-lab.md"
+    json_out = tmp_path / "derivatives-lab.json"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "strategy-feasibility",
+                "--db",
+                str(db_path),
+                "--mode",
+                "derivatives-conditioned-lab",
+                "--symbol",
+                "BTC/USDT",
+                "--timeframe",
+                "1h",
+                "--derivatives-symbol",
+                "BTC/USDT",
+                "--out",
+                str(out_path),
+                "--json-out",
+                str(json_out),
+            ]
+        )
+
+    assert exc_info.value.code == 2
+
+
+def test_render_derivatives_conditioned_lab_markdown_includes_lab_tables(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    _seed_market_candles(db_path, count=120)
+
+    from crypto_alpha_agent.pipeline.strategy_feasibility import (
+        build_derivatives_conditioned_lab_report,
+        render_derivatives_conditioned_lab_markdown,
+    )
+
+    report = build_derivatives_conditioned_lab_report(
+        db_path,
+        symbols=SYMBOLS,
+        timeframe="1h",
+        current_capital_usd=300,
+        derivatives_period="1h",
+        candidates=["long_short_crowding_contrarian"],
+        min_split_count=3,
+    )
+    markdown = render_derivatives_conditioned_lab_markdown(report)
+
+    assert "# Derivatives-Conditioned Feasibility Lab" in markdown
+    assert "Real capital: false" in markdown
+    assert "Live order routing: false" in markdown
+    assert (
+        "Counts below are raw aggregate source counts; coverage counts are "
+        "lab-filtered by symbols and derivatives period."
+    ) in markdown
+    assert (
+        "| Symbol | Derivatives symbol | Market | Premium | Basis | Long/short | "
+        "Taker buy/sell | Aligned | Blocked reasons |"
+    ) in markdown
+    assert (
+        "| Candidate | Readiness | Observations | Gross mean | Net mean | Win rate | "
+        "Reasons |"
+    ) in markdown
+    assert (
+        "| long_short_crowding_contrarian | blocked | 0 | n/a | n/a | n/a | "
+        "insufficient_derivatives_history |"
+    ) in markdown
+    assert (
+        "| Candidate | Split | Train observations | Test observations | Test start | "
+        "Test end | Gross mean | Net mean | Win rate |"
+    ) in markdown
+    assert "| long_short_crowding_contrarian | 0 | 0 | 0 | n/a | n/a | 0 | 0 | 0 |" in markdown
 
 
 def _seed_market_candles(db_path, *, count: int) -> None:

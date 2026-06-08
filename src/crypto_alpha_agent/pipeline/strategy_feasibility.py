@@ -416,6 +416,125 @@ def render_strategy_feasibility_markdown(report: StrategyFeasibilityReport) -> s
     return "\n".join(lines) + "\n"
 
 
+def render_derivatives_conditioned_lab_markdown(
+    report: DerivativesConditionedLabReport,
+) -> str:
+    lines = [
+        "# Derivatives-Conditioned Feasibility Lab",
+        "",
+        "## Safety",
+        f"Real capital: {str(report.uses_real_capital).lower()}",
+        f"Live order routing: {str(report.live_order_routing).lower()}",
+        "",
+        "## Decision",
+        f"Readiness: {report.readiness}",
+        f"Reason codes: {', '.join(report.reason_codes) or 'none'}",
+        "",
+        "## Coverage",
+        "| Symbol | Derivatives symbol | Market | Premium | Basis | Long/short | Taker buy/sell | Aligned | Blocked reasons |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+    ]
+    for item in report.coverage:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    item.symbol,
+                    item.derivatives_symbol,
+                    f"{item.market_records:g}",
+                    f"{item.premium_index_kline_records:g}",
+                    f"{item.basis_records:g}",
+                    f"{item.long_short_account_ratio_records:g}",
+                    f"{item.taker_buy_sell_volume_records:g}",
+                    f"{item.aligned_records:g}",
+                    ", ".join(item.blocked_reasons) or "none",
+                ]
+            )
+            + " |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Derivatives Context",
+            "Counts below are raw aggregate source counts; coverage counts are lab-filtered by symbols and derivatives period.",
+            "| Record type | Raw count |",
+            "| --- | ---: |",
+        ]
+    )
+    for record_type, count in sorted(report.derivatives_record_counts.items()):
+        lines.append(f"| {record_type} | {count:g} |")
+
+    lines.extend(
+        [
+            "",
+            "## Candidates",
+            "| Candidate | Readiness | Observations | Gross mean | Net mean | Win rate | Reasons |",
+            "| --- | --- | ---: | ---: | ---: | ---: | --- |",
+        ]
+    )
+    for metric in report.candidate_metrics:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    metric.candidate,
+                    metric.readiness,
+                    f"{metric.observations:g}",
+                    _format_optional_mean(metric.gross_return_mean),
+                    _format_optional_mean(metric.cost_adjusted_return_mean),
+                    _format_optional_rate(metric.win_rate),
+                    ", ".join(metric.reason_codes) or "none",
+                ]
+            )
+            + " |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Walk Forward",
+            "| Candidate | Split | Train observations | Test observations | Test start | Test end | Gross mean | Net mean | Win rate |",
+            "| --- | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: |",
+        ]
+    )
+    for metric in report.candidate_metrics:
+        if not metric.split_metrics:
+            lines.append(f"| {metric.candidate} | 0 | 0 | 0 | n/a | n/a | 0 | 0 | 0 |")
+            continue
+        for split in metric.split_metrics:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        metric.candidate,
+                        f"{split.split_index:g}",
+                        f"{split.train_observations:g}",
+                        f"{split.test_observations:g}",
+                        split.test_start.isoformat(),
+                        split.test_end.isoformat(),
+                        f"{split.gross_return_mean:.8f}",
+                        f"{split.cost_adjusted_return_mean:.8f}",
+                        f"{split.win_rate:.4f}",
+                    ]
+                )
+                + " |"
+            )
+    return "\n".join(lines) + "\n"
+
+
+def _format_optional_mean(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.8f}"
+
+
+def _format_optional_rate(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.4f}"
+
+
 def _normalize_derivatives_symbol_map(
     symbols: list[str],
     derivatives_symbols: dict[str, str] | None,

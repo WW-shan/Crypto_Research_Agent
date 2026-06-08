@@ -88,7 +88,9 @@ from crypto_alpha_agent.pipeline.markdown import (
     render_weekly_evidence_report_markdown,
 )
 from crypto_alpha_agent.pipeline.strategy_feasibility import (
+    build_derivatives_conditioned_lab_report,
     build_large_liquid_momentum_feasibility_report,
+    render_derivatives_conditioned_lab_markdown,
     render_strategy_feasibility_markdown,
 )
 from crypto_alpha_agent.pipeline.memory import (
@@ -686,7 +688,10 @@ def build_parser() -> argparse.ArgumentParser:
     strategy_feasibility_parser.add_argument(
         "--mode",
         required=True,
-        choices=("large-liquid-momentum-regime",),
+        choices=(
+            "large-liquid-momentum-regime",
+            "derivatives-conditioned-lab",
+        ),
         help="Feasibility mode to evaluate.",
     )
     strategy_feasibility_parser.add_argument(
@@ -703,6 +708,41 @@ def build_parser() -> argparse.ArgumentParser:
         type=_non_negative_finite_float,
         default=300.0,
         help="Operator capital profile used for feasibility constraints.",
+    )
+    strategy_feasibility_parser.add_argument(
+        "--derivatives-symbol",
+        action="append",
+        default=[],
+        help="Optional derivatives mapping in SYMBOL=BINANCEUSDM format. Repeat for multiple symbols.",
+    )
+    strategy_feasibility_parser.add_argument(
+        "--derivatives-period",
+        default="1h",
+        help="Binance USD-M derivatives context period.",
+    )
+    strategy_feasibility_parser.add_argument(
+        "--candidate",
+        action="append",
+        choices=(
+            "long_short_crowding_contrarian",
+            "taker_imbalance_reversal",
+            "premium_basis_risk_filter",
+            "momentum_derivatives_confirmation",
+        ),
+        default=[],
+        help="Derivatives-conditioned lab candidate to evaluate. Repeat to select multiple candidates.",
+    )
+    strategy_feasibility_parser.add_argument(
+        "--min-split-count",
+        type=_positive_int,
+        default=3,
+        help="Minimum positive walk-forward split count.",
+    )
+    strategy_feasibility_parser.add_argument(
+        "--cost-bps",
+        type=_non_negative_finite_float,
+        default=10.0,
+        help="Round-trip cost assumption in basis points.",
     )
     strategy_feasibility_parser.set_defaults(
         handler=_handle_strategy_feasibility,
@@ -2266,13 +2306,53 @@ def _handle_expansion_prep_report(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def _parse_derivatives_symbol_map(values: list[str]) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    for raw_value in values:
+        if "=" not in raw_value:
+            raise ValueError(
+                f"invalid --derivatives-symbol {raw_value!r}; expected SYMBOL=DERIVATIVES_SYMBOL"
+            )
+        symbol, derivatives_symbol = raw_value.split("=", maxsplit=1)
+        symbol = symbol.strip()
+        derivatives_symbol = derivatives_symbol.strip()
+        if not symbol or not derivatives_symbol:
+            raise ValueError(
+                f"invalid --derivatives-symbol {raw_value!r}; symbol and derivatives symbol must be non-empty"
+            )
+        parsed[symbol] = derivatives_symbol
+    return parsed
+
+
 def _handle_strategy_feasibility(args: argparse.Namespace) -> dict[str, Any]:
-    report = build_large_liquid_momentum_feasibility_report(
-        args.db,
-        symbols=args.symbol,
-        timeframe=args.timeframe,
-        current_capital_usd=args.current_capital_usd,
-    )
+    if args.mode == "derivatives-conditioned-lab":
+        try:
+            derivatives_symbols = _parse_derivatives_symbol_map(args.derivatives_symbol)
+        except ValueError as exc:
+            args.parser.error(str(exc))
+            raise AssertionError("argparse parser.error should exit") from exc
+        report = build_derivatives_conditioned_lab_report(
+            args.db,
+            symbols=args.symbol,
+            timeframe=args.timeframe,
+            current_capital_usd=args.current_capital_usd,
+            derivatives_symbols=derivatives_symbols,
+            derivatives_period=args.derivatives_period,
+            candidates=args.candidate,
+            cost_bps=args.cost_bps,
+            min_split_count=args.min_split_count,
+        )
+        markdown = render_derivatives_conditioned_lab_markdown(report)
+    else:
+        report = build_large_liquid_momentum_feasibility_report(
+            args.db,
+            symbols=args.symbol,
+            timeframe=args.timeframe,
+            current_capital_usd=args.current_capital_usd,
+            cost_bps=args.cost_bps,
+            min_split_count=args.min_split_count,
+        )
+        markdown = render_strategy_feasibility_markdown(report)
     payload = {
         "command": "strategy-feasibility",
         "out": str(args.out),
@@ -2281,7 +2361,7 @@ def _handle_strategy_feasibility(args: argparse.Namespace) -> dict[str, Any]:
         "uses_real_capital": False,
         "live_order_routing": False,
     }
-    write_text_artifact(args.out, render_strategy_feasibility_markdown(report))
+    write_text_artifact(args.out, markdown)
     write_json_artifact(args.json_out, payload)
     return payload
 
