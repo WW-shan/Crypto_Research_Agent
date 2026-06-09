@@ -260,7 +260,7 @@ git commit -m "feat: add evidence universe depth gates"
 - Modify: `src/crypto_alpha_agent/pipeline/candidate_screens.py`
 - Test: `tests/test_candidate_screens.py`
 
-- [ ] **Step 1: Write RED tests for new screen definitions**
+- [x] **Step 1: Write RED tests for new screen definitions**
 
 Assert the catalog includes these new screen ids:
 
@@ -274,7 +274,7 @@ Tests must assert each screen is read-only, has required record types, declares
 lookahead risk, and sets `uses_real_capital=false` and
 `live_order_routing=false`.
 
-- [ ] **Step 2: Implement catalog definitions and deterministic evaluators**
+- [x] **Step 2: Implement catalog definitions and deterministic evaluators**
 
 Add conservative evaluators:
 
@@ -285,7 +285,7 @@ Add conservative evaluators:
   window limitations;
 - DeFi/DEX variants emit watchlist/regime signals only.
 
-- [ ] **Step 3: Run candidate tests**
+- [x] **Step 3: Run candidate tests**
 
 Run:
 
@@ -295,7 +295,7 @@ uv run --extra dev pytest tests/test_candidate_screens.py -q
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit Task 5**
+- [x] **Step 4: Commit Task 5**
 
 ```bash
 git add src/crypto_alpha_agent/pipeline/candidate_screens.py tests/test_candidate_screens.py

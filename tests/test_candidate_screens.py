@@ -27,6 +27,11 @@ SCREEN_IDS = {
     "derivatives_crowding_price_action",
     "defi_dex_regime_discovery",
     "cross_asset_ranking_turnover_cap",
+    "regime_gated_cross_asset_momentum",
+    "regime_gated_cross_asset_reversal",
+    "funding_basis_convergence_liquidity_filter",
+    "derivatives_crowding_recent_window_price_action",
+    "defi_dex_liquidity_regime_watchlist",
 }
 
 
@@ -211,6 +216,46 @@ def test_candidate_screen_derives_signal_from_local_market_history_read_only(tmp
     assert len(result.signals) == 1
     signal = result.signals[0]
     assert signal.screen_id == "short_horizon_momentum_volatility_filter"
+    assert signal.symbol == "BTC/USDT"
+    assert signal.direction == "long"
+    assert signal.score > 0
+    assert signal.evidence_record_count == 3
+    assert signal.uses_real_capital is False
+    assert signal.live_order_routing is False
+    assert _record_snapshot(db_path) == before
+
+
+def test_redesigned_momentum_family_derives_read_only_signal(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    ResearchDataStore(db_path).upsert_records(
+        [
+            _market_candle("BTC/USDT", START, close=100),
+            _market_candle("BTC/USDT", START + timedelta(hours=1), close=104),
+            _market_candle("BTC/USDT", START + timedelta(hours=2), close=109),
+            _market_candle("ETH/USDT", START, close=200),
+            _market_candle("ETH/USDT", START + timedelta(hours=1), close=198),
+            _market_candle("ETH/USDT", START + timedelta(hours=2), close=197),
+        ]
+    )
+
+    from crypto_alpha_agent.pipeline.candidate_screens import evaluate_candidate_screen
+
+    before = _record_snapshot(db_path)
+    result = evaluate_candidate_screen(
+        db_path,
+        "regime_gated_cross_asset_momentum",
+        symbols=["BTC/USDT", "ETH/USDT"],
+        timeframe="1h",
+        evaluation_start=START,
+        evaluation_end=START + timedelta(hours=3),
+        min_history_bars=3,
+    )
+
+    assert result.readiness == "candidate"
+    assert result.blocked_reasons == ()
+    assert len(result.signals) == 1
+    signal = result.signals[0]
+    assert signal.screen_id == "regime_gated_cross_asset_momentum"
     assert signal.symbol == "BTC/USDT"
     assert signal.direction == "long"
     assert signal.score > 0

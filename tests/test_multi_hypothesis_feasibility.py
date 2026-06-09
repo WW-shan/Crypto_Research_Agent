@@ -24,6 +24,11 @@ SCREEN_IDS = [
     "derivatives_crowding_price_action",
     "defi_dex_regime_discovery",
     "cross_asset_ranking_turnover_cap",
+    "regime_gated_cross_asset_momentum",
+    "regime_gated_cross_asset_reversal",
+    "funding_basis_convergence_liquidity_filter",
+    "derivatives_crowding_recent_window_price_action",
+    "defi_dex_liquidity_regime_watchlist",
 ]
 REQUIRED_BLOCKED_REASONS = {
     "insufficient_universe_coverage",

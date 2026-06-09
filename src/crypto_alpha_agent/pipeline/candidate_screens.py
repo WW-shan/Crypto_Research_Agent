@@ -20,6 +20,11 @@ CandidateScreenId = Literal[
     "derivatives_crowding_price_action",
     "defi_dex_regime_discovery",
     "cross_asset_ranking_turnover_cap",
+    "regime_gated_cross_asset_momentum",
+    "regime_gated_cross_asset_reversal",
+    "funding_basis_convergence_liquidity_filter",
+    "derivatives_crowding_recent_window_price_action",
+    "defi_dex_liquidity_regime_watchlist",
 ]
 CandidateScreenReadiness = Literal["candidate", "blocked"]
 CandidateScreenDirection = Literal["long", "short", "watchlist", "regime"]
@@ -220,6 +225,89 @@ def candidate_screen_catalog() -> Mapping[CandidateScreenId, CandidateScreenDefi
                     "no_candidate_signal",
                 ),
             ),
+            CandidateScreenDefinition(
+                screen_id="regime_gated_cross_asset_momentum",
+                required_record_types=("market_candle",),
+                min_history_bars=72,
+                cost_model_required=True,
+                lookahead_risk_level="low",
+                execution_role="research_only",
+                blocked_reasons=(
+                    "missing_required_records",
+                    "insufficient_history_window",
+                    "lookahead_risk",
+                    "cost_model_required",
+                    "no_candidate_signal",
+                ),
+            ),
+            CandidateScreenDefinition(
+                screen_id="regime_gated_cross_asset_reversal",
+                required_record_types=("market_candle",),
+                min_history_bars=72,
+                cost_model_required=True,
+                lookahead_risk_level="low",
+                execution_role="research_only",
+                blocked_reasons=(
+                    "missing_required_records",
+                    "insufficient_history_window",
+                    "lookahead_risk",
+                    "cost_model_required",
+                    "no_candidate_signal",
+                ),
+            ),
+            CandidateScreenDefinition(
+                screen_id="funding_basis_convergence_liquidity_filter",
+                required_record_types=(
+                    "market_candle",
+                    "premium_index_kline",
+                    "basis",
+                    "funding_rate",
+                ),
+                min_history_bars=24,
+                cost_model_required=True,
+                lookahead_risk_level="medium",
+                execution_role="research_only",
+                blocked_reasons=(
+                    "missing_required_records",
+                    "insufficient_history_window",
+                    "lookahead_risk",
+                    "cost_model_required",
+                    "no_candidate_signal",
+                ),
+            ),
+            CandidateScreenDefinition(
+                screen_id="derivatives_crowding_recent_window_price_action",
+                required_record_types=(
+                    "market_candle",
+                    "long_short_account_ratio",
+                    "taker_buy_sell_volume",
+                ),
+                min_history_bars=24,
+                cost_model_required=True,
+                lookahead_risk_level="medium",
+                execution_role="research_only",
+                blocked_reasons=(
+                    "missing_required_records",
+                    "insufficient_history_window",
+                    "lookahead_risk",
+                    "cost_model_required",
+                    "no_candidate_signal",
+                ),
+            ),
+            CandidateScreenDefinition(
+                screen_id="defi_dex_liquidity_regime_watchlist",
+                required_record_types=("dex_pair", "defi_yield"),
+                min_history_bars=0,
+                cost_model_required=False,
+                lookahead_risk_level="watchlist_only",
+                execution_role="watchlist_or_regime_only",
+                blocked_reasons=(
+                    "missing_required_records",
+                    "lookahead_risk",
+                    "watchlist_only_source",
+                    "no_candidate_signal",
+                ),
+            ),
         )
     }
     return MappingProxyType(catalog)
@@ -344,22 +432,37 @@ def _screen_signals(
     market_by_symbol: dict[str, list[_MarketRow]],
     symbols: tuple[str, ...],
 ) -> tuple[CandidateScreenSignal, ...]:
-    if definition.screen_id == "short_horizon_momentum_volatility_filter":
+    if definition.screen_id in {
+        "short_horizon_momentum_volatility_filter",
+        "regime_gated_cross_asset_momentum",
+    }:
         return _market_return_signals(definition, market_by_symbol, direction_mode="momentum")
-    if definition.screen_id == "short_horizon_reversal_volatility_filter":
+    if definition.screen_id in {
+        "short_horizon_reversal_volatility_filter",
+        "regime_gated_cross_asset_reversal",
+    }:
         return _market_return_signals(definition, market_by_symbol, direction_mode="reversal")
     if definition.screen_id == "cross_asset_ranking_turnover_cap":
         return _cross_asset_ranking_signals(definition, market_by_symbol)
-    if definition.screen_id == "defi_dex_regime_discovery":
+    if definition.screen_id in {
+        "defi_dex_regime_discovery",
+        "defi_dex_liquidity_regime_watchlist",
+    }:
         return _watchlist_signals(definition, records, symbols)
-    if definition.screen_id == "perp_spot_basis_funding_deviation":
+    if definition.screen_id in {
+        "perp_spot_basis_funding_deviation",
+        "funding_basis_convergence_liquidity_filter",
+    }:
         return _derivatives_context_signals(
             definition,
             records,
             symbols,
             ("premium_index_kline", "basis", "funding_rate"),
         )
-    if definition.screen_id == "derivatives_crowding_price_action":
+    if definition.screen_id in {
+        "derivatives_crowding_price_action",
+        "derivatives_crowding_recent_window_price_action",
+    }:
         return _derivatives_context_signals(
             definition,
             records,
