@@ -372,6 +372,19 @@ minimum month/asset gates, cost sensitivity, multiple-testing summary, and
 candidate-state memory. Event-driven backtest expansion remains Round 24 and is
 not eligible unless Round 23 produces a `feasibility_passed` candidate.
 
+Round 23 result on 2026-06-09: the data-depth campaign collected 18120 Binance
+Public Data USD-M futures 1h candles across BTC/USDT, ETH/USDT, SOL/USDT,
+BNB/USDT, and XRP/USDT for 2026-01 through 2026-05. Feasibility v2 evaluated
+11 read-only candidate screens with 5/10/20/50 bps cost sensitivity, 24-bar
+purge gaps, at least three splits, at least three unique months, and at least
+three eligible assets. The lab remained `blocked`: market-history candidates
+were negative after costs and unstable across splits, while derivatives and
+DeFi/DEX candidates lacked required source coverage or remained watchlist-only.
+No candidate reached `feasibility_passed`, so Round 24 event-driven backtest,
+paper collection, tiny-live review, and live readiness remain blocked. The
+phase report is
+`docs/goals/phase-reports/2026-06-09-evidence-universe-data-depth-and-hypothesis-redesign-report.md`.
+
 The active path map is:
 
 Persistent Round 22 path map:

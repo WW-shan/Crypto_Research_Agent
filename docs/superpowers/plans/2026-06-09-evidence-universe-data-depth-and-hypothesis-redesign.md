@@ -414,7 +414,7 @@ git commit -m "feat: persist feasibility v2 candidate states"
 - Runtime artifacts under `var/reports/strategy-feasibility/`
 - Runtime artifacts under `var/memory/candidate-state.jsonl`
 
-- [ ] **Step 1: Run plan-only campaign**
+- [x] **Step 1: Run plan-only campaign**
 
 Run a plan-only campaign for a conservative liquid universe:
 
@@ -438,7 +438,7 @@ uv run crypto-alpha-agent data-depth-campaign \
 
 Expected: exits 0, writes Markdown/JSON, and reports missing jobs.
 
-- [ ] **Step 2: Run bounded gated collection**
+- [x] **Step 2: Run bounded gated collection**
 
 Run collection only for missing Binance Public Data monthly kline jobs from
 January through May 2026 and the five-symbol universe above:
@@ -467,7 +467,7 @@ Expected: exits 0 when at least one job succeeds; failed jobs are explicit in
 the artifact. If source access fails completely, preserve the failure artifact
 and continue with plan-only feasibility as blocked.
 
-- [ ] **Step 3: Run feasibility v2**
+- [x] **Step 3: Run feasibility v2**
 
 Run:
 
@@ -500,7 +500,7 @@ uv run crypto-alpha-agent strategy-feasibility \
 Expected: exits 0 and writes candidate-state memory. Readiness may be blocked;
 that is acceptable when reasons are explicit.
 
-- [ ] **Step 4: Commit Task 8 artifacts only if repo policy allows runtime artifacts**
+- [x] **Step 4: Commit Task 8 artifacts only if repo policy allows runtime artifacts**
 
 If runtime artifacts are ignored, do not force-add them. Commit only source and
 documentation changes in later tasks. Preserve artifact paths in the phase
@@ -515,7 +515,7 @@ report.
 - Modify: `docs/goals/round-23-evidence-universe-data-depth-path-map.md`
 - Test: `tests/test_documentation_contract.py`
 
-- [ ] **Step 1: Write the Round 23 phase report**
+- [x] **Step 1: Write the Round 23 phase report**
 
 The report must include:
 
@@ -529,13 +529,13 @@ The report must include:
 - candidate-state memory records;
 - explicit backtest/paper/live decision.
 
-- [ ] **Step 2: Update project state and roadmap**
+- [x] **Step 2: Update project state and roadmap**
 
 Set Round 23 to completed only after verification passes. Set Round 24 as
 eligible only if a candidate reached `feasibility_passed`; otherwise keep Round
 24 blocked.
 
-- [ ] **Step 3: Run focused and full verification**
+- [x] **Step 3: Run focused and full verification**
 
 Run:
 
@@ -551,7 +551,11 @@ If time and environment allow, run:
 uv run --extra dev pytest -q
 ```
 
-- [ ] **Step 4: Commit closeout**
+Closeout note: focused verification passed, the non-LLM local suite passed, and
+unrestricted full pytest was blocked by missing real LLM provider environment
+variables for tests marked `llm_integration`.
+
+- [x] **Step 4: Commit closeout**
 
 ```bash
 git add docs/goals/phase-reports/2026-06-09-evidence-universe-data-depth-and-hypothesis-redesign-report.md docs/goals/project-completion-state.md docs/roadmap.md docs/goals/round-23-evidence-universe-data-depth-path-map.md tests/test_documentation_contract.py

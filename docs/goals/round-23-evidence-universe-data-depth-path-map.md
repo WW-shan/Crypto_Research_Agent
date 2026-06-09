@@ -12,16 +12,17 @@ It remains research-only and read-only with respect to trading decisions.
 
 - Round 22 is complete on branch `round-22-evidence-universe-lab`.
 - Round 23 is based on Round 22, not on the older `main` branch.
-- Round 22 local lab covered only BTC/USDT, ETH/USDT, and SOL/USDT USD-M
-  futures 1h candles for May 2026.
-- Six candidate screens were evaluated.
+- Round 23 completed a bounded data-depth campaign covering BTC/USDT, ETH/USDT,
+  SOL/USDT, BNB/USDT, and XRP/USDT USD-M futures 1h candles from 2026-01
+  through 2026-05.
+- Eleven candidate screens were evaluated under feasibility v2.
 - Zero candidates reached `feasibility_passed`.
 - Event-driven backtest, paper collection, tiny-live review, and live
   readiness remain blocked.
 
 ## Expected Round 23 State
 
-By the end of Round 23, the project should have:
+Round 23 delivered:
 
 1. A reproducible data-depth campaign plan and report.
 2. Longer public market-history coverage where source access succeeds.
@@ -32,8 +33,8 @@ By the end of Round 23, the project should have:
 6. Feasibility v2 with purge/gap validation, stricter pass gates, and
    multiple-testing awareness.
 7. Candidate memory that records pass/block/redesign decisions.
-8. A phase report deciding whether Round 24 event-driven backtest expansion is
-   eligible.
+8. A phase report deciding that Round 24 event-driven backtest expansion is not
+   eligible because no candidate reached `feasibility_passed`.
 
 ## Route
 
@@ -96,10 +97,10 @@ By the end of Round 23, the project should have:
 
 ### 7. Backtest Gate
 
-- If no candidate reaches `feasibility_passed`, Round 24 is not opened.
-- If at least one candidate reaches `feasibility_passed`, Round 24 may design
-  event-driven backtesting with fees, slippage, spread, latency, filters,
-  precision, partial/missed fills, and lookahead checks.
+- No candidate reached `feasibility_passed`.
+- Round 24 is not opened.
+- A future Round 24 may design event-driven backtesting only after a later
+  feasibility v2 run produces a state-qualified candidate.
 
 ### 8. Paper Gate
 

@@ -7,11 +7,15 @@ round.
 ## Current Round
 
 - Round: 23
-- Status: Opened on 2026-06-09 as Evidence Universe Data Depth And Hypothesis
-  Redesign. This round is the approved next step after Round 22 produced no
-  `feasibility_passed` candidate.
+- Status: Evidence Universe Data Depth And Hypothesis Redesign completed as a
+  read-only data-depth and feasibility v2 expansion. The phase added the
+  campaign planner/collector, universe depth gates, redesigned candidate
+  screens, feasibility v2, candidate memory v2 fields, a bounded data campaign,
+  and a phase report. No candidate reached `feasibility_passed`.
 - Started: 2026-06-09
-- Completed: not completed.
+- Completed: 2026-06-09 after data-depth collection, feasibility v2 execution,
+  candidate-state persistence, focused tests, non-LLM local suite verification,
+  ruff checks, documentation updates, commit, and push.
 - Active slice: Evidence Universe Data Depth And Hypothesis Redesign
 - Active design source:
   `docs/superpowers/specs/2026-06-09-evidence-universe-data-depth-and-hypothesis-redesign-design.md`
@@ -19,7 +23,8 @@ round.
   `docs/superpowers/plans/2026-06-09-evidence-universe-data-depth-and-hypothesis-redesign.md`
 - Active path map:
   `docs/goals/round-23-evidence-universe-data-depth-path-map.md`
-- Phase report: pending Round 23 implementation and verification closeout.
+- Phase report:
+  `docs/goals/phase-reports/2026-06-09-evidence-universe-data-depth-and-hypothesis-redesign-report.md`
 - Working branch:
   `round-23-data-depth-hypothesis-redesign`
 - Baseline branch:
@@ -39,16 +44,18 @@ round.
   candidate for Round 24.
 - Smart Search evidence path:
   `var/smart-search-evidence/2026-06-09-next-route-gap-research/`
-- Current actual state: Round 23 is open and should persist a data-depth
-  campaign, stronger universe coverage, redesigned hypotheses, feasibility v2,
-  candidate-state memory, and a phase report.
-- Current blocker: data depth and strategy evidence quality. Round 22 had only
-  a bounded one-month, three-asset local run and no candidate passed
-  feasibility.
-- Expected next state: Round 23 either produces a `feasibility_passed`
-  candidate eligible for Round 24 backtest design, or records explicit
-  `blocked_for_more_redesign` evidence with no backtest, paper, or live
-  transition.
+- Current actual state: Round 23 completed with 18120 Binance Public Data USD-M
+  futures 1h market candles across BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, and
+  XRP/USDT from 2026-01 through 2026-05. Feasibility v2 evaluated 11 read-only
+  candidate screens and persisted 15 candidate-state memory records.
+- Current blocker: strategy evidence quality and missing non-market source
+  coverage. The five market-history candidates had samples but remained
+  negative after costs and unstable across purged walk-forward splits. The
+  derivatives and DeFi/DEX candidates remained blocked by insufficient universe
+  coverage or watchlist-only source status.
+- Expected next state: Round 24 remains blocked. A future round should add
+  missing derivatives and point-in-time DeFi/DEX evidence or redesign
+  hypotheses before rerunning feasibility v2.
 
 ### Persisted Round 23 Path Map
 
@@ -73,6 +80,30 @@ The route is:
 8. Open Round 24 event-driven backtest design only if a candidate reaches
    `feasibility_passed`.
 9. Keep paper and live execution blocked.
+
+### Persisted Round 23 Results
+
+- Data-depth campaign artifacts:
+  `var/reports/data-depth-campaign/round-23-plan.md`,
+  `var/reports/data-depth-campaign/round-23-plan.json`,
+  `var/reports/data-depth-campaign/round-23-collect.md`, and
+  `var/reports/data-depth-campaign/round-23-collect.json`.
+- Feasibility v2 artifacts:
+  `var/reports/strategy-feasibility/multi-hypothesis-lab-v2.md` and
+  `var/reports/strategy-feasibility/multi-hypothesis-lab-v2.json`.
+- Candidate memory:
+  `var/memory/candidate-state.jsonl`.
+- Collection result: 25 of 25 Binance Public Data USD-M futures monthly kline
+  jobs succeeded; each of BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT, and XRP/USDT
+  had 5 unique months and 3624 records.
+- Feasibility result: 11 candidates evaluated, 0 feasible, 11 blocked.
+- Backtest decision: Round 24 is not eligible.
+- Paper/live decision: blocked.
+- Verification result: focused Round 23 suite passed with 68 tests; local
+  non-LLM pytest passed with 1202 tests and 10 deselected real LLM integration
+  tests; unrestricted full pytest was blocked by missing real LLM provider
+  environment variables for tests marked `llm_integration`; ruff and diff
+  checks passed.
 
 ### Persisted Round 22 Research Conclusions
 
@@ -548,3 +579,4 @@ If work continues after Phase 13:
 | 20 | 2026-06-08 | Profit Evidence Redesign | focused tests 54 passed; full pytest 1119 passed; follow-up pytest 1120 passed; ruff passed; diff/staged checks passed; staged secret scan returned []; Binance USD-M derivatives ingest wrote 24 rows per new feed; follow-up OHLCV ingest wrote 1000 rows each for BTC/ETH/SOL; strategy feasibility blocked with `non_positive_cost_adjusted_expectancy` | Profit Evidence Redesign closeout and follow-up commits pushed to `main` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 21 | 2026-06-08 | Derivatives-Conditioned Feasibility Lab | focused feasibility tests 21 passed; final focused suite 42 passed; documentation contract tests 11 passed; full pytest 1136 passed; ruff passed; diff/staged checks passed; staged secret scan returned []; Binance USD-M derivatives lab ingested 500 rows per feed/symbol and blocked all four candidates with `non_positive_cost_adjusted_expectancy` before strategy registration | Derivatives-Conditioned Feasibility Lab closeout commits pushed to `main` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 22 | 2026-06-08 | Evidence Universe Expansion and Multi-Hypothesis Feasibility Lab | focused suite 98 passed; focused LLM prompt-contract regression 30 passed; full pytest 1197 passed after sourcing the main workspace `.env` for the command only; ruff passed; diff/staged checks passed; staged secret scan returned no findings; Binance Public Data USD-M 1h May 2026 collection wrote 2232 market candles across BTC/ETH/SOL; DefiLlama probes succeeded; DexScreener failed closed; multi-hypothesis lab blocked all six screens and persisted 10 candidate-state memory records; no candidate reached `feasibility_passed` | pending | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 23 | 2026-06-09 | Evidence Universe Data Depth And Hypothesis Redesign | focused Round 23 suite 68 passed; local non-LLM pytest 1202 passed, 10 real LLM integration tests deselected; unrestricted full pytest blocked by missing real LLM provider environment variables; ruff passed; diff checks passed; Binance Public Data USD-M 1h January-May 2026 collection wrote 18120 market candles across BTC/ETH/SOL/BNB/XRP; feasibility v2 evaluated 11 candidate screens, persisted 15 candidate-state records, and blocked all candidates; no candidate reached `feasibility_passed` | `docs: record evidence data depth phase result` | `https://github.com/WW-shan/Crypto_Research_Agent` |
