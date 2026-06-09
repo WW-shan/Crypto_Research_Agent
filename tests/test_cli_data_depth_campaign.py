@@ -132,6 +132,14 @@ def test_data_depth_campaign_cli_collects_missing_jobs_and_records_failures(
         calls.append((db_path, kwargs))
         if kwargs["month"] == 2:
             raise RuntimeError("source timeout")
+        ResearchDataStore(db_path).upsert_records(
+            [
+                _market_candle(
+                    "BTC/USDT",
+                    datetime(kwargs["year"], kwargs["month"], 1, tzinfo=UTC),
+                )
+            ]
+        )
         return FakePublicSummary(
             symbol=kwargs["symbol"],
             year=kwargs["year"],
@@ -190,6 +198,7 @@ def test_data_depth_campaign_cli_collects_missing_jobs_and_records_failures(
     assert [job["status"] for job in jobs] == ["succeeded", "failed"]
     assert jobs[0]["records_written"] == 744
     assert jobs[1]["error"] == "source timeout"
+    assert payload["report"]["coverage"][0]["unique_months"] == 1
     assert payload["uses_real_capital"] is False
     assert payload["live_order_routing"] is False
     assert "source timeout" in out_path.read_text(encoding="utf-8")

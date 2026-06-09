@@ -2577,7 +2577,10 @@ def _handle_data_depth_campaign(args: argparse.Namespace) -> dict[str, Any]:
                             }
                         )
                     )
-            report = report.model_copy(update={"collection_results": tuple(collection_results)})
+            refreshed_report = build_data_depth_campaign_report(args.db, spec=spec)
+            report = refreshed_report.model_copy(
+                update={"collection_results": tuple(collection_results)}
+            )
     except ValueError as exc:
         args.parser.error(str(exc))
         raise AssertionError("argparse parser.error should exit") from exc
