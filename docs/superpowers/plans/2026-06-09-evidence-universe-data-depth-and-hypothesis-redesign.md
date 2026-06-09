@@ -113,7 +113,7 @@ git commit -m "feat: add data depth campaign planner"
 - Test: `tests/test_data_depth_campaign.py`
 - Test: `tests/test_cli_data_depth_campaign.py`
 
-- [ ] **Step 1: Write RED tests for coverage audit**
+- [x] **Step 1: Write RED tests for coverage audit**
 
 Seed `ResearchDataStore` with BTC/USDT market candles for January and March
 2026 while leaving February empty. Assert the report shows:
@@ -125,13 +125,13 @@ Seed `ResearchDataStore` with BTC/USDT market candles for January and March
 - reason code `insufficient_month_coverage`
 - no database mutations during plan-only audit
 
-- [ ] **Step 2: Implement `build_data_depth_campaign_report`**
+- [x] **Step 2: Implement `build_data_depth_campaign_report`**
 
 The function must read local SQLite records only, group `market_candle` rows by
 symbol/timeframe/month, calculate missing jobs, and render deterministic JSON
 and Markdown. It must not call the network.
 
-- [ ] **Step 3: Add plan-only CLI**
+- [x] **Step 3: Add plan-only CLI**
 
 Add `data-depth-campaign` with required:
 
@@ -148,7 +148,7 @@ Add `data-depth-campaign` with required:
 Default mode is plan-only. The payload must include `uses_real_capital=false`
 and `live_order_routing=false`.
 
-- [ ] **Step 4: Run CLI tests**
+- [x] **Step 4: Run CLI tests**
 
 Run:
 
@@ -158,7 +158,7 @@ uv run --extra dev pytest tests/test_data_depth_campaign.py tests/test_cli_data_
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 2**
+- [x] **Step 5: Commit Task 2**
 
 ```bash
 git add src/crypto_alpha_agent/pipeline/data_depth_campaign.py src/crypto_alpha_agent/cli.py tests/test_data_depth_campaign.py tests/test_cli_data_depth_campaign.py

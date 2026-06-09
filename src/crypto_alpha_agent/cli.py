@@ -77,6 +77,12 @@ from crypto_alpha_agent.pipeline.evidence_reports import (
 from crypto_alpha_agent.pipeline.candidate_state_memory import (
     persist_candidate_state_memory,
 )
+from crypto_alpha_agent.pipeline.data_depth_campaign import (
+    CampaignMonth,
+    DataDepthCampaignSpec,
+    build_data_depth_campaign_report,
+    render_data_depth_campaign_markdown,
+)
 from crypto_alpha_agent.pipeline.expansion_preparation import build_expansion_preparation_report
 from crypto_alpha_agent.pipeline.governance_reports import build_profit_governance_report
 from crypto_alpha_agent.pipeline.historical_bootstrap import build_historical_bootstrap_report
@@ -765,6 +771,36 @@ def build_parser() -> argparse.ArgumentParser:
     strategy_feasibility_parser.set_defaults(
         handler=_handle_strategy_feasibility,
         parser=strategy_feasibility_parser,
+        llm_gate_bypass=True,
+    )
+
+    data_depth_parser = subparsers.add_parser(
+        "data-depth-campaign",
+        help="Build a read-only data-depth campaign coverage plan.",
+    )
+    data_depth_parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite research data store.")
+    data_depth_parser.add_argument(
+        "--symbol",
+        action="append",
+        required=True,
+        help="Market symbol to audit. Repeat for multiple symbols.",
+    )
+    data_depth_parser.add_argument("--timeframe", required=True, help="Stored market candle timeframe.")
+    data_depth_parser.add_argument("--start-year", required=True, type=_positive_int, help="Campaign start UTC year.")
+    data_depth_parser.add_argument("--start-month", required=True, type=_month_number, help="Campaign start UTC month.")
+    data_depth_parser.add_argument("--end-year", required=True, type=_positive_int, help="Campaign end UTC year.")
+    data_depth_parser.add_argument("--end-month", required=True, type=_month_number, help="Campaign end UTC month.")
+    data_depth_parser.add_argument(
+        "--min-unique-months",
+        type=_positive_int,
+        default=3,
+        help="Minimum unique covered months required per symbol.",
+    )
+    data_depth_parser.add_argument("--out", required=True, type=Path, help="Path for the Markdown report.")
+    data_depth_parser.add_argument("--json-out", required=True, type=Path, help="Path for the machine-readable payload JSON.")
+    data_depth_parser.set_defaults(
+        handler=_handle_data_depth_campaign,
+        parser=data_depth_parser,
         llm_gate_bypass=True,
     )
 
@@ -2452,6 +2488,35 @@ def _handle_strategy_feasibility(args: argparse.Namespace) -> dict[str, Any]:
     }
     if candidate_state_memory_records:
         payload["candidate_state_memory_records"] = len(candidate_state_memory_records)
+    write_text_artifact(args.out, markdown)
+    write_json_artifact(args.json_out, payload)
+    return payload
+
+
+def _handle_data_depth_campaign(args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        spec = DataDepthCampaignSpec(
+            symbols=args.symbol,
+            timeframe=args.timeframe,
+            market="um-futures",
+            start=CampaignMonth(year=args.start_year, month=args.start_month),
+            end=CampaignMonth(year=args.end_year, month=args.end_month),
+            min_unique_months=args.min_unique_months,
+        )
+        report = build_data_depth_campaign_report(args.db, spec=spec)
+    except ValueError as exc:
+        args.parser.error(str(exc))
+        raise AssertionError("argparse parser.error should exit") from exc
+
+    markdown = render_data_depth_campaign_markdown(report)
+    payload = {
+        "command": "data-depth-campaign",
+        "out": str(args.out),
+        "json_out": str(args.json_out),
+        "report": report.model_dump(mode="json"),
+        "uses_real_capital": False,
+        "live_order_routing": False,
+    }
     write_text_artifact(args.out, markdown)
     write_json_artifact(args.json_out, payload)
     return payload
