@@ -56,7 +56,7 @@ future point-in-time evidence and later gates prove otherwise.
 - Create: `src/crypto_alpha_agent/pipeline/data_depth_campaign.py`
 - Test: `tests/test_data_depth_campaign.py`
 
-- [ ] **Step 1: Write RED tests for month expansion and strict models**
+- [x] **Step 1: Write RED tests for month expansion and strict models**
 
 Add tests that import `DataDepthCampaignSpec`, `CampaignMonth`, and
 `expand_campaign_months`. The tests must assert that January through March 2026
@@ -71,7 +71,7 @@ uv run --extra dev pytest tests/test_data_depth_campaign.py -q
 
 Expected: FAIL because the module does not exist.
 
-- [ ] **Step 2: Implement campaign range models**
+- [x] **Step 2: Implement campaign range models**
 
 Create strict models for:
 
@@ -88,7 +88,7 @@ Implementation rules:
 - Set `uses_real_capital=False` and `live_order_routing=False`.
 - Reject empty symbol lists and reversed month ranges.
 
-- [ ] **Step 3: Run focused tests**
+- [x] **Step 3: Run focused tests**
 
 Run:
 
@@ -98,7 +98,7 @@ uv run --extra dev pytest tests/test_data_depth_campaign.py -q
 
 Expected: PASS for range/model tests.
 
-- [ ] **Step 4: Commit Task 1**
+- [x] **Step 4: Commit Task 1**
 
 ```bash
 git add src/crypto_alpha_agent/pipeline/data_depth_campaign.py tests/test_data_depth_campaign.py
