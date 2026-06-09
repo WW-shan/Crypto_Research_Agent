@@ -81,6 +81,7 @@ from crypto_alpha_agent.pipeline.data_depth_campaign import (
     CampaignMonth,
     DataDepthCampaignSpec,
     build_data_depth_campaign_report,
+    campaign_symbol_to_binance_symbol,
     render_data_depth_campaign_markdown,
 )
 from crypto_alpha_agent.pipeline.expansion_preparation import build_expansion_preparation_report
@@ -790,6 +791,16 @@ def build_parser() -> argparse.ArgumentParser:
     data_depth_parser.add_argument("--start-month", required=True, type=_month_number, help="Campaign start UTC month.")
     data_depth_parser.add_argument("--end-year", required=True, type=_positive_int, help="Campaign end UTC year.")
     data_depth_parser.add_argument("--end-month", required=True, type=_month_number, help="Campaign end UTC month.")
+    data_depth_parser.add_argument(
+        "--collect",
+        action="store_true",
+        help="Execute missing Binance Public Data collection jobs.",
+    )
+    data_depth_parser.add_argument(
+        "--allow-network",
+        action="store_true",
+        help="Required explicit gate before --collect performs network access.",
+    )
     data_depth_parser.add_argument(
         "--min-unique-months",
         type=_positive_int,
@@ -2494,6 +2505,9 @@ def _handle_strategy_feasibility(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _handle_data_depth_campaign(args: argparse.Namespace) -> dict[str, Any]:
+    if args.collect and not args.allow_network:
+        args.parser.error("--allow-network is required when --collect is provided")
+        raise AssertionError("argparse parser.error should exit")
     try:
         spec = DataDepthCampaignSpec(
             symbols=args.symbol,
@@ -2504,6 +2518,38 @@ def _handle_data_depth_campaign(args: argparse.Namespace) -> dict[str, Any]:
             min_unique_months=args.min_unique_months,
         )
         report = build_data_depth_campaign_report(args.db, spec=spec)
+        if args.collect:
+            collection_results = []
+            for job in report.missing_collection_jobs:
+                try:
+                    summary = ingest_binance_public_um_futures_month(
+                        args.db,
+                        symbol=campaign_symbol_to_binance_symbol(job.symbol),
+                        interval=job.timeframe,
+                        year=job.month.year,
+                        month=job.month.month,
+                        allow_network=True,
+                    )
+                    collection_results.append(
+                        job.model_copy(
+                            update={
+                                "status": "succeeded",
+                                "records_written": summary.records_written,
+                                "error": None,
+                            }
+                        )
+                    )
+                except Exception as exc:
+                    collection_results.append(
+                        job.model_copy(
+                            update={
+                                "status": "failed",
+                                "records_written": 0,
+                                "error": str(exc),
+                            }
+                        )
+                    )
+            report = report.model_copy(update={"collection_results": tuple(collection_results)})
     except ValueError as exc:
         args.parser.error(str(exc))
         raise AssertionError("argparse parser.error should exit") from exc

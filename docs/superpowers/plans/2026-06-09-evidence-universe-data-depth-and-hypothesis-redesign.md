@@ -175,7 +175,7 @@ git commit -m "feat: add data depth campaign coverage CLI"
 - Test: `tests/test_cli_data_depth_campaign.py`
 - Test: `tests/test_cli_ingest.py`
 
-- [ ] **Step 1: Write RED tests for collection gating**
+- [x] **Step 1: Write RED tests for collection gating**
 
 Add CLI tests that assert:
 
@@ -187,14 +187,14 @@ Add CLI tests that assert:
 - Collection payload still reports `uses_real_capital=false` and
   `live_order_routing=false`.
 
-- [ ] **Step 2: Implement collection job execution**
+- [x] **Step 2: Implement collection job execution**
 
 Implement a small executor that accepts missing `DataDepthCollectionJob`
 objects and calls the existing Binance Public Data monthly kline ingestion
 wrapper. It must catch job-level source failures and record them in the report
 instead of crashing the entire campaign unless all jobs fail.
 
-- [ ] **Step 3: Run focused collection tests**
+- [x] **Step 3: Run focused collection tests**
 
 Run:
 
@@ -204,7 +204,7 @@ uv run --extra dev pytest tests/test_data_depth_campaign.py tests/test_cli_data_
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit Task 3**
+- [x] **Step 4: Commit Task 3**
 
 ```bash
 git add src/crypto_alpha_agent/pipeline/data_depth_campaign.py src/crypto_alpha_agent/cli.py src/crypto_alpha_agent/data/ingestion.py tests/test_data_depth_campaign.py tests/test_cli_data_depth_campaign.py tests/test_cli_ingest.py

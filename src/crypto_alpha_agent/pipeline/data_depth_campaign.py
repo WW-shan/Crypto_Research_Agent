@@ -80,6 +80,7 @@ class DataDepthCampaignReport(_StrictCampaignModel):
     readiness: CampaignReadiness
     coverage: tuple[DataDepthCoverageRow, ...] = Field(default_factory=tuple)
     missing_collection_jobs: tuple[DataDepthCollectionJob, ...] = Field(default_factory=tuple)
+    collection_results: tuple[DataDepthCollectionJob, ...] = Field(default_factory=tuple)
     reason_codes: tuple[CampaignReasonCode, ...] = Field(default_factory=tuple)
     uses_real_capital: Literal[False] = False
     live_order_routing: Literal[False] = False
@@ -167,6 +168,7 @@ def build_data_depth_campaign_report(
         readiness="blocked" if report_reason_codes else "ready",
         coverage=tuple(coverage_rows),
         missing_collection_jobs=tuple(missing_jobs),
+        collection_results=(),
         reason_codes=report_reason_codes,
         uses_real_capital=False,
         live_order_routing=False,
@@ -234,6 +236,34 @@ def render_data_depth_campaign_markdown(report: DataDepthCampaignReport) -> str:
     else:
         lines.append("| none | none | none | none | none |")
 
+    lines.extend(
+        [
+            "",
+            "## Collection Results",
+            "| Symbol | Market | Timeframe | Month | Status | Records written | Error |",
+            "| --- | --- | --- | --- | --- | ---: | --- |",
+        ]
+    )
+    if report.collection_results:
+        for job in report.collection_results:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        job.symbol,
+                        job.market,
+                        job.timeframe,
+                        _format_month(job.month),
+                        job.status,
+                        str(job.records_written),
+                        job.error or "none",
+                    ]
+                )
+                + " |"
+            )
+    else:
+        lines.append("| none | none | none | none | none | 0 | none |")
+
     lines.extend(["", "Live execution remains blocked.", ""])
     return "\n".join(lines)
 
@@ -245,10 +275,15 @@ def empty_campaign_report(spec: DataDepthCampaignSpec) -> DataDepthCampaignRepor
         readiness="ready",
         coverage=(),
         missing_collection_jobs=(),
+        collection_results=(),
         reason_codes=(),
         uses_real_capital=False,
         live_order_routing=False,
     )
+
+
+def campaign_symbol_to_binance_symbol(symbol: str) -> str:
+    return _normalize_symbol(symbol).replace("/", "")
 
 
 def _month_index(month: CampaignMonth) -> int:
