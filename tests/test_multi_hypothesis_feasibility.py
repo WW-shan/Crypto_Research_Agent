@@ -215,6 +215,38 @@ def test_multi_hypothesis_lab_blocks_cost_sensitive_candidates(tmp_path):
     assert metric.candidate_state_target == "redesign_required"
 
 
+def test_multi_hypothesis_lab_evaluates_regime_gated_market_screens(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "candidate-memory.jsonl"
+    _seed_directional_market_candles(db_path, count=140)
+    _seed_source_health(db_path, observed_at=START + timedelta(hours=139))
+
+    from crypto_alpha_agent.pipeline.multi_hypothesis_feasibility import (
+        build_multi_hypothesis_feasibility_report,
+    )
+
+    report = build_multi_hypothesis_feasibility_report(
+        db_path,
+        memory_path=memory_path,
+        symbols=SYMBOLS,
+        timeframe="1h",
+        current_capital_usd=300.0,
+        cost_bps_grid=[5.0, 10.0],
+        min_split_count=3,
+        candidates=["regime_gated_cross_asset_momentum"],
+        feasibility_version="v2",
+        purge_gap_bars=2,
+        min_unique_months=1,
+        min_asset_count=1,
+    )
+
+    metric = report.candidate_metrics[0]
+    assert metric.candidate == "regime_gated_cross_asset_momentum"
+    assert metric.sample_count > 0
+    assert "insufficient_samples" not in metric.reason_codes
+    assert metric.multiple_testing_adjusted is True
+
+
 def test_multi_hypothesis_lab_v2_reports_policy_month_gates_and_multiple_testing(tmp_path):
     db_path = tmp_path / "research.sqlite"
     memory_path = tmp_path / "candidate-memory.jsonl"

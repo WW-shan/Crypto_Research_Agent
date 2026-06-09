@@ -65,6 +65,8 @@ _MARKET_EXECUTION_SCREENS = {
     "short_horizon_momentum_volatility_filter",
     "short_horizon_reversal_volatility_filter",
     "cross_asset_ranking_turnover_cap",
+    "regime_gated_cross_asset_momentum",
+    "regime_gated_cross_asset_reversal",
 }
 
 
@@ -508,12 +510,21 @@ def _historical_observations(
         return []
     if screen_id == "cross_asset_ranking_turnover_cap":
         return _cross_asset_ranking_observations(market_by_symbol, lookback=72)
+    lookback = 72 if screen_id in {
+        "regime_gated_cross_asset_momentum",
+        "regime_gated_cross_asset_reversal",
+    } else 24
     direction_mode: Literal["momentum", "reversal"] = (
-        "reversal" if screen_id == "short_horizon_reversal_volatility_filter" else "momentum"
+        "reversal"
+        if screen_id in {
+            "short_horizon_reversal_volatility_filter",
+            "regime_gated_cross_asset_reversal",
+        }
+        else "momentum"
     )
     return _per_symbol_return_observations(
         market_by_symbol,
-        lookback=24,
+        lookback=lookback,
         direction_mode=direction_mode,
     )
 
