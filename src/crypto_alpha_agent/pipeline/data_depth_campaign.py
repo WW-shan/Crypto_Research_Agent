@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -7,7 +9,6 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from crypto_alpha_agent.data.models import SourceRecord
-from crypto_alpha_agent.data.store import ResearchDataStore
 
 
 CampaignMarket = Literal["um-futures"]
@@ -111,7 +112,7 @@ def build_data_depth_campaign_report(
     spec: DataDepthCampaignSpec,
     now: datetime | None = None,
 ) -> DataDepthCampaignReport:
-    records = ResearchDataStore(db_path).load_records(record_type="market_candle")
+    records = _load_market_records_read_only(db_path)
     requested_months = expand_campaign_months(spec.start, spec.end)
     coverage_rows: list[DataDepthCoverageRow] = []
     missing_jobs: list[DataDepthCollectionJob] = []
@@ -314,6 +315,35 @@ def _available_market_months(
         if month_key in requested:
             months.add(month_key)
     return months
+
+
+def _load_market_records_read_only(db_path: str | Path) -> list[SourceRecord]:
+    path = Path(db_path)
+    if not path.exists():
+        return []
+    uri = f"{path.resolve().as_uri()}?mode=ro"
+    try:
+        with sqlite3.connect(uri, uri=True) as connection:
+            rows = connection.execute(
+                """
+                SELECT record_id, source, record_type, observed_at, payload_json
+                FROM source_records
+                WHERE record_type = 'market_candle'
+                ORDER BY observed_at, record_id
+                """
+            ).fetchall()
+    except sqlite3.Error as exc:
+        raise RuntimeError(f"cannot read data-depth campaign records from {path}: {exc}") from exc
+    return [
+        SourceRecord(
+            record_id=record_id,
+            source=source,
+            record_type=record_type,
+            observed_at=datetime.fromisoformat(observed_at),
+            payload=json.loads(payload_json),
+        )
+        for record_id, source, record_type, observed_at, payload_json in rows
+    ]
 
 
 def _venue_for_market(market: CampaignMarket) -> str:

@@ -130,6 +130,25 @@ def test_campaign_report_audits_local_month_coverage_read_only(tmp_path):
     assert _record_snapshot(db_path) == before
 
 
+def test_campaign_report_missing_database_is_plan_only_read_only(tmp_path):
+    db_path = tmp_path / "missing.sqlite"
+    spec = DataDepthCampaignSpec(
+        symbols=["BTCUSDT"],
+        timeframe="1h",
+        market="um-futures",
+        start=CampaignMonth(year=2026, month=1),
+        end=CampaignMonth(year=2026, month=1),
+        min_unique_months=1,
+    )
+
+    report = build_data_depth_campaign_report(db_path, spec=spec, now=START)
+
+    assert not db_path.exists()
+    assert report.readiness == "blocked"
+    assert report.coverage[0].unique_months == 0
+    assert len(report.missing_collection_jobs) == 1
+
+
 def _market_candle(symbol: str, timestamp: datetime):
     return MarketCandle(
         source="binance_public",
