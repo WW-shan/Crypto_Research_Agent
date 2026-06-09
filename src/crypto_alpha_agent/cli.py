@@ -79,9 +79,11 @@ from crypto_alpha_agent.pipeline.candidate_state_memory import (
 )
 from crypto_alpha_agent.pipeline.data_depth_campaign import (
     CampaignMonth,
+    DataDepthCampaignReport,
     DataDepthCampaignSpec,
     build_data_depth_campaign_report,
     campaign_symbol_to_binance_symbol,
+    expand_campaign_months,
     render_data_depth_campaign_markdown,
 )
 from crypto_alpha_agent.pipeline.expansion_preparation import build_expansion_preparation_report
@@ -836,6 +838,89 @@ def build_parser() -> argparse.ArgumentParser:
     data_depth_parser.set_defaults(
         handler=_handle_data_depth_campaign,
         parser=data_depth_parser,
+        llm_gate_bypass=True,
+    )
+
+    evidence_universe_lab_parser = subparsers.add_parser(
+        "evidence-universe-lab",
+        help="Run the read-only data-depth campaign and feasibility v2 lab.",
+    )
+    evidence_universe_lab_parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite research data store.")
+    evidence_universe_lab_parser.add_argument("--memory", required=True, type=Path, help="Path to the JSONL candidate memory store.")
+    evidence_universe_lab_parser.add_argument(
+        "--symbol",
+        action="append",
+        required=True,
+        help="Market symbol to audit and evaluate. Repeat for multiple symbols.",
+    )
+    evidence_universe_lab_parser.add_argument("--timeframe", required=True, help="Stored market candle timeframe.")
+    evidence_universe_lab_parser.add_argument("--start-year", required=True, type=_positive_int, help="Campaign start UTC year.")
+    evidence_universe_lab_parser.add_argument("--start-month", required=True, type=_month_number, help="Campaign start UTC month.")
+    evidence_universe_lab_parser.add_argument("--end-year", required=True, type=_positive_int, help="Campaign end UTC year.")
+    evidence_universe_lab_parser.add_argument("--end-month", required=True, type=_month_number, help="Campaign end UTC month.")
+    evidence_universe_lab_parser.add_argument(
+        "--collect",
+        action="store_true",
+        help="Execute missing Binance Public Data collection jobs before feasibility.",
+    )
+    evidence_universe_lab_parser.add_argument(
+        "--allow-network",
+        action="store_true",
+        help="Required explicit gate before --collect performs network access.",
+    )
+    evidence_universe_lab_parser.add_argument(
+        "--min-unique-months",
+        type=_positive_int,
+        default=3,
+        help="Minimum unique covered months required per symbol and feasibility candidate.",
+    )
+    evidence_universe_lab_parser.add_argument(
+        "--min-asset-count",
+        type=_positive_int,
+        default=3,
+        help="Minimum point-in-time eligible asset count required by feasibility v2.",
+    )
+    evidence_universe_lab_parser.add_argument(
+        "--min-split-count",
+        type=_positive_int,
+        default=3,
+        help="Minimum positive walk-forward split count.",
+    )
+    evidence_universe_lab_parser.add_argument(
+        "--purge-gap-bars",
+        type=_non_negative_int,
+        default=24,
+        help="Bars to exclude between train and test windows in feasibility v2.",
+    )
+    evidence_universe_lab_parser.add_argument(
+        "--cost-bps-grid",
+        action="append",
+        type=_non_negative_finite_float,
+        default=[],
+        help="Feasibility cost sensitivity grid value in basis points. Repeat to override the default 5/10/20/50 grid.",
+    )
+    evidence_universe_lab_parser.add_argument(
+        "--candidate",
+        action="append",
+        default=[],
+        help="Candidate to evaluate. Repeat to select multiple candidates.",
+    )
+    evidence_universe_lab_parser.add_argument(
+        "--current-capital-usd",
+        type=_non_negative_finite_float,
+        default=300.0,
+        help="Operator capital profile used for feasibility constraints.",
+    )
+    evidence_universe_lab_parser.add_argument(
+        "--persist-candidate-state",
+        action="store_true",
+        help="Persist feasibility v2 candidate states to --memory.",
+    )
+    evidence_universe_lab_parser.add_argument("--out-dir", required=True, type=Path, help="Directory for Markdown and JSON lab artifacts.")
+    evidence_universe_lab_parser.add_argument("--json-out", required=True, type=Path, help="Path for the machine-readable summary JSON.")
+    evidence_universe_lab_parser.set_defaults(
+        handler=_handle_evidence_universe_lab,
+        parser=evidence_universe_lab_parser,
         llm_gate_bypass=True,
     )
 
@@ -2547,40 +2632,7 @@ def _handle_data_depth_campaign(args: argparse.Namespace) -> dict[str, Any]:
         )
         report = build_data_depth_campaign_report(args.db, spec=spec)
         if args.collect:
-            collection_results = []
-            for job in report.missing_collection_jobs:
-                try:
-                    summary = ingest_binance_public_um_futures_month(
-                        args.db,
-                        symbol=campaign_symbol_to_binance_symbol(job.symbol),
-                        interval=job.timeframe,
-                        year=job.month.year,
-                        month=job.month.month,
-                        allow_network=True,
-                    )
-                    collection_results.append(
-                        job.model_copy(
-                            update={
-                                "status": "succeeded",
-                                "records_written": summary.records_written,
-                                "error": None,
-                            }
-                        )
-                    )
-                except Exception as exc:
-                    collection_results.append(
-                        job.model_copy(
-                            update={
-                                "status": "failed",
-                                "records_written": 0,
-                                "error": str(exc),
-                            }
-                        )
-                    )
-            refreshed_report = build_data_depth_campaign_report(args.db, spec=spec)
-            report = refreshed_report.model_copy(
-                update={"collection_results": tuple(collection_results)}
-            )
+            report = _collect_data_depth_missing_jobs(args.db, report=report, spec=spec)
     except ValueError as exc:
         args.parser.error(str(exc))
         raise AssertionError("argparse parser.error should exit") from exc
@@ -2597,6 +2649,208 @@ def _handle_data_depth_campaign(args: argparse.Namespace) -> dict[str, Any]:
     write_text_artifact(args.out, markdown)
     write_json_artifact(args.json_out, payload)
     return payload
+
+
+def _handle_evidence_universe_lab(args: argparse.Namespace) -> dict[str, Any]:
+    if args.collect and not args.allow_network:
+        args.parser.error("--allow-network is required when --collect is provided")
+        raise AssertionError("argparse parser.error should exit")
+    try:
+        spec = DataDepthCampaignSpec(
+            symbols=args.symbol,
+            timeframe=args.timeframe,
+            market="um-futures",
+            start=CampaignMonth(year=args.start_year, month=args.start_month),
+            end=CampaignMonth(year=args.end_year, month=args.end_month),
+            min_unique_months=args.min_unique_months,
+        )
+        data_depth_report = build_data_depth_campaign_report(args.db, spec=spec)
+        if args.collect:
+            data_depth_report = _collect_data_depth_missing_jobs(
+                args.db,
+                report=data_depth_report,
+                spec=spec,
+            )
+    except ValueError as exc:
+        args.parser.error(str(exc))
+        raise AssertionError("argparse parser.error should exit") from exc
+
+    requested_months = [
+        (month.year, month.month)
+        for month in expand_campaign_months(spec.start, spec.end)
+    ]
+    feasibility_report = build_multi_hypothesis_feasibility_report(
+        args.db,
+        memory_path=args.memory,
+        symbols=list(spec.symbols),
+        timeframe=spec.timeframe,
+        current_capital_usd=args.current_capital_usd,
+        cost_bps_grid=args.cost_bps_grid or None,
+        min_split_count=args.min_split_count,
+        candidates=args.candidate or None,
+        feasibility_version="v2",
+        purge_gap_bars=args.purge_gap_bars,
+        requested_months=requested_months,
+        min_unique_months=args.min_unique_months,
+        min_asset_count=args.min_asset_count,
+    )
+    candidate_state_memory_records = []
+    if args.persist_candidate_state:
+        candidate_state_memory_records = persist_candidate_state_memory(
+            feasibility_report,
+            args.memory,
+        )
+
+    out_dir = args.out_dir
+    artifacts = {
+        "summary_markdown": str(out_dir / "evidence-universe-lab.md"),
+        "summary_json": str(args.json_out),
+        "data_depth_markdown": str(out_dir / "data-depth-campaign.md"),
+        "data_depth_json": str(out_dir / "data-depth-campaign.json"),
+        "feasibility_markdown": str(out_dir / "multi-hypothesis-feasibility.md"),
+        "feasibility_json": str(out_dir / "multi-hypothesis-feasibility.json"),
+        "candidate_memory": str(args.memory),
+    }
+    data_depth_payload = {
+        "command": "data-depth-campaign",
+        "report": data_depth_report.model_dump(mode="json"),
+        "uses_real_capital": False,
+        "live_order_routing": False,
+    }
+    feasibility_payload = {
+        "command": "strategy-feasibility",
+        "report": feasibility_report.model_dump(mode="json"),
+        "uses_real_capital": False,
+        "live_order_routing": False,
+    }
+    if candidate_state_memory_records:
+        feasibility_payload["candidate_state_memory_records"] = len(
+            candidate_state_memory_records
+        )
+
+    summary_report = {
+        "data_depth_readiness": data_depth_report.readiness,
+        "data_depth_reason_codes": list(data_depth_report.reason_codes),
+        "collection_job_count": len(data_depth_report.collection_results),
+        "collection_succeeded_count": sum(
+            1 for job in data_depth_report.collection_results if job.status == "succeeded"
+        ),
+        "collection_failed_count": sum(
+            1 for job in data_depth_report.collection_results if job.status == "failed"
+        ),
+        "feasibility_readiness": feasibility_report.readiness,
+        "feasibility_reason_codes": feasibility_report.reason_codes,
+        "feasibility_version": feasibility_report.validation_policy.version,
+        "purge_gap_bars": feasibility_report.validation_policy.purge_gap_bars,
+        "min_unique_months": feasibility_report.validation_policy.min_unique_months,
+        "min_asset_count": feasibility_report.validation_policy.min_asset_count,
+        "candidate_count": len(feasibility_report.candidate_metrics),
+        "feasible_candidate_count": (
+            feasibility_report.multiple_testing_summary.feasible_candidate_count
+        ),
+        "blocked_candidate_count": (
+            feasibility_report.multiple_testing_summary.blocked_candidate_count
+        ),
+        "candidate_state_memory_records": len(candidate_state_memory_records),
+        "eligible_for_backtest": (
+            feasibility_report.multiple_testing_summary.feasible_candidate_count > 0
+        ),
+    }
+    payload = {
+        "command": "evidence-universe-lab",
+        "artifacts": artifacts,
+        "report": summary_report,
+        "uses_real_capital": False,
+        "live_order_routing": False,
+    }
+
+    write_text_artifact(
+        artifacts["data_depth_markdown"],
+        render_data_depth_campaign_markdown(data_depth_report),
+    )
+    write_json_artifact(artifacts["data_depth_json"], data_depth_payload)
+    write_text_artifact(
+        artifacts["feasibility_markdown"],
+        render_multi_hypothesis_feasibility_markdown(feasibility_report),
+    )
+    write_json_artifact(artifacts["feasibility_json"], feasibility_payload)
+    write_text_artifact(
+        artifacts["summary_markdown"],
+        _render_evidence_universe_lab_markdown(payload),
+    )
+    write_json_artifact(args.json_out, payload)
+    return payload
+
+
+def _collect_data_depth_missing_jobs(
+    db_path: Path,
+    *,
+    report: DataDepthCampaignReport,
+    spec: DataDepthCampaignSpec,
+) -> DataDepthCampaignReport:
+    collection_results = []
+    for job in report.missing_collection_jobs:
+        try:
+            summary = ingest_binance_public_um_futures_month(
+                db_path,
+                symbol=campaign_symbol_to_binance_symbol(job.symbol),
+                interval=job.timeframe,
+                year=job.month.year,
+                month=job.month.month,
+                allow_network=True,
+            )
+            collection_results.append(
+                job.model_copy(
+                    update={
+                        "status": "succeeded",
+                        "records_written": summary.records_written,
+                        "error": None,
+                    }
+                )
+            )
+        except Exception as exc:
+            collection_results.append(
+                job.model_copy(
+                    update={
+                        "status": "failed",
+                        "records_written": 0,
+                        "error": str(exc),
+                    }
+                )
+            )
+    refreshed_report = build_data_depth_campaign_report(db_path, spec=spec)
+    return refreshed_report.model_copy(
+        update={"collection_results": tuple(collection_results)}
+    )
+
+
+def _render_evidence_universe_lab_markdown(payload: dict[str, Any]) -> str:
+    report = payload["report"]
+    artifacts = payload["artifacts"]
+    lines = [
+        "# Evidence Universe Lab",
+        "",
+        "## Safety",
+        f"Real capital: {str(payload['uses_real_capital']).lower()}",
+        f"Live order routing: {str(payload['live_order_routing']).lower()}",
+        "",
+        "## Decision",
+        f"Data-depth readiness: {report['data_depth_readiness']}",
+        f"Feasibility readiness: {report['feasibility_readiness']}",
+        f"Eligible for backtest: {str(report['eligible_for_backtest']).lower()}",
+        f"Feasible candidates: {report['feasible_candidate_count']}",
+        f"Blocked candidates: {report['blocked_candidate_count']}",
+        "",
+        "## Validation Policy",
+        f"Feasibility version: {report['feasibility_version']}",
+        f"Purge gap bars: {report['purge_gap_bars']}",
+        f"Minimum unique months: {report['min_unique_months']}",
+        f"Minimum asset count: {report['min_asset_count']}",
+        "",
+        "## Artifacts",
+    ]
+    lines.extend(f"- `{path}`" for path in artifacts.values())
+    return "\n".join(lines) + "\n"
 
 
 def _apply_evidence_report_summary(

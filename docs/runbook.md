@@ -349,7 +349,44 @@ The normal operator baseline is:
      --dex-query "ETH USDC"
    ```
 
-3. Generate or regenerate the daily report if needed:
+3. Run the upstream evidence-universe lab when the current work is data-depth
+   or hypothesis discovery rather than paper simulation:
+
+   ```bash
+   uv run --extra dev crypto-alpha-agent evidence-universe-lab \
+     --db var/research.sqlite \
+     --memory var/memory/candidate-state.jsonl \
+     --symbol BTC/USDT \
+     --symbol ETH/USDT \
+     --symbol SOL/USDT \
+     --symbol BNB/USDT \
+     --symbol XRP/USDT \
+     --timeframe 1h \
+     --start-year 2026 \
+     --start-month 1 \
+     --end-year 2026 \
+     --end-month 5 \
+     --min-unique-months 3 \
+     --min-asset-count 3 \
+     --min-split-count 3 \
+     --purge-gap-bars 24 \
+     --cost-bps-grid 5 \
+     --cost-bps-grid 10 \
+     --cost-bps-grid 20 \
+     --cost-bps-grid 50 \
+     --collect \
+     --allow-network \
+     --persist-candidate-state \
+     --out-dir var/reports/evidence-universe-lab/latest \
+     --json-out var/reports/evidence-universe-lab/latest/evidence-universe-lab.json
+   ```
+
+   This command is read-only with respect to trading decisions. It may collect
+   missing Binance Public Data records only when `--collect --allow-network` is
+   explicit, then writes data-depth, feasibility v2, and candidate-state
+   artifacts. A blocked lab result must not be sent to backtest or paper.
+
+4. Generate or regenerate the daily report if needed:
 
    ```bash
    uv run --extra dev crypto-alpha-agent evidence-report --daily \

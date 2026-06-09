@@ -11,7 +11,8 @@ round.
   read-only data-depth and feasibility v2 expansion. The phase added the
   campaign planner/collector, universe depth gates, redesigned candidate
   screens, feasibility v2, candidate memory v2 fields, a bounded data campaign,
-  and a phase report. No candidate reached `feasibility_passed`.
+  a phase report, main integration, and the `evidence-universe-lab` automation
+  command. No candidate reached `feasibility_passed`.
 - Started: 2026-06-09
 - Completed: 2026-06-09 after data-depth collection, feasibility v2 execution,
   candidate-state persistence, focused tests, non-LLM local suite verification,
@@ -25,8 +26,12 @@ round.
   `docs/goals/round-23-evidence-universe-data-depth-path-map.md`
 - Phase report:
   `docs/goals/phase-reports/2026-06-09-evidence-universe-data-depth-and-hypothesis-redesign-report.md`
+- Main integration and automation report:
+  `docs/goals/phase-reports/2026-06-09-round-23-main-integration-and-lab-automation-report.md`
+- Smart Search evidence index:
+  `docs/goals/evidence-index/2026-06-09-round-23-smart-search-evidence-index.md`
 - Working branch:
-  `round-23-data-depth-hypothesis-redesign`
+  `main`
 - Baseline branch:
   `round-22-evidence-universe-lab`
 
@@ -99,11 +104,20 @@ The route is:
 - Feasibility result: 11 candidates evaluated, 0 feasible, 11 blocked.
 - Backtest decision: Round 24 is not eligible.
 - Paper/live decision: blocked.
-- Verification result: focused Round 23 suite passed with 68 tests; local
-  non-LLM pytest passed with 1202 tests and 10 deselected real LLM integration
-  tests; unrestricted full pytest was blocked by missing real LLM provider
-  environment variables for tests marked `llm_integration`; ruff and diff
-  checks passed.
+- Main integration result: `main` was fast-forwarded from `048daa3` to
+  `733fc1a`, bringing Round 22 and Round 23 source, tests, docs, and reports
+  onto the main branch.
+- Automation result: `evidence-universe-lab` now runs data-depth campaign
+  collection plus feasibility v2 in one read-only operator command. The main
+  workspace run wrote artifacts under
+  `var/reports/evidence-universe-lab/round-23-main/`, persisted 15
+  candidate-state memory records, collected 25 of 25 missing monthly kline
+  jobs, reached data-depth readiness `ready`, and remained feasibility
+  `blocked` with 0 feasible candidates.
+- Verification result: focused Round 23 plus lab suite passed with 76 tests;
+  local non-LLM pytest passed with 1204 tests and 10 deselected real LLM
+  integration tests; unrestricted full pytest passed with 1214 tests; ruff and
+  diff checks passed.
 
 ### Persisted Round 22 Research Conclusions
 

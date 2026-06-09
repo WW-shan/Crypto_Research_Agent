@@ -385,6 +385,17 @@ paper collection, tiny-live review, and live readiness remain blocked. The
 phase report is
 `docs/goals/phase-reports/2026-06-09-evidence-universe-data-depth-and-hypothesis-redesign-report.md`.
 
+Round 23 main integration update on 2026-06-09: `main` was fast-forwarded to
+Round 23, and `evidence-universe-lab` was added as a read-only operator command
+that runs data-depth collection plus feasibility v2 in one step. A main
+workspace run collected 25 of 25 missing monthly kline jobs, wrote artifacts
+under `var/reports/evidence-universe-lab/round-23-main/`, persisted 15
+candidate-state memory records, and still reported 0 feasible candidates. The
+Smart Search raw evidence remains ignored under `var/`, with a repository index
+at
+`docs/goals/evidence-index/2026-06-09-round-23-smart-search-evidence-index.md`.
+Round 24 remains blocked.
+
 The active path map is:
 
 Persistent Round 22 path map:
