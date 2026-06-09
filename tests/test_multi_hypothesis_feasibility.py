@@ -215,6 +215,53 @@ def test_multi_hypothesis_lab_blocks_cost_sensitive_candidates(tmp_path):
     assert metric.candidate_state_target == "redesign_required"
 
 
+def test_multi_hypothesis_lab_v2_reports_policy_month_gates_and_multiple_testing(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "candidate-memory.jsonl"
+    _seed_directional_market_candles(db_path, count=140)
+    _seed_source_health(db_path, observed_at=START + timedelta(hours=139))
+
+    from crypto_alpha_agent.pipeline.multi_hypothesis_feasibility import (
+        build_multi_hypothesis_feasibility_report,
+    )
+
+    report = build_multi_hypothesis_feasibility_report(
+        db_path,
+        memory_path=memory_path,
+        symbols=SYMBOLS,
+        timeframe="1h",
+        current_capital_usd=300.0,
+        cost_bps_grid=[5.0, 10.0],
+        min_split_count=3,
+        candidates=["short_horizon_momentum_volatility_filter"],
+        feasibility_version="v2",
+        purge_gap_bars=2,
+        requested_months=[(2026, 5), (2026, 6)],
+        min_unique_months=2,
+        min_asset_count=2,
+    )
+
+    assert report.validation_policy.version == "v2"
+    assert report.validation_policy.purge_gap_bars == 2
+    assert report.validation_policy.min_unique_months == 2
+    assert report.validation_policy.min_asset_count == 2
+    assert report.multiple_testing_summary.evaluated_candidate_count == 1
+    assert report.multiple_testing_summary.feasible_candidate_count == 0
+    assert report.multiple_testing_summary.blocked_candidate_count == 1
+    assert report.readiness == "blocked"
+    assert "insufficient_month_coverage" in report.reason_codes
+    assert "insufficient_asset_coverage" in report.reason_codes
+
+    metric = report.candidate_metrics[0]
+    assert metric.unique_months == 1
+    assert metric.single_month_dependency is True
+    assert metric.multiple_testing_adjusted is True
+    assert "insufficient_month_coverage" in metric.reason_codes
+    assert "insufficient_asset_coverage" in metric.reason_codes
+    assert all(split.purge_gap_bars == 2 for split in metric.split_metrics)
+    assert all(split.train_observations >= 0 for split in metric.split_metrics)
+
+
 def test_multi_hypothesis_models_are_strict():
     from crypto_alpha_agent.pipeline.multi_hypothesis_feasibility import (
         CandidateFeasibilityMetric,

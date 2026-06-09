@@ -310,7 +310,7 @@ git commit -m "feat: add redesigned candidate screens"
 - Test: `tests/test_multi_hypothesis_feasibility.py`
 - Test: `tests/test_cli_multi_hypothesis_feasibility.py`
 
-- [ ] **Step 1: Write RED tests for v2 validation policy**
+- [x] **Step 1: Write RED tests for v2 validation policy**
 
 Assert the report includes:
 
@@ -322,7 +322,7 @@ Assert the report includes:
 - multiple-testing summary with evaluated candidate count and pass count
 - blocked reasons for insufficient months and single-month dependency
 
-- [ ] **Step 2: Implement validation policy models**
+- [x] **Step 2: Implement validation policy models**
 
 Add strict models:
 
@@ -331,13 +331,13 @@ Add strict models:
 
 Extend candidate metrics with unique-month coverage and dependency flags.
 
-- [ ] **Step 3: Upgrade split logic**
+- [x] **Step 3: Upgrade split logic**
 
 Modify walk-forward split generation to accept `purge_gap_bars`. The train
 window must end before the purge gap, and the test window must start after the
 gap. Preserve existing behavior when `purge_gap_bars=0`.
 
-- [ ] **Step 4: Add CLI arguments**
+- [x] **Step 4: Add CLI arguments**
 
 Add:
 
@@ -349,7 +349,7 @@ Add:
 Keep v1-compatible defaults only where existing tests require them; Round 23
 artifacts should use v2.
 
-- [ ] **Step 5: Run feasibility tests**
+- [x] **Step 5: Run feasibility tests**
 
 Run:
 
@@ -359,7 +359,7 @@ uv run --extra dev pytest tests/test_multi_hypothesis_feasibility.py tests/test_
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit Task 6**
+- [x] **Step 6: Commit Task 6**
 
 ```bash
 git add src/crypto_alpha_agent/pipeline/multi_hypothesis_feasibility.py src/crypto_alpha_agent/cli.py tests/test_multi_hypothesis_feasibility.py tests/test_cli_multi_hypothesis_feasibility.py

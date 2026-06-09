@@ -752,6 +752,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Minimum positive walk-forward split count.",
     )
     strategy_feasibility_parser.add_argument(
+        "--feasibility-version",
+        choices=("v1", "v2"),
+        default="v1",
+        help="Multi-hypothesis feasibility policy version.",
+    )
+    strategy_feasibility_parser.add_argument(
+        "--purge-gap-bars",
+        type=_non_negative_int,
+        default=0,
+        help="Bars to exclude between train and test windows in multi-hypothesis v2.",
+    )
+    strategy_feasibility_parser.add_argument(
+        "--min-unique-months",
+        type=_non_negative_int,
+        default=0,
+        help="Minimum unique signal months required by multi-hypothesis v2.",
+    )
+    strategy_feasibility_parser.add_argument(
+        "--min-asset-count",
+        type=_non_negative_int,
+        default=0,
+        help="Minimum point-in-time eligible asset count required by multi-hypothesis v2.",
+    )
+    strategy_feasibility_parser.add_argument(
         "--cost-bps",
         type=_non_negative_finite_float,
         default=10.0,
@@ -2441,6 +2465,10 @@ def _handle_strategy_feasibility(args: argparse.Namespace) -> dict[str, Any]:
                 cost_bps_grid=args.cost_bps_grid or None,
                 min_split_count=args.min_split_count,
                 candidates=args.candidate,
+                feasibility_version=args.feasibility_version,
+                purge_gap_bars=args.purge_gap_bars,
+                min_unique_months=args.min_unique_months,
+                min_asset_count=args.min_asset_count,
             )
         except ValueError as exc:
             args.parser.error(str(exc))

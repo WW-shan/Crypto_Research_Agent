@@ -92,6 +92,65 @@ def test_strategy_feasibility_multi_hypothesis_cli_writes_markdown_and_json(
     assert not memory_path.exists()
 
 
+def test_strategy_feasibility_multi_hypothesis_cli_accepts_v2_policy(
+    capsys,
+    tmp_path,
+):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "candidate-memory.jsonl"
+    out_path = tmp_path / "multi-hypothesis-v2.md"
+    json_out = tmp_path / "multi-hypothesis-v2.json"
+    _seed_directional_market_candles(db_path, count=120)
+    ResearchDataStore(db_path).upsert_records(
+        [_source_health("binance_public", "um_futures_ohlcv", START + timedelta(hours=119))]
+    )
+
+    exit_code = main(
+        [
+            "strategy-feasibility",
+            "--db",
+            str(db_path),
+            "--memory",
+            str(memory_path),
+            "--mode",
+            "multi-hypothesis-lab",
+            "--feasibility-version",
+            "v2",
+            "--purge-gap-bars",
+            "2",
+            "--min-unique-months",
+            "1",
+            "--min-asset-count",
+            "1",
+            "--symbol",
+            "BTC/USDT",
+            "--symbol",
+            "ETH/USDT",
+            "--symbol",
+            "SOL/USDT",
+            "--timeframe",
+            "1h",
+            "--candidate",
+            "short_horizon_momentum_volatility_filter",
+            "--out",
+            str(out_path),
+            "--json-out",
+            str(json_out),
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    markdown = out_path.read_text(encoding="utf-8")
+    assert exit_code == 0
+    assert payload["report"]["validation_policy"]["version"] == "v2"
+    assert payload["report"]["validation_policy"]["purge_gap_bars"] == 2
+    assert payload["report"]["validation_policy"]["min_unique_months"] == 1
+    assert payload["report"]["validation_policy"]["min_asset_count"] == 1
+    assert payload["report"]["multiple_testing_summary"]["evaluated_candidate_count"] == 1
+    assert "Validation Policy" in markdown
+    assert "v2" in markdown
+
+
 def test_strategy_feasibility_multi_hypothesis_cli_requires_memory_path(tmp_path):
     db_path = tmp_path / "research.sqlite"
     out_path = tmp_path / "multi-hypothesis.md"

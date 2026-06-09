@@ -34,6 +34,8 @@ CandidateStateTarget = Literal[
 ]
 MultiHypothesisBlockedReason = Literal[
     "insufficient_universe_coverage",
+    "insufficient_month_coverage",
+    "insufficient_asset_coverage",
     "insufficient_samples",
     "insufficient_walk_forward_splits",
     "non_positive_cost_adjusted_expectancy",
@@ -46,6 +48,8 @@ MultiHypothesisBlockedReason = Literal[
 
 MULTI_HYPOTHESIS_BLOCKED_REASONS: tuple[MultiHypothesisBlockedReason, ...] = (
     "insufficient_universe_coverage",
+    "insufficient_month_coverage",
+    "insufficient_asset_coverage",
     "insufficient_samples",
     "insufficient_walk_forward_splits",
     "non_positive_cost_adjusted_expectancy",
@@ -79,6 +83,7 @@ class CandidateSplitMetric(_StrictMultiHypothesisModel):
     split_index: int = Field(ge=1)
     train_observations: int = Field(ge=0)
     test_observations: int = Field(ge=0)
+    purge_gap_bars: int = Field(default=0, ge=0)
     test_start: datetime
     test_end: datetime
     selected_symbol_counts: dict[str, int] = Field(default_factory=dict)
@@ -97,11 +102,29 @@ class CandidateFeasibilityMetric(_StrictMultiHypothesisModel):
     net_mean: float | None = None
     win_rate: float | None = Field(default=None, ge=0, le=1)
     turnover: float = Field(ge=0)
+    unique_months: int = Field(default=0, ge=0)
+    single_month_dependency: bool = False
+    multiple_testing_adjusted: bool = False
     selected_symbol_counts: dict[str, int] = Field(default_factory=dict)
     cost_sensitivity: list[CostSensitivityMetric] = Field(default_factory=list)
     split_metrics: list[CandidateSplitMetric] = Field(default_factory=list)
     reason_codes: list[MultiHypothesisBlockedReason] = Field(default_factory=list)
     candidate_state_target: CandidateStateTarget
+
+
+class FeasibilityValidationPolicy(_StrictMultiHypothesisModel):
+    version: Literal["v1", "v2"] = "v1"
+    purge_gap_bars: int = Field(default=0, ge=0)
+    min_unique_months: int = Field(default=0, ge=0)
+    min_asset_count: int = Field(default=0, ge=0)
+
+
+class MultipleTestingSummary(_StrictMultiHypothesisModel):
+    evaluated_candidate_count: int = Field(ge=0)
+    feasible_candidate_count: int = Field(ge=0)
+    blocked_candidate_count: int = Field(ge=0)
+    feasible_candidates: list[CandidateScreenId] = Field(default_factory=list)
+    blocked_reason_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class MultiHypothesisFeasibilityReport(_StrictMultiHypothesisModel):
@@ -112,6 +135,16 @@ class MultiHypothesisFeasibilityReport(_StrictMultiHypothesisModel):
     symbols: list[str]
     current_capital_usd: float = Field(ge=0)
     cost_bps_grid: list[float]
+    validation_policy: FeasibilityValidationPolicy = Field(
+        default_factory=FeasibilityValidationPolicy
+    )
+    multiple_testing_summary: MultipleTestingSummary = Field(
+        default_factory=lambda: MultipleTestingSummary(
+            evaluated_candidate_count=0,
+            feasible_candidate_count=0,
+            blocked_candidate_count=0,
+        )
+    )
     readiness: CandidateFeasibilityReadiness
     reason_codes: list[MultiHypothesisBlockedReason] = Field(default_factory=list)
     universe: EvidenceUniverseReport
@@ -146,9 +179,20 @@ def build_multi_hypothesis_feasibility_report(
     candidates: list[str] | None = None,
     evaluation_start: datetime | None = None,
     evaluation_end: datetime | None = None,
+    feasibility_version: Literal["v1", "v2"] = "v1",
+    purge_gap_bars: int = 0,
+    requested_months: list[tuple[int, int]] | None = None,
+    min_unique_months: int = 0,
+    min_asset_count: int = 0,
 ) -> MultiHypothesisFeasibilityReport:
     del memory_path
     _validate_min_split_count(min_split_count)
+    validation_policy = FeasibilityValidationPolicy(
+        version=feasibility_version,
+        purge_gap_bars=purge_gap_bars,
+        min_unique_months=min_unique_months,
+        min_asset_count=min_asset_count,
+    )
     normalized_symbols = _dedupe_preserving_order(symbols)
     normalized_cost_grid = _normalize_cost_grid(cost_bps_grid)
     selected_candidates = _normalize_candidates(candidates)
@@ -158,6 +202,9 @@ def build_multi_hypothesis_feasibility_report(
         timeframe=timeframe,
         evaluation_start=evaluation_start,
         evaluation_end=evaluation_end,
+        requested_months=requested_months,
+        min_unique_months=min_unique_months if feasibility_version == "v2" else 0,
+        min_asset_count=min_asset_count if feasibility_version == "v2" else 0,
     )
     records = _load_records_read_only(db_path)
     market_by_symbol = _market_rows_by_symbol(
@@ -177,6 +224,7 @@ def build_multi_hypothesis_feasibility_report(
             timeframe=timeframe,
             cost_bps_grid=normalized_cost_grid,
             min_split_count=min_split_count,
+            validation_policy=validation_policy,
             evaluation_start=evaluation_start,
             evaluation_end=evaluation_end,
         )
@@ -194,12 +242,15 @@ def build_multi_hypothesis_feasibility_report(
             for reason in metric.reason_codes
         )
     )
+    multiple_testing_summary = _multiple_testing_summary(candidate_metrics)
     return MultiHypothesisFeasibilityReport(
         generated_at=universe.generated_at,
         timeframe=timeframe,
         symbols=normalized_symbols,
         current_capital_usd=current_capital_usd,
         cost_bps_grid=normalized_cost_grid,
+        validation_policy=validation_policy,
+        multiple_testing_summary=multiple_testing_summary,
         readiness="feasible" if feasible_metrics else "blocked",
         reason_codes=reason_codes,
         universe=universe,
@@ -222,6 +273,17 @@ def render_multi_hypothesis_feasibility_markdown(
         "## Decision",
         f"Readiness: {report.readiness}",
         f"Reason codes: {', '.join(report.reason_codes) or 'none'}",
+        "",
+        "## Validation Policy",
+        f"Version: {report.validation_policy.version}",
+        f"Purge gap bars: {report.validation_policy.purge_gap_bars}",
+        f"Minimum unique months: {report.validation_policy.min_unique_months}",
+        f"Minimum asset count: {report.validation_policy.min_asset_count}",
+        "",
+        "## Multiple Testing",
+        f"Evaluated candidates: {report.multiple_testing_summary.evaluated_candidate_count}",
+        f"Feasible candidates: {report.multiple_testing_summary.feasible_candidate_count}",
+        f"Blocked candidates: {report.multiple_testing_summary.blocked_candidate_count}",
         "",
         "## Universe",
         f"Point in time: {str(report.universe.point_in_time_universe).lower()}",
@@ -321,6 +383,7 @@ def _candidate_metric(
     timeframe: str,
     cost_bps_grid: list[float],
     min_split_count: int,
+    validation_policy: FeasibilityValidationPolicy,
     evaluation_start: datetime | None,
     evaluation_end: datetime | None,
 ) -> CandidateFeasibilityMetric:
@@ -345,6 +408,10 @@ def _candidate_metric(
         reason_codes.append("watchlist_only_source")
     if _has_universe_coverage_gap(universe, screen_result):
         reason_codes.append("insufficient_universe_coverage")
+    if "insufficient_month_coverage" in universe.reason_codes:
+        reason_codes.append("insufficient_month_coverage")
+    if "insufficient_asset_coverage" in universe.reason_codes:
+        reason_codes.append("insufficient_asset_coverage")
 
     observations: list[_Observation] = []
     if not {"lookahead_risk", "watchlist_only_source"} & set(reason_codes):
@@ -358,10 +425,19 @@ def _candidate_metric(
         observations,
         split_count=min_split_count,
         cost_bps=baseline_cost_bps,
+        purge_gap_bars=validation_policy.purge_gap_bars,
     )
+    unique_months = _unique_observation_months(observations)
+    single_month_dependency = bool(observations and unique_months <= 1)
     if observations:
         if len(observations) < min_split_count * 2 or len(split_metrics) < min_split_count:
             reason_codes.append("insufficient_walk_forward_splits")
+        if (
+            validation_policy.version == "v2"
+            and validation_policy.min_unique_months
+            and unique_months < validation_policy.min_unique_months
+        ):
+            reason_codes.append("insufficient_month_coverage")
         baseline = _return_metric(observations, baseline_cost_bps)
         if baseline.net_mean <= 0:
             reason_codes.append("non_positive_cost_adjusted_expectancy")
@@ -398,6 +474,9 @@ def _candidate_metric(
         net_mean=net_mean,
         win_rate=win_rate,
         turnover=_turnover(observations),
+        unique_months=unique_months,
+        single_month_dependency=single_month_dependency,
+        multiple_testing_adjusted=validation_policy.version == "v2",
         selected_symbol_counts=selected_symbol_counts,
         cost_sensitivity=cost_sensitivity,
         split_metrics=split_metrics,
@@ -535,6 +614,7 @@ def _walk_forward_metrics(
     *,
     split_count: int,
     cost_bps: float,
+    purge_gap_bars: int = 0,
 ) -> list[CandidateSplitMetric]:
     test_size = len(observations) // (split_count + 1)
     if test_size <= 0:
@@ -545,15 +625,17 @@ def _walk_forward_metrics(
         start = first_test_start + split_index * test_size
         end = start + test_size
         test_rows = observations[start:end]
-        if start <= 0 or not test_rows:
+        train_observations = max(0, start - purge_gap_bars)
+        if train_observations <= 0 or not test_rows:
             continue
         gross_returns = [row.gross_return for row in test_rows]
         net_returns = [row.gross_return - cost_bps / 10_000 for row in test_rows]
         metrics.append(
             CandidateSplitMetric(
                 split_index=split_index + 1,
-                train_observations=start,
+                train_observations=train_observations,
                 test_observations=len(test_rows),
+                purge_gap_bars=purge_gap_bars,
                 test_start=test_rows[0].timestamp,
                 test_end=test_rows[-1].timestamp,
                 selected_symbol_counts=dict(Counter(row.selected_symbol for row in test_rows)),
@@ -563,6 +645,10 @@ def _walk_forward_metrics(
             )
         )
     return metrics
+
+
+def _unique_observation_months(observations: list[_Observation]) -> int:
+    return len({(observation.timestamp.year, observation.timestamp.month) for observation in observations})
 
 
 def _return_metric(observations: list[_Observation], cost_bps: float) -> CostSensitivityMetric:
@@ -578,6 +664,8 @@ def _has_universe_coverage_gap(universe: EvidenceUniverseReport, screen_result) 
     if {
         "missing_market_history",
         "insufficient_history_window",
+        "insufficient_month_coverage",
+        "insufficient_asset_coverage",
         "duplicate_timestamps",
         "timestamp_alignment_gap",
         "source_probe_required",
@@ -597,7 +685,11 @@ def _candidate_state_target(
 ) -> CandidateStateTarget:
     if not reason_codes:
         return "feasibility_passed"
-    if set(reason_codes) <= {"insufficient_universe_coverage"}:
+    if set(reason_codes) <= {
+        "insufficient_universe_coverage",
+        "insufficient_month_coverage",
+        "insufficient_asset_coverage",
+    }:
         return "candidate"
     if set(reason_codes) <= {"insufficient_samples", "insufficient_walk_forward_splits"}:
         return "source_qualified"
@@ -613,6 +705,26 @@ def _turnover(observations: list[_Observation]) -> float:
         if previous.selected_symbol != current.selected_symbol
     )
     return transitions / (len(observations) - 1)
+
+
+def _multiple_testing_summary(
+    candidate_metrics: list[CandidateFeasibilityMetric],
+) -> MultipleTestingSummary:
+    feasible_candidates = [
+        metric.candidate for metric in candidate_metrics if metric.readiness == "feasible"
+    ]
+    reason_counter = Counter(
+        reason
+        for metric in candidate_metrics
+        for reason in metric.reason_codes
+    )
+    return MultipleTestingSummary(
+        evaluated_candidate_count=len(candidate_metrics),
+        feasible_candidate_count=len(feasible_candidates),
+        blocked_candidate_count=len(candidate_metrics) - len(feasible_candidates),
+        feasible_candidates=feasible_candidates,
+        blocked_reason_counts=dict(reason_counter),
+    )
 
 
 def _market_rows_by_symbol(
