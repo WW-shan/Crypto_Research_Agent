@@ -577,6 +577,61 @@ def test_evidence_universe_missing_database_is_read_only(tmp_path):
     assert "missing_market_history" in report.reason_codes
 
 
+def test_evidence_universe_reports_month_and_asset_depth_gates(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    ResearchDataStore(db_path).upsert_records(
+        [
+            _market_candle("BTC/USDT", datetime(2026, 1, 1, tzinfo=UTC)),
+            _market_candle("BTC/USDT", datetime(2026, 3, 1, tzinfo=UTC)),
+            _market_candle("ETH/USDT", datetime(2026, 1, 1, tzinfo=UTC)),
+            _source_health("binance_public", "um_futures_ohlcv", NOW),
+        ]
+    )
+
+    from crypto_alpha_agent.pipeline.evidence_universe import (
+        build_evidence_universe_report,
+    )
+
+    report = build_evidence_universe_report(
+        db_path,
+        symbols=["BTC/USDT", "ETH/USDT", "SOL/USDT"],
+        timeframe="1h",
+        evaluation_start=datetime(2026, 1, 1, tzinfo=UTC),
+        evaluation_end=datetime(2026, 4, 1, tzinfo=UTC),
+        now=NOW,
+        min_history_records=1,
+        requested_months=[(2026, 1), (2026, 2), (2026, 3)],
+        min_unique_months=3,
+        min_asset_count=2,
+    )
+
+    assets = {asset.symbol: asset for asset in report.assets}
+    assert report.requested_market_months == ["2026-01", "2026-02", "2026-03"]
+    assert report.min_unique_months == 3
+    assert report.min_asset_count == 2
+    assert report.eligible_asset_count == 0
+    assert "insufficient_month_coverage" in report.reason_codes
+    assert "insufficient_asset_coverage" in report.reason_codes
+
+    btc = assets["BTC/USDT"]
+    assert btc.unique_market_months == 2
+    assert btc.requested_market_months == 3
+    assert btc.missing_market_months == ["2026-02"]
+    assert btc.point_in_time_eligible is False
+    assert "insufficient_month_coverage" in btc.blocked_reasons
+
+    eth = assets["ETH/USDT"]
+    assert eth.unique_market_months == 1
+    assert eth.missing_market_months == ["2026-02", "2026-03"]
+    assert "insufficient_month_coverage" in eth.blocked_reasons
+
+    sol = assets["SOL/USDT"]
+    assert sol.unique_market_months == 0
+    assert sol.missing_market_months == ["2026-01", "2026-02", "2026-03"]
+    assert "missing_market_history" in sol.blocked_reasons
+    assert "insufficient_month_coverage" in sol.blocked_reasons
+
+
 def test_evidence_universe_existing_database_schema_errors_are_not_silently_empty(tmp_path):
     db_path = tmp_path / "invalid.sqlite"
     with sqlite3.connect(db_path) as connection:

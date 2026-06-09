@@ -217,7 +217,7 @@ git commit -m "feat: add gated data depth collection"
 - Modify: `src/crypto_alpha_agent/pipeline/evidence_universe.py`
 - Test: `tests/test_evidence_universe.py`
 
-- [ ] **Step 1: Write RED tests for month and asset coverage**
+- [x] **Step 1: Write RED tests for month and asset coverage**
 
 Add tests that seed uneven symbol/month coverage and assert the universe report
 includes:
@@ -231,13 +231,13 @@ includes:
 - reason codes `insufficient_month_coverage` and
   `insufficient_asset_coverage`
 
-- [ ] **Step 2: Implement universe depth fields**
+- [x] **Step 2: Implement universe depth fields**
 
 Extend `UniverseAsset` and `EvidenceUniverseReport` with strict fields for
 month coverage and asset-count gate status. Keep existing reason codes stable
 and add new reason codes without removing old ones.
 
-- [ ] **Step 3: Run universe tests**
+- [x] **Step 3: Run universe tests**
 
 Run:
 
@@ -247,7 +247,7 @@ uv run --extra dev pytest tests/test_evidence_universe.py -q
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit Task 4**
+- [x] **Step 4: Commit Task 4**
 
 ```bash
 git add src/crypto_alpha_agent/pipeline/evidence_universe.py tests/test_evidence_universe.py

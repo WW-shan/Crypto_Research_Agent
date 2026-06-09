@@ -14,6 +14,8 @@ from crypto_alpha_agent.data.models import RecordType, SourceRecord
 UniverseReasonCode = Literal[
     "missing_market_history",
     "insufficient_history_window",
+    "insufficient_month_coverage",
+    "insufficient_asset_coverage",
     "stale_source_health",
     "duplicate_timestamps",
     "timestamp_alignment_gap",
@@ -53,6 +55,10 @@ class UniverseAsset(_StrictUniverseModel):
     market_records: int = Field(ge=0)
     first_market_timestamp: datetime | None = None
     latest_market_timestamp: datetime | None = None
+    requested_market_months: int = Field(default=0, ge=0)
+    unique_market_months: int = Field(default=0, ge=0)
+    missing_market_months: list[str] = Field(default_factory=list)
+    point_in_time_eligible: bool = True
     blocked_reasons: list[UniverseReasonCode] = Field(default_factory=list)
 
 
@@ -86,6 +92,10 @@ class EvidenceUniverseReport(_StrictUniverseModel):
     evaluation_start: datetime | None = None
     evaluation_end: datetime | None = None
     point_in_time_universe: bool
+    requested_market_months: list[str] = Field(default_factory=list)
+    min_unique_months: int = Field(default=0, ge=0)
+    min_asset_count: int = Field(default=0, ge=0)
+    eligible_asset_count: int = Field(default=0, ge=0)
     reason_codes: list[UniverseReasonCode] = Field(default_factory=list)
     assets: list[UniverseAsset]
     source_coverage: list[UniverseSourceCoverage]
@@ -103,9 +113,13 @@ def build_evidence_universe_report(
     evaluation_end: datetime | None = None,
     now: datetime | None = None,
     min_history_records: int = 24,
+    requested_months: list[tuple[int, int]] | None = None,
+    min_unique_months: int = 0,
+    min_asset_count: int = 0,
     max_source_health_age: timedelta = timedelta(days=7),
 ) -> EvidenceUniverseReport:
     normalized_symbols = _dedupe_preserving_order(symbols)
+    normalized_requested_months = _normalize_requested_months(requested_months)
     records = _load_records_read_only(db_path)
     generated_at = _aware(now) if now is not None else _latest_observed_at(records)
     issues: list[UniverseQualityIssue] = []
@@ -123,10 +137,26 @@ def build_evidence_universe_report(
             symbol,
             market_by_symbol[symbol],
             min_history_records=min_history_records,
+            requested_months=normalized_requested_months,
+            min_unique_months=min_unique_months,
             issues=issues,
         )
         for symbol in normalized_symbols
     ]
+    eligible_asset_count = sum(1 for asset in assets if asset.point_in_time_eligible)
+    if min_asset_count and eligible_asset_count < min_asset_count:
+        issues.append(
+            UniverseQualityIssue(
+                reason_code="insufficient_asset_coverage",
+                severity="error",
+                source="binance_public",
+                record_type="market_candle",
+                message=(
+                    f"{eligible_asset_count} point-in-time eligible assets; "
+                    f"requires at least {min_asset_count}"
+                ),
+            )
+        )
 
     issues.extend(_duplicate_market_timestamp_issues(market_by_symbol))
     issues.extend(_timestamp_alignment_issues(market_by_symbol, normalized_symbols, timeframe))
@@ -158,6 +188,10 @@ def build_evidence_universe_report(
         evaluation_start=evaluation_start,
         evaluation_end=evaluation_end,
         point_in_time_universe=point_in_time_universe,
+        requested_market_months=[_format_month(year, month) for year, month in normalized_requested_months],
+        min_unique_months=min_unique_months,
+        min_asset_count=min_asset_count,
+        eligible_asset_count=eligible_asset_count,
         reason_codes=reason_codes,
         assets=assets,
         source_coverage=source_coverage,
@@ -172,10 +206,23 @@ def _asset_report(
     market_records: list[SourceRecord],
     *,
     min_history_records: int,
+    requested_months: tuple[tuple[int, int], ...],
+    min_unique_months: int,
     issues: list[UniverseQualityIssue],
 ) -> UniverseAsset:
     timestamps = sorted(record.observed_at for record in market_records)
     unique_timestamps = set(timestamps)
+    actual_months = {(timestamp.year, timestamp.month) for timestamp in unique_timestamps}
+    if requested_months:
+        unique_market_months = len(actual_months & set(requested_months))
+        missing_market_months = [
+            _format_month(year, month)
+            for year, month in requested_months
+            if (year, month) not in actual_months
+        ]
+    else:
+        unique_market_months = len(actual_months)
+        missing_market_months = []
     blocked_reasons: list[UniverseReasonCode] = []
     if not market_records:
         blocked_reasons.append("missing_market_history")
@@ -205,6 +252,22 @@ def _asset_report(
                 observed_at=timestamps[-1],
             )
         )
+    if requested_months and min_unique_months and unique_market_months < min_unique_months:
+        blocked_reasons.append("insufficient_month_coverage")
+        issues.append(
+            UniverseQualityIssue(
+                reason_code="insufficient_month_coverage",
+                severity="error",
+                source=market_records[0].source if market_records else "binance_public",
+                record_type="market_candle",
+                symbol=symbol,
+                message=(
+                    f"{symbol} covers {unique_market_months} requested months; "
+                    f"requires at least {min_unique_months}"
+                ),
+                observed_at=timestamps[-1] if timestamps else None,
+            )
+        )
 
     return UniverseAsset(
         symbol=symbol,
@@ -212,6 +275,10 @@ def _asset_report(
         market_records=len(market_records),
         first_market_timestamp=timestamps[0] if timestamps else None,
         latest_market_timestamp=timestamps[-1] if timestamps else None,
+        requested_market_months=len(requested_months),
+        unique_market_months=unique_market_months,
+        missing_market_months=missing_market_months,
+        point_in_time_eligible=not blocked_reasons,
         blocked_reasons=blocked_reasons,
     )
 
@@ -685,6 +752,28 @@ def _parse_datetime(value: object, fallback: datetime) -> datetime:
     if isinstance(value, datetime):
         return _aware(value)
     return _aware(fallback)
+
+
+def _normalize_requested_months(
+    requested_months: list[tuple[int, int]] | None,
+) -> tuple[tuple[int, int], ...]:
+    if not requested_months:
+        return ()
+    normalized: list[tuple[int, int]] = []
+    seen: set[tuple[int, int]] = set()
+    for year, month in requested_months:
+        if month < 1 or month > 12:
+            raise ValueError(f"invalid requested month: {year}-{month}")
+        key = (int(year), int(month))
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(key)
+    return tuple(sorted(normalized))
+
+
+def _format_month(year: int, month: int) -> str:
+    return f"{year}-{month:02d}"
 
 
 def _aware(value: datetime) -> datetime:
