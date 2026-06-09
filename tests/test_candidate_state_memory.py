@@ -12,7 +12,9 @@ from crypto_alpha_agent.pipeline.evidence_universe import (
 from crypto_alpha_agent.pipeline.multi_hypothesis_feasibility import (
     CandidateFeasibilityMetric,
     CostSensitivityMetric,
+    FeasibilityValidationPolicy,
     MultiHypothesisFeasibilityReport,
+    MultipleTestingSummary,
 )
 
 
@@ -229,17 +231,78 @@ def test_persist_candidate_state_memory_uses_candidate_state_target_without_capi
     assert "300.0" not in memory_path.read_text(encoding="utf-8")
 
 
+def test_persist_candidate_state_memory_records_feasibility_v2_fields(tmp_path):
+    memory_path = tmp_path / "candidate-memory.jsonl"
+
+    from crypto_alpha_agent.pipeline.candidate_state_memory import (
+        persist_candidate_state_memory,
+    )
+
+    records = persist_candidate_state_memory(
+        _report(
+            [
+                _metric(
+                    "short_horizon_momentum_volatility_filter",
+                    reason_codes=["insufficient_month_coverage"],
+                    sample_count=20,
+                    unique_months=1,
+                    single_month_dependency=True,
+                    multiple_testing_adjusted=True,
+                )
+            ],
+            feasibility_version="v2",
+        ),
+        memory_path,
+        include_current_derivatives_rejections=False,
+    )
+
+    record = records[0]
+    summary = record.score["feasibility_summary"]
+    assert record.opportunity["state"] != "paper_collecting"
+    assert summary["feasibility_version"] == "v2"
+    assert summary["validation_policy"]["purge_gap_bars"] == 24
+    assert summary["validation_policy"]["min_unique_months"] == 3
+    assert summary["validation_policy"]["min_asset_count"] == 3
+    assert summary["unique_months"] == 1
+    assert summary["single_month_dependency"] is True
+    assert summary["multiple_testing_adjusted"] is True
+    assert summary["multiple_testing_summary"]["evaluated_candidate_count"] == 1
+    assert summary["multiple_testing_summary"]["blocked_reason_counts"] == {
+        "insufficient_month_coverage": 1
+    }
+
+
 def _report(
     metrics: list[CandidateFeasibilityMetric],
     *,
     generated_at: datetime = START,
+    feasibility_version: str = "v1",
 ) -> MultiHypothesisFeasibilityReport:
+    validation_policy = FeasibilityValidationPolicy(
+        version=feasibility_version,
+        purge_gap_bars=24 if feasibility_version == "v2" else 0,
+        min_unique_months=3 if feasibility_version == "v2" else 0,
+        min_asset_count=3 if feasibility_version == "v2" else 0,
+    )
     return MultiHypothesisFeasibilityReport(
         generated_at=generated_at,
         timeframe="1h",
         symbols=SYMBOLS,
         current_capital_usd=300.0,
         cost_bps_grid=[5.0, 10.0, 20.0, 50.0],
+        validation_policy=validation_policy,
+        multiple_testing_summary=MultipleTestingSummary(
+            evaluated_candidate_count=len(metrics),
+            feasible_candidate_count=sum(1 for metric in metrics if metric.readiness == "feasible"),
+            blocked_candidate_count=sum(1 for metric in metrics if metric.readiness == "blocked"),
+            feasible_candidates=[
+                metric.candidate for metric in metrics if metric.readiness == "feasible"
+            ],
+            blocked_reason_counts={
+                reason: sum(1 for metric in metrics if reason in metric.reason_codes)
+                for reason in sorted({reason for metric in metrics for reason in metric.reason_codes})
+            },
+        ),
         readiness="feasible" if any(metric.readiness == "feasible" for metric in metrics) else "blocked",
         reason_codes=[],
         universe=EvidenceUniverseReport(
@@ -287,6 +350,9 @@ def _metric(
     *,
     reason_codes: list[str] | None = None,
     sample_count: int = 20,
+    unique_months: int = 2,
+    single_month_dependency: bool = False,
+    multiple_testing_adjusted: bool = False,
 ) -> CandidateFeasibilityMetric:
     reason_codes = reason_codes or []
     readiness = "blocked" if reason_codes else "feasible"
@@ -296,6 +362,8 @@ def _metric(
         candidate_state_target = "candidate"
     elif set(reason_codes) <= {"insufficient_samples", "insufficient_walk_forward_splits"}:
         candidate_state_target = "source_qualified"
+    elif set(reason_codes) <= {"insufficient_month_coverage", "insufficient_asset_coverage"}:
+        candidate_state_target = "candidate"
     else:
         candidate_state_target = "redesign_required"
     return CandidateFeasibilityMetric(
@@ -308,6 +376,9 @@ def _metric(
         net_mean=0.019 if sample_count else None,
         win_rate=1.0 if sample_count else None,
         turnover=0.1 if sample_count else 0.0,
+        unique_months=unique_months if sample_count else 0,
+        single_month_dependency=single_month_dependency,
+        multiple_testing_adjusted=multiple_testing_adjusted,
         selected_symbol_counts={"BTC/USDT": sample_count} if sample_count else {},
         cost_sensitivity=[
             CostSensitivityMetric(

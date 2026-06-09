@@ -217,6 +217,8 @@ def _feasibility_summary(
 ) -> dict[str, Any]:
     return {
         "mode": report.mode,
+        "feasibility_version": report.validation_policy.version,
+        "validation_policy": report.validation_policy.model_dump(mode="json"),
         "timeframe": report.timeframe,
         "symbols": list(report.symbols),
         "cost_bps_grid": list(report.cost_bps_grid),
@@ -228,6 +230,10 @@ def _feasibility_summary(
         "net_mean": metric.net_mean,
         "win_rate": metric.win_rate,
         "turnover": metric.turnover,
+        "unique_months": metric.unique_months,
+        "single_month_dependency": metric.single_month_dependency,
+        "multiple_testing_adjusted": metric.multiple_testing_adjusted,
+        "multiple_testing_summary": report.multiple_testing_summary.model_dump(mode="json"),
         "selected_symbol_counts": dict(metric.selected_symbol_counts),
         "candidate_state_target": metric.candidate_state_target,
     }

@@ -372,7 +372,7 @@ git commit -m "feat: add multi hypothesis feasibility v2"
 - Modify: `src/crypto_alpha_agent/pipeline/candidate_state_memory.py`
 - Test: `tests/test_candidate_state_memory.py`
 
-- [ ] **Step 1: Write RED tests for v2 state memory**
+- [x] **Step 1: Write RED tests for v2 state memory**
 
 Assert persisted candidate memory records include:
 
@@ -385,12 +385,12 @@ Assert persisted candidate memory records include:
 Assert blocked v2 candidates with insufficient months stay out of
 `paper_collecting`.
 
-- [ ] **Step 2: Implement v2 memory fields**
+- [x] **Step 2: Implement v2 memory fields**
 
 Update candidate-state serialization without changing old record ids. Preserve
 legacy derivatives rejection memory.
 
-- [ ] **Step 3: Run memory tests**
+- [x] **Step 3: Run memory tests**
 
 Run:
 
@@ -400,7 +400,7 @@ uv run --extra dev pytest tests/test_candidate_state_memory.py -q
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit Task 7**
+- [x] **Step 4: Commit Task 7**
 
 ```bash
 git add src/crypto_alpha_agent/pipeline/candidate_state_memory.py tests/test_candidate_state_memory.py
