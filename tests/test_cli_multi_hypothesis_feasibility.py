@@ -151,6 +151,111 @@ def test_strategy_feasibility_multi_hypothesis_cli_accepts_v2_policy(
     assert "v2" in markdown
 
 
+def test_strategy_feasibility_multi_hypothesis_cli_accepts_cost_aware_policy(
+    capsys,
+    tmp_path,
+):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "candidate-memory.jsonl"
+    out_path = tmp_path / "multi-hypothesis-cost-aware.md"
+    json_out = tmp_path / "multi-hypothesis-cost-aware.json"
+    _seed_directional_market_candles(db_path, count=120)
+    ResearchDataStore(db_path).upsert_records(
+        [_source_health("binance_public", "um_futures_ohlcv", START + timedelta(hours=119))]
+    )
+
+    exit_code = main(
+        [
+            "strategy-feasibility",
+            "--db",
+            str(db_path),
+            "--memory",
+            str(memory_path),
+            "--mode",
+            "multi-hypothesis-lab",
+            "--feasibility-version",
+            "v2",
+            "--symbol",
+            "BTC/USDT",
+            "--symbol",
+            "ETH/USDT",
+            "--symbol",
+            "SOL/USDT",
+            "--timeframe",
+            "1h",
+            "--candidate",
+            "short_horizon_momentum_volatility_filter",
+            "--cost-aware-execution",
+            "--min-edge-over-cost-multiplier",
+            "2",
+            "--max-turnover",
+            "0.5",
+            "--out",
+            str(out_path),
+            "--json-out",
+            str(json_out),
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    policy = payload["report"]["validation_policy"]
+    metric = payload["report"]["candidate_metrics"][0]
+    markdown = out_path.read_text(encoding="utf-8")
+    assert exit_code == 0
+    assert policy["cost_aware_execution"] is True
+    assert policy["min_edge_over_cost_multiplier"] == 2.0
+    assert policy["max_turnover"] == 0.5
+    assert metric["raw_sample_count"] >= metric["sample_count"]
+    assert metric["cost_aware_sample_count"] == metric["sample_count"]
+    assert metric["cost_threshold"] == pytest.approx(0.002)
+    assert metric["cost_sensitivity"][1]["cost_threshold"] == pytest.approx(0.002)
+    assert "Cost-aware execution: true" in markdown
+    assert "Cost threshold" in markdown
+
+
+def test_strategy_feasibility_multi_hypothesis_cli_expands_universe_preset(
+    capsys,
+    tmp_path,
+):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "candidate-memory.jsonl"
+    out_path = tmp_path / "multi-hypothesis-preset.md"
+    json_out = tmp_path / "multi-hypothesis-preset.json"
+    _seed_directional_market_candles(db_path, count=120)
+    ResearchDataStore(db_path).upsert_records(
+        [_source_health("binance_public", "um_futures_ohlcv", START + timedelta(hours=119))]
+    )
+
+    exit_code = main(
+        [
+            "strategy-feasibility",
+            "--db",
+            str(db_path),
+            "--memory",
+            str(memory_path),
+            "--mode",
+            "multi-hypothesis-lab",
+            "--universe-preset",
+            "liquid-usdm-top20",
+            "--max-symbols",
+            "2",
+            "--timeframe",
+            "1h",
+            "--candidate",
+            "short_horizon_momentum_volatility_filter",
+            "--out",
+            str(out_path),
+            "--json-out",
+            str(json_out),
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["report"]["symbols"] == ["BTC/USDT", "ETH/USDT"]
+    assert payload["report"]["candidate_metrics"][0]["sample_count"] > 0
+
+
 def test_strategy_feasibility_multi_hypothesis_cli_requires_memory_path(tmp_path):
     db_path = tmp_path / "research.sqlite"
     out_path = tmp_path / "multi-hypothesis.md"
@@ -253,6 +358,34 @@ def test_strategy_feasibility_large_liquid_cli_rejects_candidate_filter(tmp_path
                 "1h",
                 "--candidate",
                 "short_horizon_momentum_volatility_filter",
+                "--out",
+                str(out_path),
+                "--json-out",
+                str(json_out),
+            ]
+        )
+
+    assert exc_info.value.code == 2
+
+
+def test_strategy_feasibility_large_liquid_cli_rejects_cost_aware_flags(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    out_path = tmp_path / "large-liquid.md"
+    json_out = tmp_path / "large-liquid.json"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "strategy-feasibility",
+                "--db",
+                str(db_path),
+                "--mode",
+                "large-liquid-momentum-regime",
+                "--symbol",
+                "BTC/USDT",
+                "--timeframe",
+                "1h",
+                "--cost-aware-execution",
                 "--out",
                 str(out_path),
                 "--json-out",

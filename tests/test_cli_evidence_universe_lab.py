@@ -128,6 +128,85 @@ def test_evidence_universe_lab_cli_rejects_collect_without_allow_network(tmp_pat
     assert exc_info.value.code == 2
 
 
+def test_evidence_universe_lab_cli_threads_cost_aware_universe_options(
+    capsys,
+    tmp_path,
+):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "candidate-state.jsonl"
+    out_dir = tmp_path / "lab-cost-aware"
+    json_out = tmp_path / "lab-cost-aware-summary.json"
+    _seed_directional_market_candles(db_path, count=120)
+    ResearchDataStore(db_path).upsert_records(
+        [_source_health("binance_public", "um_futures_ohlcv", START + timedelta(hours=119))]
+    )
+
+    exit_code = main(
+        [
+            "evidence-universe-lab",
+            "--db",
+            str(db_path),
+            "--memory",
+            str(memory_path),
+            "--universe-preset",
+            "liquid-usdm-top20",
+            "--max-symbols",
+            "3",
+            "--timeframe",
+            "1h",
+            "--start-year",
+            "2026",
+            "--start-month",
+            "5",
+            "--end-year",
+            "2026",
+            "--end-month",
+            "5",
+            "--min-unique-months",
+            "1",
+            "--min-asset-count",
+            "1",
+            "--min-split-count",
+            "2",
+            "--candidate",
+            "short_horizon_momentum_volatility_filter",
+            "--cost-aware-execution",
+            "--min-edge-over-cost-multiplier",
+            "2",
+            "--max-turnover",
+            "0.5",
+            "--out-dir",
+            str(out_dir),
+            "--json-out",
+            str(json_out),
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    feasibility_payload = json.loads(
+        (out_dir / "multi-hypothesis-feasibility.json").read_text(encoding="utf-8")
+    )
+    data_depth_payload = json.loads(
+        (out_dir / "data-depth-campaign.json").read_text(encoding="utf-8")
+    )
+    policy = feasibility_payload["report"]["validation_policy"]
+    assert exit_code == 0
+    assert payload["report"]["candidate_count"] == 1
+    assert data_depth_payload["report"]["spec"]["symbols"] == [
+        "BTC/USDT",
+        "ETH/USDT",
+        "BNB/USDT",
+    ]
+    assert feasibility_payload["report"]["symbols"] == [
+        "BTC/USDT",
+        "ETH/USDT",
+        "BNB/USDT",
+    ]
+    assert policy["cost_aware_execution"] is True
+    assert policy["min_edge_over_cost_multiplier"] == 2.0
+    assert policy["max_turnover"] == 0.5
+
+
 def _seed_directional_market_candles(db_path, *, count: int) -> None:
     records = []
     for symbol in SYMBOLS:

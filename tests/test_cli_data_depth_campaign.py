@@ -121,6 +121,55 @@ def test_data_depth_campaign_cli_rejects_collect_without_allow_network(tmp_path)
     assert exc_info.value.code == 2
 
 
+def test_data_depth_campaign_cli_expands_liquid_universe_preset(
+    capsys,
+    tmp_path,
+):
+    db_path = tmp_path / "research.sqlite"
+    out_path = tmp_path / "data-depth-preset.md"
+    json_out = tmp_path / "data-depth-preset.json"
+
+    exit_code = main(
+        [
+            "data-depth-campaign",
+            "--db",
+            str(db_path),
+            "--universe-preset",
+            "liquid-usdm-top20",
+            "--max-symbols",
+            "3",
+            "--timeframe",
+            "1h",
+            "--start-year",
+            "2026",
+            "--start-month",
+            "1",
+            "--end-year",
+            "2026",
+            "--end-month",
+            "1",
+            "--out",
+            str(out_path),
+            "--json-out",
+            str(json_out),
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["report"]["spec"]["symbols"] == [
+        "BTC/USDT",
+        "ETH/USDT",
+        "BNB/USDT",
+    ]
+    assert [row["symbol"] for row in payload["report"]["coverage"]] == [
+        "BTC/USDT",
+        "ETH/USDT",
+        "BNB/USDT",
+    ]
+    assert len(payload["report"]["missing_collection_jobs"]) == 3
+
+
 def test_data_depth_campaign_cli_collects_missing_jobs_and_records_failures(
     capsys,
     monkeypatch,

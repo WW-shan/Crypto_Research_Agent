@@ -394,7 +394,35 @@ candidate-state memory records, and still reported 0 feasible candidates. The
 Smart Search raw evidence remains ignored under `var/`, with a repository index
 at
 `docs/goals/evidence-index/2026-06-09-round-23-smart-search-evidence-index.md`.
-Round 24 remains blocked.
+
+Round 24 then completed Candidate Quality And Cost-Aware Evidence Expansion on
+2026-06-09. Its design source is
+`docs/superpowers/specs/2026-06-09-candidate-quality-and-cost-aware-evidence-expansion-design.md`,
+its implementation plan is
+`docs/superpowers/plans/2026-06-09-candidate-quality-and-cost-aware-evidence-expansion.md`,
+its path map is
+`docs/goals/round-24-candidate-quality-cost-aware-path-map.md`, and its phase
+report is
+`docs/goals/phase-reports/2026-06-09-candidate-quality-and-cost-aware-evidence-expansion-report.md`.
+
+Round 24 added deterministic `liquid-usdm-top20` universe expansion,
+cost-aware execution filtering, computed cost-threshold diagnostics,
+timestamp-grouped turnover measurement, turnover gating, CLI guardrails for
+non-multi-hypothesis modes, and updated operator docs. The final lab rerun used
+eight liquid USD-M symbols with five unique months each, 24-bar purge gaps,
+cost-aware threshold `0.00200000` at the baseline 10 bps cost, and a 0.5
+maximum-turnover policy. It evaluated 11 read-only candidates, persisted 15
+candidate-state records, and still produced 0 feasible candidates. Final
+blocked reasons were `insufficient_universe_coverage`,
+`non_positive_cost_adjusted_expectancy`,
+`unstable_walk_forward_performance`, `cost_sensitivity_fragile`, and
+`watchlist_only_source`.
+
+No candidate reached `feasibility_passed`, so event-driven backtest, paper
+collection, tiny-live review, live execution, wallet access, order routing, and
+real capital remain blocked. The next practical work is not backtest
+expansion; it is point-in-time derivatives/DeFi coverage expansion or
+basis/funding hypothesis redesign before another feasibility v2 run.
 
 The active path map is:
 

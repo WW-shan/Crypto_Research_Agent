@@ -41,6 +41,7 @@ MultiHypothesisBlockedReason = Literal[
     "non_positive_cost_adjusted_expectancy",
     "unstable_walk_forward_performance",
     "cost_sensitivity_fragile",
+    "excessive_turnover",
     "single_asset_or_time_window_dependency",
     "lookahead_risk",
     "watchlist_only_source",
@@ -55,6 +56,7 @@ MULTI_HYPOTHESIS_BLOCKED_REASONS: tuple[MultiHypothesisBlockedReason, ...] = (
     "non_positive_cost_adjusted_expectancy",
     "unstable_walk_forward_performance",
     "cost_sensitivity_fragile",
+    "excessive_turnover",
     "single_asset_or_time_window_dependency",
     "lookahead_risk",
     "watchlist_only_source",
@@ -76,6 +78,7 @@ class _StrictMultiHypothesisModel(BaseModel):
 
 class CostSensitivityMetric(_StrictMultiHypothesisModel):
     cost_bps: float = Field(ge=0)
+    cost_threshold: float = Field(default=0.0, ge=0)
     gross_mean: float
     net_mean: float
     win_rate: float = Field(ge=0, le=1)
@@ -98,6 +101,9 @@ class CandidateFeasibilityMetric(_StrictMultiHypothesisModel):
     candidate: CandidateScreenId
     readiness: CandidateFeasibilityReadiness
     sample_count: int = Field(ge=0)
+    raw_sample_count: int = Field(default=0, ge=0)
+    cost_aware_sample_count: int = Field(default=0, ge=0)
+    cost_threshold: float = Field(default=0.0, ge=0)
     asset_coverage: dict[str, int] = Field(default_factory=dict)
     split_coverage: int = Field(ge=0)
     gross_mean: float | None = None
@@ -119,6 +125,9 @@ class FeasibilityValidationPolicy(_StrictMultiHypothesisModel):
     purge_gap_bars: int = Field(default=0, ge=0)
     min_unique_months: int = Field(default=0, ge=0)
     min_asset_count: int = Field(default=0, ge=0)
+    cost_aware_execution: bool = False
+    min_edge_over_cost_multiplier: float = Field(default=1.0, ge=0)
+    max_turnover: float | None = Field(default=None, ge=0)
 
 
 class MultipleTestingSummary(_StrictMultiHypothesisModel):
@@ -167,6 +176,7 @@ class _Observation:
     timestamp: datetime
     selected_symbol: str
     gross_return: float
+    signal_score: float
 
 
 def build_multi_hypothesis_feasibility_report(
@@ -186,6 +196,9 @@ def build_multi_hypothesis_feasibility_report(
     requested_months: list[tuple[int, int]] | None = None,
     min_unique_months: int = 0,
     min_asset_count: int = 0,
+    cost_aware_execution: bool = False,
+    min_edge_over_cost_multiplier: float = 1.0,
+    max_turnover: float | None = None,
 ) -> MultiHypothesisFeasibilityReport:
     del memory_path
     _validate_min_split_count(min_split_count)
@@ -194,6 +207,9 @@ def build_multi_hypothesis_feasibility_report(
         purge_gap_bars=purge_gap_bars,
         min_unique_months=min_unique_months,
         min_asset_count=min_asset_count,
+        cost_aware_execution=cost_aware_execution,
+        min_edge_over_cost_multiplier=min_edge_over_cost_multiplier,
+        max_turnover=max_turnover,
     )
     normalized_symbols = _dedupe_preserving_order(symbols)
     normalized_cost_grid = _normalize_cost_grid(cost_bps_grid)
@@ -281,6 +297,9 @@ def render_multi_hypothesis_feasibility_markdown(
         f"Purge gap bars: {report.validation_policy.purge_gap_bars}",
         f"Minimum unique months: {report.validation_policy.min_unique_months}",
         f"Minimum asset count: {report.validation_policy.min_asset_count}",
+        f"Cost-aware execution: {str(report.validation_policy.cost_aware_execution).lower()}",
+        f"Minimum edge over cost multiplier: {report.validation_policy.min_edge_over_cost_multiplier:g}",
+        f"Maximum turnover: {_format_optional_mean(report.validation_policy.max_turnover)}",
         "",
         "## Multiple Testing",
         f"Evaluated candidates: {report.multiple_testing_summary.evaluated_candidate_count}",
@@ -292,8 +311,8 @@ def render_multi_hypothesis_feasibility_markdown(
         f"Universe reasons: {', '.join(report.universe.reason_codes) or 'none'}",
         "",
         "## Candidates",
-        "| Candidate | Readiness | Samples | Assets | Splits | Gross mean | Net mean | Win rate | Turnover | State target | Reasons |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+        "| Candidate | Readiness | Samples | Raw samples | Cost-aware samples | Cost threshold | Assets | Splits | Gross mean | Net mean | Win rate | Turnover | State target | Reasons |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     for metric in report.candidate_metrics:
         lines.append(
@@ -303,6 +322,9 @@ def render_multi_hypothesis_feasibility_markdown(
                     metric.candidate,
                     metric.readiness,
                     f"{metric.sample_count:g}",
+                    f"{metric.raw_sample_count:g}",
+                    f"{metric.cost_aware_sample_count:g}",
+                    f"{metric.cost_threshold:.8f}",
                     f"{len(metric.asset_coverage):g}",
                     f"{metric.split_coverage:g}",
                     _format_optional_mean(metric.gross_mean),
@@ -320,13 +342,13 @@ def render_multi_hypothesis_feasibility_markdown(
         [
             "",
             "## Cost Sensitivity",
-            "| Candidate | Cost bps | Gross mean | Net mean | Win rate |",
-            "| --- | ---: | ---: | ---: | ---: |",
+            "| Candidate | Cost bps | Cost threshold | Gross mean | Net mean | Win rate |",
+            "| --- | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for metric in report.candidate_metrics:
         if not metric.cost_sensitivity:
-            lines.append(f"| {metric.candidate} | 0 | 0 | 0 | 0 |")
+            lines.append(f"| {metric.candidate} | 0 | 0 | 0 | 0 | 0 |")
             continue
         for cost_metric in metric.cost_sensitivity:
             lines.append(
@@ -335,6 +357,7 @@ def render_multi_hypothesis_feasibility_markdown(
                     [
                         metric.candidate,
                         f"{cost_metric.cost_bps:g}",
+                        f"{cost_metric.cost_threshold:.8f}",
                         f"{cost_metric.gross_mean:.8f}",
                         f"{cost_metric.net_mean:.8f}",
                         f"{cost_metric.win_rate:.4f}",
@@ -415,14 +438,30 @@ def _candidate_metric(
     if "insufficient_asset_coverage" in universe.reason_codes:
         reason_codes.append("insufficient_asset_coverage")
 
-    observations: list[_Observation] = []
+    raw_observations: list[_Observation] = []
     if not {"lookahead_risk", "watchlist_only_source"} & set(reason_codes):
-        observations = _historical_observations(screen_id, market_by_symbol)
-        if not observations and "insufficient_universe_coverage" not in reason_codes:
+        raw_observations = _historical_observations(screen_id, market_by_symbol)
+        if not raw_observations and "insufficient_universe_coverage" not in reason_codes:
             reason_codes.append("insufficient_samples")
 
     baseline_cost_bps = _baseline_cost_bps(cost_bps_grid)
-    cost_sensitivity = _cost_sensitivity(observations, cost_bps_grid)
+    baseline_cost_threshold = _cost_aware_signal_threshold(
+        cost_bps=baseline_cost_bps,
+        validation_policy=validation_policy,
+    )
+    observations = _filter_cost_aware_observations(
+        raw_observations,
+        cost_bps=baseline_cost_bps,
+        validation_policy=validation_policy,
+    )
+    if raw_observations and not observations:
+        reason_codes.append("insufficient_samples")
+
+    cost_sensitivity = _cost_sensitivity(
+        raw_observations,
+        cost_bps_grid,
+        validation_policy=validation_policy,
+    )
     split_metrics = _walk_forward_metrics(
         observations,
         split_count=min_split_count,
@@ -458,6 +497,13 @@ def _candidate_metric(
     reason_codes = _dedupe_preserving_order(reason_codes)
     asset_coverage = _asset_coverage(definition, market_by_symbol)
     selected_symbol_counts = dict(Counter(row.selected_symbol for row in observations))
+    turnover = _turnover(observations)
+    if (
+        observations
+        and validation_policy.max_turnover is not None
+        and turnover > validation_policy.max_turnover
+    ):
+        reason_codes = _dedupe_preserving_order([*reason_codes, "excessive_turnover"])
     if (
         observations
         and len(asset_coverage) > 1
@@ -470,12 +516,15 @@ def _candidate_metric(
         candidate=screen_id,
         readiness="blocked" if reason_codes else "feasible",
         sample_count=len(observations),
+        raw_sample_count=len(raw_observations),
+        cost_aware_sample_count=len(observations),
+        cost_threshold=baseline_cost_threshold,
         asset_coverage=asset_coverage,
         split_coverage=len(split_metrics),
         gross_mean=gross_mean,
         net_mean=net_mean,
         win_rate=win_rate,
-        turnover=_turnover(observations),
+        turnover=turnover,
         unique_months=unique_months,
         single_month_dependency=single_month_dependency,
         multiple_testing_adjusted=validation_policy.version == "v2",
@@ -553,6 +602,7 @@ def _per_symbol_return_observations(
                     timestamp=current.timestamp,
                     selected_symbol=symbol,
                     gross_return=next_row.close / current.close - 1,
+                    signal_score=abs(float(signal_return)),
                 )
             )
     return sorted(observations, key=lambda row: (row.timestamp, row.selected_symbol))
@@ -596,6 +646,7 @@ def _cross_asset_ranking_observations(
                 timestamp=timestamp,
                 selected_symbol=selected_symbol,
                 gross_return=next_row.close / selected_row.close - 1,
+                signal_score=abs(float(max(scored)[0])),
             )
         )
     return observations
@@ -604,20 +655,74 @@ def _cross_asset_ranking_observations(
 def _cost_sensitivity(
     observations: list[_Observation],
     cost_bps_grid: list[float],
+    *,
+    validation_policy: FeasibilityValidationPolicy,
 ) -> list[CostSensitivityMetric]:
     if not observations:
         return []
-    return [
-        CostSensitivityMetric(
+    metrics: list[CostSensitivityMetric] = []
+    for cost_bps in cost_bps_grid:
+        cost_threshold = _cost_aware_signal_threshold(
             cost_bps=cost_bps,
-            gross_mean=_mean(row.gross_return for row in observations),
-            net_mean=_mean(row.gross_return - cost_bps / 10_000 for row in observations),
-            win_rate=_win_rate(
-                row.gross_return - cost_bps / 10_000 for row in observations
-            ),
+            validation_policy=validation_policy,
         )
-        for cost_bps in cost_bps_grid
+        filtered = _filter_cost_aware_observations(
+            observations,
+            cost_bps=cost_bps,
+            validation_policy=validation_policy,
+        )
+        if not filtered:
+            metrics.append(
+                CostSensitivityMetric(
+                    cost_bps=cost_bps,
+                    cost_threshold=cost_threshold,
+                    gross_mean=0.0,
+                    net_mean=0.0,
+                    win_rate=0.0,
+                )
+            )
+            continue
+        metrics.append(
+            CostSensitivityMetric(
+                cost_bps=cost_bps,
+                cost_threshold=cost_threshold,
+                gross_mean=_mean(row.gross_return for row in filtered),
+                net_mean=_mean(row.gross_return - cost_bps / 10_000 for row in filtered),
+                win_rate=_win_rate(
+                    row.gross_return - cost_bps / 10_000 for row in filtered
+                ),
+            )
+        )
+    return metrics
+
+
+def _filter_cost_aware_observations(
+    observations: list[_Observation],
+    *,
+    cost_bps: float,
+    validation_policy: FeasibilityValidationPolicy,
+) -> list[_Observation]:
+    if not validation_policy.cost_aware_execution:
+        return list(observations)
+    threshold = _cost_aware_signal_threshold(
+        cost_bps=cost_bps,
+        validation_policy=validation_policy,
+    )
+    return [
+        observation
+        for observation in observations
+        if observation.signal_score >= threshold
     ]
+
+
+def _cost_aware_signal_threshold(
+    *,
+    cost_bps: float,
+    validation_policy: FeasibilityValidationPolicy,
+) -> float:
+    if not validation_policy.cost_aware_execution:
+        return 0.0
+    return cost_bps / 10_000 * validation_policy.min_edge_over_cost_multiplier
 
 
 def _walk_forward_metrics(
@@ -710,12 +815,29 @@ def _candidate_state_target(
 def _turnover(observations: list[_Observation]) -> float:
     if len(observations) < 2:
         return 0.0
-    transitions = sum(
-        1
-        for previous, current in zip(observations, observations[1:])
-        if previous.selected_symbol != current.selected_symbol
-    )
-    return transitions / (len(observations) - 1)
+    selected_by_timestamp: list[tuple[datetime, set[str]]] = []
+    for observation in observations:
+        if (
+            selected_by_timestamp
+            and selected_by_timestamp[-1][0] == observation.timestamp
+        ):
+            selected_by_timestamp[-1][1].add(observation.selected_symbol)
+            continue
+        selected_by_timestamp.append(
+            (observation.timestamp, {observation.selected_symbol})
+        )
+    if len(selected_by_timestamp) < 2:
+        return 0.0
+    churn = []
+    for (_, previous_symbols), (_, current_symbols) in zip(
+        selected_by_timestamp,
+        selected_by_timestamp[1:],
+    ):
+        union_size = len(previous_symbols | current_symbols)
+        if union_size == 0:
+            continue
+        churn.append(len(previous_symbols ^ current_symbols) / union_size)
+    return _mean(churn) if churn else 0.0
 
 
 def _multiple_testing_summary(

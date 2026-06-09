@@ -356,11 +356,8 @@ The normal operator baseline is:
    uv run --extra dev crypto-alpha-agent evidence-universe-lab \
      --db var/research.sqlite \
      --memory var/memory/candidate-state.jsonl \
-     --symbol BTC/USDT \
-     --symbol ETH/USDT \
-     --symbol SOL/USDT \
-     --symbol BNB/USDT \
-     --symbol XRP/USDT \
+     --universe-preset liquid-usdm-top20 \
+     --max-symbols 8 \
      --timeframe 1h \
      --start-year 2026 \
      --start-month 1 \
@@ -374,6 +371,9 @@ The normal operator baseline is:
      --cost-bps-grid 10 \
      --cost-bps-grid 20 \
      --cost-bps-grid 50 \
+     --cost-aware-execution \
+     --min-edge-over-cost-multiplier 2 \
+     --max-turnover 0.5 \
      --collect \
      --allow-network \
      --persist-candidate-state \
@@ -383,8 +383,9 @@ The normal operator baseline is:
 
    This command is read-only with respect to trading decisions. It may collect
    missing Binance Public Data records only when `--collect --allow-network` is
-   explicit, then writes data-depth, feasibility v2, and candidate-state
-   artifacts. A blocked lab result must not be sent to backtest or paper.
+   explicit, then writes data-depth, feasibility v2, cost-aware execution,
+   turnover-gated, and candidate-state artifacts. A blocked lab result must not
+   be sent to backtest or paper.
 
 4. Generate or regenerate the daily report if needed:
 

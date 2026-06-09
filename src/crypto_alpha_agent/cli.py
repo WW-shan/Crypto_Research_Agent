@@ -108,6 +108,7 @@ from crypto_alpha_agent.pipeline.strategy_feasibility import (
     render_multi_hypothesis_feasibility_markdown,
     render_strategy_feasibility_markdown,
 )
+from crypto_alpha_agent.pipeline.universe_presets import resolve_universe_symbols
 from crypto_alpha_agent.pipeline.memory import (
     persist_paper_outcome_memory,
     persist_research_loop_memory,
@@ -718,8 +719,17 @@ def build_parser() -> argparse.ArgumentParser:
     strategy_feasibility_parser.add_argument(
         "--symbol",
         action="append",
-        required=True,
+        default=[],
         help="Stored market candle symbol. Repeat for multiple symbols.",
+    )
+    strategy_feasibility_parser.add_argument(
+        "--universe-preset",
+        help="Optional deterministic universe preset such as liquid-usdm-top20.",
+    )
+    strategy_feasibility_parser.add_argument(
+        "--max-symbols",
+        type=_positive_int,
+        help="Optional cap after combining explicit symbols and a universe preset.",
     )
     strategy_feasibility_parser.add_argument("--timeframe", required=True, help="Stored market candle timeframe.")
     strategy_feasibility_parser.add_argument("--out", required=True, type=Path, help="Path for the Markdown report.")
@@ -791,6 +801,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Multi-hypothesis cost sensitivity grid value in basis points. Repeat to override the default 5/10/20/50 grid.",
     )
     strategy_feasibility_parser.add_argument(
+        "--cost-aware-execution",
+        action="store_true",
+        help="Filter multi-hypothesis observations whose signal edge does not clear the configured cost threshold.",
+    )
+    strategy_feasibility_parser.add_argument(
+        "--min-edge-over-cost-multiplier",
+        type=_non_negative_finite_float,
+        default=1.0,
+        help="Minimum signal edge multiple over cost required when --cost-aware-execution is enabled.",
+    )
+    strategy_feasibility_parser.add_argument(
+        "--max-turnover",
+        type=_non_negative_finite_float,
+        help="Optional multi-hypothesis turnover cap; candidates above it are blocked.",
+    )
+    strategy_feasibility_parser.add_argument(
         "--persist-candidate-state",
         action="store_true",
         help="Persist multi-hypothesis candidate states to --memory. Default mode stays read-only.",
@@ -809,8 +835,17 @@ def build_parser() -> argparse.ArgumentParser:
     data_depth_parser.add_argument(
         "--symbol",
         action="append",
-        required=True,
+        default=[],
         help="Market symbol to audit. Repeat for multiple symbols.",
+    )
+    data_depth_parser.add_argument(
+        "--universe-preset",
+        help="Optional deterministic universe preset such as liquid-usdm-top20.",
+    )
+    data_depth_parser.add_argument(
+        "--max-symbols",
+        type=_positive_int,
+        help="Optional cap after combining explicit symbols and a universe preset.",
     )
     data_depth_parser.add_argument("--timeframe", required=True, help="Stored market candle timeframe.")
     data_depth_parser.add_argument("--start-year", required=True, type=_positive_int, help="Campaign start UTC year.")
@@ -850,8 +885,17 @@ def build_parser() -> argparse.ArgumentParser:
     evidence_universe_lab_parser.add_argument(
         "--symbol",
         action="append",
-        required=True,
+        default=[],
         help="Market symbol to audit and evaluate. Repeat for multiple symbols.",
+    )
+    evidence_universe_lab_parser.add_argument(
+        "--universe-preset",
+        help="Optional deterministic universe preset such as liquid-usdm-top20.",
+    )
+    evidence_universe_lab_parser.add_argument(
+        "--max-symbols",
+        type=_positive_int,
+        help="Optional cap after combining explicit symbols and a universe preset.",
     )
     evidence_universe_lab_parser.add_argument("--timeframe", required=True, help="Stored market candle timeframe.")
     evidence_universe_lab_parser.add_argument("--start-year", required=True, type=_positive_int, help="Campaign start UTC year.")
@@ -898,6 +942,22 @@ def build_parser() -> argparse.ArgumentParser:
         type=_non_negative_finite_float,
         default=[],
         help="Feasibility cost sensitivity grid value in basis points. Repeat to override the default 5/10/20/50 grid.",
+    )
+    evidence_universe_lab_parser.add_argument(
+        "--cost-aware-execution",
+        action="store_true",
+        help="Filter feasibility observations whose signal edge does not clear the configured cost threshold.",
+    )
+    evidence_universe_lab_parser.add_argument(
+        "--min-edge-over-cost-multiplier",
+        type=_non_negative_finite_float,
+        default=1.0,
+        help="Minimum signal edge multiple over cost required when --cost-aware-execution is enabled.",
+    )
+    evidence_universe_lab_parser.add_argument(
+        "--max-turnover",
+        type=_non_negative_finite_float,
+        help="Optional feasibility turnover cap; candidates above it are blocked.",
     )
     evidence_universe_lab_parser.add_argument(
         "--candidate",
@@ -2534,8 +2594,39 @@ def _validate_derivatives_feasibility_candidates(
         )
 
 
+def _resolve_cli_universe_symbols(args: argparse.Namespace) -> list[str]:
+    try:
+        symbols = resolve_universe_symbols(
+            args.symbol,
+            universe_preset=getattr(args, "universe_preset", None),
+            max_symbols=getattr(args, "max_symbols", None),
+        )
+    except ValueError as exc:
+        args.parser.error(str(exc))
+        raise AssertionError("argparse parser.error should exit") from exc
+    if not symbols:
+        args.parser.error("--symbol or --universe-preset is required")
+        raise AssertionError("argparse parser.error should exit")
+    return symbols
+
+
+def _has_multi_hypothesis_only_policy_args(args: argparse.Namespace) -> bool:
+    return bool(
+        args.cost_aware_execution
+        or args.min_edge_over_cost_multiplier != 1.0
+        or args.max_turnover is not None
+    )
+
+
 def _handle_strategy_feasibility(args: argparse.Namespace) -> dict[str, Any]:
     candidate_state_memory_records = []
+    symbols = _resolve_cli_universe_symbols(args)
+    if args.mode != "multi-hypothesis-lab" and _has_multi_hypothesis_only_policy_args(args):
+        args.parser.error(
+            "--cost-aware-execution, --min-edge-over-cost-multiplier, and "
+            "--max-turnover are only supported for --mode multi-hypothesis-lab"
+        )
+        raise AssertionError("argparse parser.error should exit")
     if args.mode == "multi-hypothesis-lab":
         if args.memory is None:
             args.parser.error("--memory is required for --mode multi-hypothesis-lab")
@@ -2544,7 +2635,7 @@ def _handle_strategy_feasibility(args: argparse.Namespace) -> dict[str, Any]:
             report = build_multi_hypothesis_feasibility_report(
                 args.db,
                 memory_path=args.memory,
-                symbols=args.symbol,
+                symbols=symbols,
                 timeframe=args.timeframe,
                 current_capital_usd=args.current_capital_usd,
                 cost_bps_grid=args.cost_bps_grid or None,
@@ -2554,6 +2645,9 @@ def _handle_strategy_feasibility(args: argparse.Namespace) -> dict[str, Any]:
                 purge_gap_bars=args.purge_gap_bars,
                 min_unique_months=args.min_unique_months,
                 min_asset_count=args.min_asset_count,
+                cost_aware_execution=args.cost_aware_execution,
+                min_edge_over_cost_multiplier=args.min_edge_over_cost_multiplier,
+                max_turnover=args.max_turnover,
             )
         except ValueError as exc:
             args.parser.error(str(exc))
@@ -2576,7 +2670,7 @@ def _handle_strategy_feasibility(args: argparse.Namespace) -> dict[str, Any]:
             raise AssertionError("argparse parser.error should exit") from exc
         report = build_derivatives_conditioned_lab_report(
             args.db,
-            symbols=args.symbol,
+            symbols=symbols,
             timeframe=args.timeframe,
             current_capital_usd=args.current_capital_usd,
             derivatives_symbols=derivatives_symbols,
@@ -2595,7 +2689,7 @@ def _handle_strategy_feasibility(args: argparse.Namespace) -> dict[str, Any]:
             raise AssertionError("argparse parser.error should exit")
         report = build_large_liquid_momentum_feasibility_report(
             args.db,
-            symbols=args.symbol,
+            symbols=symbols,
             timeframe=args.timeframe,
             current_capital_usd=args.current_capital_usd,
             cost_bps=args.cost_bps,
@@ -2621,9 +2715,10 @@ def _handle_data_depth_campaign(args: argparse.Namespace) -> dict[str, Any]:
     if args.collect and not args.allow_network:
         args.parser.error("--allow-network is required when --collect is provided")
         raise AssertionError("argparse parser.error should exit")
+    symbols = _resolve_cli_universe_symbols(args)
     try:
         spec = DataDepthCampaignSpec(
-            symbols=args.symbol,
+            symbols=symbols,
             timeframe=args.timeframe,
             market="um-futures",
             start=CampaignMonth(year=args.start_year, month=args.start_month),
@@ -2655,9 +2750,10 @@ def _handle_evidence_universe_lab(args: argparse.Namespace) -> dict[str, Any]:
     if args.collect and not args.allow_network:
         args.parser.error("--allow-network is required when --collect is provided")
         raise AssertionError("argparse parser.error should exit")
+    symbols = _resolve_cli_universe_symbols(args)
     try:
         spec = DataDepthCampaignSpec(
-            symbols=args.symbol,
+            symbols=symbols,
             timeframe=args.timeframe,
             market="um-futures",
             start=CampaignMonth(year=args.start_year, month=args.start_month),
@@ -2693,6 +2789,9 @@ def _handle_evidence_universe_lab(args: argparse.Namespace) -> dict[str, Any]:
         requested_months=requested_months,
         min_unique_months=args.min_unique_months,
         min_asset_count=args.min_asset_count,
+        cost_aware_execution=args.cost_aware_execution,
+        min_edge_over_cost_multiplier=args.min_edge_over_cost_multiplier,
+        max_turnover=args.max_turnover,
     )
     candidate_state_memory_records = []
     if args.persist_candidate_state:

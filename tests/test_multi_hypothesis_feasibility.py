@@ -37,6 +37,7 @@ REQUIRED_BLOCKED_REASONS = {
     "non_positive_cost_adjusted_expectancy",
     "unstable_walk_forward_performance",
     "cost_sensitivity_fragile",
+    "excessive_turnover",
     "single_asset_or_time_window_dependency",
     "lookahead_risk",
     "watchlist_only_source",
@@ -215,6 +216,147 @@ def test_multi_hypothesis_lab_blocks_cost_sensitive_candidates(tmp_path):
     assert metric.candidate_state_target == "redesign_required"
 
 
+def test_multi_hypothesis_lab_cost_aware_filter_reduces_low_edge_turnover(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "candidate-memory.jsonl"
+    _seed_mixed_edge_market_candles(db_path, count=160)
+    _seed_source_health(db_path, observed_at=START + timedelta(hours=159))
+
+    from crypto_alpha_agent.pipeline.multi_hypothesis_feasibility import (
+        build_multi_hypothesis_feasibility_report,
+    )
+
+    unfiltered_report = build_multi_hypothesis_feasibility_report(
+        db_path,
+        memory_path=memory_path,
+        symbols=SYMBOLS,
+        timeframe="1h",
+        current_capital_usd=300.0,
+        cost_bps_grid=[10.0],
+        min_split_count=1,
+        candidates=["short_horizon_momentum_volatility_filter"],
+        feasibility_version="v2",
+    )
+    filtered_report = build_multi_hypothesis_feasibility_report(
+        db_path,
+        memory_path=memory_path,
+        symbols=SYMBOLS,
+        timeframe="1h",
+        current_capital_usd=300.0,
+        cost_bps_grid=[10.0],
+        min_split_count=1,
+        candidates=["short_horizon_momentum_volatility_filter"],
+        feasibility_version="v2",
+        cost_aware_execution=True,
+        min_edge_over_cost_multiplier=2.0,
+    )
+
+    unfiltered = unfiltered_report.candidate_metrics[0]
+    filtered = filtered_report.candidate_metrics[0]
+    assert filtered_report.validation_policy.cost_aware_execution is True
+    assert filtered_report.validation_policy.min_edge_over_cost_multiplier == 2.0
+    assert filtered.raw_sample_count == unfiltered.sample_count
+    assert 0 < filtered.sample_count < filtered.raw_sample_count
+    assert filtered.cost_aware_sample_count == filtered.sample_count
+    assert filtered.cost_threshold == pytest.approx(0.002)
+    assert filtered.cost_sensitivity[0].cost_bps == 10.0
+    assert filtered.cost_sensitivity[0].cost_threshold == pytest.approx(0.002)
+
+
+def test_multi_hypothesis_lab_blocks_when_cost_aware_filter_removes_samples(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "candidate-memory.jsonl"
+    _seed_low_edge_market_candles(db_path, count=100)
+    _seed_source_health(db_path, observed_at=START + timedelta(hours=99))
+
+    from crypto_alpha_agent.pipeline.multi_hypothesis_feasibility import (
+        build_multi_hypothesis_feasibility_report,
+    )
+
+    report = build_multi_hypothesis_feasibility_report(
+        db_path,
+        memory_path=memory_path,
+        symbols=SYMBOLS,
+        timeframe="1h",
+        current_capital_usd=300.0,
+        cost_bps_grid=[10.0],
+        min_split_count=3,
+        candidates=["short_horizon_momentum_volatility_filter"],
+        feasibility_version="v2",
+        cost_aware_execution=True,
+        min_edge_over_cost_multiplier=2.0,
+    )
+
+    metric = report.candidate_metrics[0]
+    assert metric.raw_sample_count > 0
+    assert metric.sample_count == 0
+    assert metric.cost_aware_sample_count == 0
+    assert metric.readiness == "blocked"
+    assert "insufficient_samples" in metric.reason_codes
+
+
+def test_multi_hypothesis_lab_blocks_excessive_turnover(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "candidate-memory.jsonl"
+    _seed_alternating_ranking_market_candles(db_path, count=140)
+    _seed_source_health(db_path, observed_at=START + timedelta(hours=139))
+
+    from crypto_alpha_agent.pipeline.multi_hypothesis_feasibility import (
+        build_multi_hypothesis_feasibility_report,
+    )
+
+    report = build_multi_hypothesis_feasibility_report(
+        db_path,
+        memory_path=memory_path,
+        symbols=SYMBOLS,
+        timeframe="1h",
+        current_capital_usd=300.0,
+        cost_bps_grid=[5.0],
+        min_split_count=1,
+        candidates=["cross_asset_ranking_turnover_cap"],
+        feasibility_version="v2",
+        max_turnover=0.05,
+    )
+
+    metric = report.candidate_metrics[0]
+    assert report.validation_policy.max_turnover == 0.05
+    assert metric.turnover > 0.05
+    assert metric.readiness == "blocked"
+    assert "excessive_turnover" in metric.reason_codes
+    assert metric.candidate_state_target == "redesign_required"
+
+
+def test_multi_hypothesis_lab_does_not_count_same_timestamp_symbol_fanout_as_turnover(
+    tmp_path,
+):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "candidate-memory.jsonl"
+    _seed_directional_market_candles(db_path, count=140)
+    _seed_source_health(db_path, observed_at=START + timedelta(hours=139))
+
+    from crypto_alpha_agent.pipeline.multi_hypothesis_feasibility import (
+        build_multi_hypothesis_feasibility_report,
+    )
+
+    report = build_multi_hypothesis_feasibility_report(
+        db_path,
+        memory_path=memory_path,
+        symbols=SYMBOLS,
+        timeframe="1h",
+        current_capital_usd=300.0,
+        cost_bps_grid=[5.0],
+        min_split_count=1,
+        candidates=["short_horizon_momentum_volatility_filter"],
+        feasibility_version="v2",
+        max_turnover=0.5,
+    )
+
+    metric = report.candidate_metrics[0]
+    assert set(metric.selected_symbol_counts) == {"BTC/USDT", "ETH/USDT"}
+    assert metric.turnover == pytest.approx(0.0)
+    assert "excessive_turnover" not in metric.reason_codes
+
+
 def test_multi_hypothesis_lab_evaluates_regime_gated_market_screens(tmp_path):
     db_path = tmp_path / "research.sqlite"
     memory_path = tmp_path / "candidate-memory.jsonl"
@@ -380,6 +522,56 @@ def _seed_weak_market_candles(db_path, *, count: int) -> None:
                 close = 200.0 - index * 0.02
             else:
                 close = 80.0 - index * 0.01
+            records.append(_market_candle(symbol, index, close=close))
+    ResearchDataStore(db_path).upsert_records(records)
+
+
+def _seed_mixed_edge_market_candles(db_path, *, count: int) -> None:
+    records = []
+    for symbol in SYMBOLS:
+        for index in range(count):
+            if symbol == "BTC/USDT":
+                if index < count // 2:
+                    close = 100.0 + index * 0.004
+                else:
+                    close = 100.0 + (count // 2) * 0.004 + (index - count // 2) * 0.6
+            elif symbol == "ETH/USDT":
+                if index < count // 2:
+                    close = 200.0 + index * 0.003
+                else:
+                    close = 200.0 + (count // 2) * 0.003 + (index - count // 2) * 0.4
+            else:
+                close = 80.0 - index * 0.01
+            records.append(_market_candle(symbol, index, close=close))
+    ResearchDataStore(db_path).upsert_records(records)
+
+
+def _seed_low_edge_market_candles(db_path, *, count: int) -> None:
+    records = []
+    for symbol in SYMBOLS:
+        for index in range(count):
+            if symbol == "BTC/USDT":
+                close = 100.0 + index * 0.004
+            elif symbol == "ETH/USDT":
+                close = 200.0 + index * 0.003
+            else:
+                close = 80.0 - index * 0.01
+            records.append(_market_candle(symbol, index, close=close))
+    ResearchDataStore(db_path).upsert_records(records)
+
+
+def _seed_alternating_ranking_market_candles(db_path, *, count: int) -> None:
+    records = []
+    for symbol in SYMBOLS:
+        for index in range(count):
+            if index < 72:
+                close = 100.0 if symbol != "SOL/USDT" else 90.0
+            elif symbol == "BTC/USDT":
+                close = 110.0 if index % 2 == 0 else 101.0
+            elif symbol == "ETH/USDT":
+                close = 101.0 if index % 2 == 0 else 110.0
+            else:
+                close = 90.0
             records.append(_market_candle(symbol, index, close=close))
     ResearchDataStore(db_path).upsert_records(records)
 
