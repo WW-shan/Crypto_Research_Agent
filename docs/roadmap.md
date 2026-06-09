@@ -356,6 +356,22 @@ readiness. The next practical evidence work is data-depth expansion and
 hypothesis redesign before another feasibility run, not strategy registration
 or trading execution.
 
+Round 23 opened on 2026-06-09 as Evidence Universe Data Depth And Hypothesis
+Redesign. Its design source is
+`docs/superpowers/specs/2026-06-09-evidence-universe-data-depth-and-hypothesis-redesign-design.md`,
+its implementation plan is
+`docs/superpowers/plans/2026-06-09-evidence-universe-data-depth-and-hypothesis-redesign.md`,
+and its active path map is
+`docs/goals/round-23-evidence-universe-data-depth-path-map.md`.
+
+Round 23 changes the immediate work from "try another candidate" to "make the
+candidate evidence base wider, longer, and harder to pass." It should add a
+data-depth campaign, stronger point-in-time universe coverage, redesigned
+read-only hypothesis families, and feasibility v2 with purge/gap validation,
+minimum month/asset gates, cost sensitivity, multiple-testing summary, and
+candidate-state memory. Event-driven backtest expansion remains Round 24 and is
+not eligible unless Round 23 produces a `feasibility_passed` candidate.
+
 The active path map is:
 
 Persistent Round 22 path map:

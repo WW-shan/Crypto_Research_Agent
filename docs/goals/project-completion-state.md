@@ -6,54 +6,73 @@ round.
 
 ## Current Round
 
-- Round: 22
-- Status: Evidence Universe Expansion and Multi-Hypothesis Feasibility Lab
-  completed as a read-only upstream evidence funnel. The phase expanded source
-  qualification, Binance Public Data USD-M futures market history ingestion,
-  point-in-time universe diagnostics, read-only candidate screens,
-  multi-hypothesis feasibility, and candidate state memory before any strategy
-  registration or paper handoff.
-- Started: 2026-06-08
-- Completed: 2026-06-08 after source qualification, bounded market-data
-  collection, multi-hypothesis lab execution, phase-report persistence,
-  focused tests, full pytest, ruff, diff checks, staged diff review, staged
-  secret scan, commit, and push.
-- Active slice: Evidence Universe Expansion and Multi-Hypothesis Feasibility
-  Lab
+- Round: 23
+- Status: Opened on 2026-06-09 as Evidence Universe Data Depth And Hypothesis
+  Redesign. This round is the approved next step after Round 22 produced no
+  `feasibility_passed` candidate.
+- Started: 2026-06-09
+- Completed: not completed.
+- Active slice: Evidence Universe Data Depth And Hypothesis Redesign
 - Active design source:
-  `docs/superpowers/plans/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab.md`
+  `docs/superpowers/specs/2026-06-09-evidence-universe-data-depth-and-hypothesis-redesign-design.md`
 - Active plan source:
-  `docs/superpowers/plans/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab.md`
-- Phase report:
-  `docs/goals/phase-reports/2026-06-08-evidence-universe-expansion-and-multi-hypothesis-feasibility-lab-report.md`
+  `docs/superpowers/plans/2026-06-09-evidence-universe-data-depth-and-hypothesis-redesign.md`
+- Active path map:
+  `docs/goals/round-23-evidence-universe-data-depth-path-map.md`
+- Phase report: pending Round 23 implementation and verification closeout.
+- Working branch:
+  `round-23-data-depth-hypothesis-redesign`
+- Baseline branch:
+  `round-22-evidence-universe-lab`
 
 ## Next Planned Round
 
-- Round: 23
-- Status: Not opened. Round 22 produced no `feasibility_passed` candidate, so
-  Event-Driven Backtest Expansion is not eligible yet.
-- Planned slice: Evidence Universe Data Depth And Hypothesis Redesign, only if
-  the owner approves another round. The practical next work is longer market
-  history, wider point-in-time universe coverage, source-qualified derivatives
-  and DeFi/DEX snapshots, and redesigned hypotheses before re-running the same
-  feasibility gates.
-- Planned design source: not written.
-- Planned plan source: not written.
+- Round: 24
+- Status: Not opened. Event-Driven Backtest Expansion remains ineligible until
+  Round 23 produces at least one `feasibility_passed` candidate under stricter
+  v2 gates.
+- Planned slice: Event-Driven Backtest Expansion, only if Round 23 creates a
+  state-qualified candidate.
+- Planned design source: deferred until Round 23 creates a state-qualified
+  candidate for Round 24.
+- Planned plan source: deferred until Round 23 creates a state-qualified
+  candidate for Round 24.
 - Smart Search evidence path:
-  `var/smart-search-evidence/2026-06-08-expand-profit-evidence-loop/`
-- Current actual state: Round 22 now has the read-only upstream funnel in
-  place. The local bounded lab run collected BTC/USDT, ETH/USDT, and SOL/USDT
-  Binance Public Data USD-M futures 1h candles for May 2026, qualified
-  DefiLlama source routes, recorded a DexScreener source failure, evaluated six
-  candidate screens, persisted 10 candidate-state memory records, and kept the
-  entire report `blocked`.
-- Current blocker: strategy evidence quality and data depth. No candidate
-  passed `feasibility_passed`; no candidate is eligible for event-driven
-  backtest, paper collection, tiny-live review, or live readiness.
-- Expected next state: a future round, if approved, should expand data depth
-  and redesign hypotheses before re-running the multi-hypothesis lab. It should
-  not register strategies, open a paper queue, or start backtesting until a
-  candidate passes feasibility.
+  `var/smart-search-evidence/2026-06-09-next-route-gap-research/`
+- Current actual state: Round 23 is open and should persist a data-depth
+  campaign, stronger universe coverage, redesigned hypotheses, feasibility v2,
+  candidate-state memory, and a phase report.
+- Current blocker: data depth and strategy evidence quality. Round 22 had only
+  a bounded one-month, three-asset local run and no candidate passed
+  feasibility.
+- Expected next state: Round 23 either produces a `feasibility_passed`
+  candidate eligible for Round 24 backtest design, or records explicit
+  `blocked_for_more_redesign` evidence with no backtest, paper, or live
+  transition.
+
+### Persisted Round 23 Path Map
+
+The active Round 23 path map is:
+
+`docs/goals/round-23-evidence-universe-data-depth-path-map.md`
+
+The route is:
+
+1. Establish the Round 23 baseline from Round 22, not from the older `main`
+   branch.
+2. Add a reproducible data-depth campaign plan and report.
+3. Expand bounded Binance Public Data history where network access succeeds.
+4. Treat DefiLlama, DexScreener, and optional secondary sources as
+   source-qualified discovery or regime inputs unless point-in-time history is
+   available.
+5. Upgrade universe diagnostics with unique-month coverage, requested-month
+   coverage, source-route status, freshness, and point-in-time eligibility.
+6. Redesign candidate screens into read-only hypothesis families.
+7. Run feasibility v2 with purge/gap validation, cost sensitivity, asset/month
+   gates, multiple-testing summary, and candidate-state memory.
+8. Open Round 24 event-driven backtest design only if a candidate reaches
+   `feasibility_passed`.
+9. Keep paper and live execution blocked.
 
 ### Persisted Round 22 Research Conclusions
 
