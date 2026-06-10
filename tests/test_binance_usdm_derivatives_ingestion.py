@@ -199,6 +199,88 @@ class FakeBinanceUsdmDerivativesClient:
             )
         ]
 
+    def fetch_funding_rate_history(
+        self,
+        *,
+        symbol: str,
+        limit: int | None = None,
+        start_time_ms: int | None = None,
+        end_time_ms: int | None = None,
+    ):
+        self.calls.append(
+            (
+                "funding_rate_history",
+                {
+                    "symbol": symbol,
+                    "limit": limit,
+                    "start_time_ms": start_time_ms,
+                    "end_time_ms": end_time_ms,
+                },
+            )
+        )
+        return [
+            data_models.FundingRateRecord(
+                source="binance_usdm",
+                venue="binance",
+                symbol=symbol,
+                timestamp=datetime(2026, 6, 8, 0, 0, tzinfo=UTC),
+                funding_rate=0.0001,
+                raw={"feed": "funding_rate_history", "row": 0},
+            ),
+            data_models.FundingRateRecord(
+                source="binance_usdm",
+                venue="binance",
+                symbol=symbol,
+                timestamp=datetime(2026, 6, 8, 8, 0, tzinfo=UTC),
+                funding_rate=-0.0002,
+                raw={"feed": "funding_rate_history", "row": 1},
+            ),
+        ]
+
+    def fetch_open_interest_history(
+        self,
+        *,
+        symbol: str,
+        period: str,
+        limit: int | None = None,
+        start_time_ms: int | None = None,
+        end_time_ms: int | None = None,
+    ):
+        self.calls.append(
+            (
+                "open_interest_history",
+                {
+                    "symbol": symbol,
+                    "period": period,
+                    "limit": limit,
+                    "start_time_ms": start_time_ms,
+                    "end_time_ms": end_time_ms,
+                },
+            )
+        )
+        return [
+            data_models.OpenInterestRecord(
+                source="binance_usdm",
+                venue="binance",
+                symbol=symbol,
+                timestamp=datetime(2026, 6, 8, 0, 0, tzinfo=UTC),
+                timeframe=period,
+                open_interest=12345.0,
+                open_interest_value=123450000.0,
+                raw={"feed": "open_interest_history", "row": 0},
+            ),
+            data_models.OpenInterestRecord(
+                source="binance_usdm",
+                venue="binance",
+                symbol=symbol,
+                timestamp=datetime(2026, 6, 8, 1, 0, tzinfo=UTC),
+                timeframe=period,
+                open_interest=12350.0,
+                open_interest_value=123500000.0,
+                raw={"feed": "open_interest_history", "row": 1},
+            ),
+        ]
+
 
 def test_premium_index_kline_record_round_trips_to_source_record():
     PremiumIndexKlineRecord = _model("PremiumIndexKlineRecord")
@@ -304,6 +386,28 @@ def test_taker_buy_sell_volume_record_round_trips_to_source_record():
     assert source_record.payload["buy_volume"] == 150.0
     assert source_record.payload["sell_volume"] == 100.0
     assert source_record.payload["live_order_routing"] is False
+
+
+def test_funding_rate_record_round_trips_to_source_record():
+    FundingRateRecord = _model("FundingRateRecord")
+    observed_at = datetime(2026, 6, 8, 0, 0, tzinfo=UTC)
+    record = FundingRateRecord(
+        source="binance_usdm",
+        venue="binance",
+        symbol="BTCUSDT",
+        timestamp=observed_at,
+        funding_rate=-0.0002,
+        raw={"fundingRate": "-0.0002"},
+    )
+
+    source_record = record.to_source_record()
+
+    assert source_record.source == "binance_usdm"
+    assert source_record.record_type == "funding_rate"
+    assert source_record.observed_at == observed_at
+    assert source_record.payload["symbol"] == "BTCUSDT"
+    assert source_record.payload["funding_rate"] == -0.0002
+    assert ":funding_rate:" in source_record.record_id
 
 
 def test_client_parses_premium_index_klines():
@@ -435,6 +539,67 @@ def test_client_parses_taker_buy_sell_volume_records():
     assert records[0].sell_volume == 100.0
 
 
+def test_client_parses_funding_rate_history_records():
+    Client = _client_class()
+    session = FakeSession(
+        [
+            {
+                "symbol": "BTCUSDT",
+                "fundingRate": "-0.00020000",
+                "fundingTime": 1780876800000,
+            }
+        ]
+    )
+    client = Client(session=session)
+
+    records = client.fetch_funding_rate_history(
+        symbol="BTCUSDT",
+        limit=1,
+        start_time_ms=1780870000000,
+        end_time_ms=1780880000000,
+    )
+
+    assert len(records) == 1
+    assert records[0].source == "binance_usdm"
+    assert records[0].venue == "binance"
+    assert records[0].symbol == "BTCUSDT"
+    assert records[0].timestamp == datetime.fromtimestamp(1780876800, tz=UTC)
+    assert records[0].funding_rate == -0.0002
+    assert session.calls[0][0].endswith("/fapi/v1/fundingRate")
+    assert session.calls[0][1]["params"]["startTime"] == 1780870000000
+
+
+def test_client_parses_open_interest_history_records():
+    Client = _client_class()
+    session = FakeSession(
+        [
+            {
+                "sumOpenInterest": "12345.67",
+                "sumOpenInterestValue": "123456789.01",
+                "timestamp": "1780870800000",
+            }
+        ]
+    )
+    client = Client(session=session)
+
+    records = client.fetch_open_interest_history(
+        symbol="BTCUSDT",
+        period="1h",
+        limit=1,
+    )
+
+    assert len(records) == 1
+    assert records[0].source == "binance_usdm"
+    assert records[0].venue == "binance"
+    assert records[0].symbol == "BTCUSDT"
+    assert records[0].timeframe == "1h"
+    assert records[0].timestamp == datetime.fromtimestamp(1780870800, tz=UTC)
+    assert records[0].open_interest == 12345.67
+    assert records[0].open_interest_value == 123456789.01
+    assert session.calls[0][0].endswith("/futures/data/openInterestHist")
+    assert session.calls[0][1]["params"]["period"] == "1h"
+
+
 @pytest.mark.parametrize(
     ("function_name", "kwargs", "feed", "record_type", "call_name"),
     [
@@ -518,6 +683,14 @@ def test_ingest_binance_usdm_derivatives_writes_records_and_source_health(
             "ingest_binance_usdm_taker_buy_sell_volume",
             {"symbol": "BTCUSDT", "period": "1h"},
         ),
+        (
+            "ingest_binance_usdm_funding_rate_history",
+            {"symbol": "BTCUSDT"},
+        ),
+        (
+            "ingest_binance_usdm_open_interest_history",
+            {"symbol": "BTCUSDT", "period": "1h"},
+        ),
     ],
 )
 def test_ingest_binance_usdm_derivatives_requires_network_gate(
@@ -534,3 +707,54 @@ def test_ingest_binance_usdm_derivatives_requires_network_gate(
             client=FakeBinanceUsdmDerivativesClient(),
             **kwargs,
         )
+
+
+def test_ingest_binance_usdm_funding_rate_history_writes_records_and_source_health(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    client = FakeBinanceUsdmDerivativesClient()
+    function = _ingestion_function("ingest_binance_usdm_funding_rate_history")
+
+    summary = function(
+        db_path,
+        symbol="BTCUSDT",
+        limit=2,
+        allow_network=True,
+        client=client,
+    )
+
+    store = ResearchDataStore(db_path)
+    records = store.load_records(record_type="funding_rate", source="binance_usdm")
+    health = store.load_records(record_type="source_health", source="binance_usdm")
+    assert summary.feed == "funding_rate_history"
+    assert summary.records_written == 2
+    assert len(records) == 2
+    assert records[0].record_type == "funding_rate"
+    assert health[-1].payload["feed"] == "funding_rate_history"
+    assert health[-1].payload["success"] is True
+    assert client.calls[0][0] == "funding_rate_history"
+
+
+def test_ingest_binance_usdm_open_interest_history_writes_records_and_source_health(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    client = FakeBinanceUsdmDerivativesClient()
+    function = _ingestion_function("ingest_binance_usdm_open_interest_history")
+
+    summary = function(
+        db_path,
+        symbol="BTCUSDT",
+        period="1h",
+        limit=2,
+        allow_network=True,
+        client=client,
+    )
+
+    store = ResearchDataStore(db_path)
+    records = store.load_records(record_type="open_interest", source="binance_usdm")
+    health = store.load_records(record_type="source_health", source="binance_usdm")
+    assert summary.feed == "open_interest_history"
+    assert summary.records_written == 2
+    assert len(records) == 2
+    assert records[0].record_type == "open_interest"
+    assert health[-1].payload["feed"] == "open_interest_history"
+    assert health[-1].payload["success"] is True
+    assert client.calls[0][0] == "open_interest_history"

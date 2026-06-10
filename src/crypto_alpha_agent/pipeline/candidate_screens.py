@@ -46,7 +46,7 @@ _QUALIFIED_SOURCES_BY_RECORD_TYPE: dict[RecordType, frozenset[str]] = {
     "taker_buy_sell_volume": frozenset({"binance_usdm"}),
     "dex_pair": frozenset({"dexscreener"}),
     "defi_yield": frozenset({"defillama"}),
-    "funding_rate": frozenset({"ccxt"}),
+    "funding_rate": frozenset({"ccxt", "binance_usdm"}),
     "open_interest": frozenset({"ccxt", "binance_usdm"}),
     "research_snapshot": frozenset({"local_research"}),
     "source_health": frozenset({"source_probe"}),

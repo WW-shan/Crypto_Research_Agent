@@ -207,6 +207,81 @@ def test_evidence_universe_lab_cli_threads_cost_aware_universe_options(
     assert policy["max_turnover"] == 0.5
 
 
+def test_evidence_universe_lab_cli_bounds_feasibility_to_campaign_months(
+    capsys,
+    tmp_path,
+):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "candidate-state.jsonl"
+    out_dir = tmp_path / "lab-window"
+    json_out = tmp_path / "lab-window-summary.json"
+    _seed_directional_market_candles(db_path, count=120)
+    ResearchDataStore(db_path).upsert_records(
+        [
+            MarketCandle(
+                source="ccxt",
+                venue="binance_usdm",
+                symbol="BTC/USDT",
+                timestamp=datetime(2026, 6, 1, tzinfo=UTC),
+                timeframe="1h",
+                open=500.0,
+                high=501.0,
+                low=499.0,
+                close=500.5,
+                volume=1000.0,
+                suitability=DataSuitability(),
+            ).to_source_record(),
+            _source_health("binance_public", "um_futures_ohlcv", START + timedelta(hours=119)),
+            _source_health("ccxt", "ohlcv", datetime(2026, 6, 1, tzinfo=UTC)),
+        ]
+    )
+
+    exit_code = main(
+        [
+            "evidence-universe-lab",
+            "--db",
+            str(db_path),
+            "--memory",
+            str(memory_path),
+            "--symbol",
+            "BTC/USDT",
+            "--symbol",
+            "ETH/USDT",
+            "--symbol",
+            "SOL/USDT",
+            "--timeframe",
+            "1h",
+            "--start-year",
+            "2026",
+            "--start-month",
+            "5",
+            "--end-year",
+            "2026",
+            "--end-month",
+            "5",
+            "--min-unique-months",
+            "1",
+            "--min-asset-count",
+            "1",
+            "--min-split-count",
+            "2",
+            "--candidate",
+            "short_horizon_momentum_volatility_filter",
+            "--out-dir",
+            str(out_dir),
+            "--json-out",
+            str(json_out),
+        ]
+    )
+
+    capsys.readouterr()
+    feasibility_payload = json.loads(
+        (out_dir / "multi-hypothesis-feasibility.json").read_text(encoding="utf-8")
+    )
+    assert exit_code == 0
+    assert "timestamp_alignment_gap" not in feasibility_payload["report"]["universe"]["reason_codes"]
+
+
 def _seed_directional_market_candles(db_path, *, count: int) -> None:
     records = []
     for symbol in SYMBOLS:

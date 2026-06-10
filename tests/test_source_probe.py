@@ -51,6 +51,7 @@ def test_source_probe_catalog_includes_phase8_targets():
     target_ids = {target.target_id for target in available_probe_targets()}
 
     assert {
+        "binance_usdm_funding_rate_history",
         "binance_usdm_open_interest_history",
         "binance_usdm_premium_index_klines",
         "binance_usdm_basis",
@@ -64,6 +65,21 @@ def test_source_probe_catalog_includes_phase8_targets():
         "dune_query_result",
         "thegraph_pool_snapshot",
     }.issubset(target_ids)
+
+
+def test_source_probe_lists_binance_funding_rate_history_target():
+    target = next(
+        item
+        for item in available_probe_targets()
+        if item.target_id == "binance_usdm_funding_rate_history"
+    )
+
+    assert target.source == "binance_usdm"
+    assert target.feed == "funding_rate_history"
+    assert target.endpoint_family == "GET /fapi/v1/fundingRate"
+    assert "fundingRate" in target.url
+    assert target.credential_requirement == "none"
+    assert target.expected_fields == ("symbol", "fundingRate", "fundingTime")
 
 
 def test_source_probe_lists_binance_taker_buy_sell_volume_target():

@@ -77,6 +77,18 @@ class FundingRateRecord(BaseModel):
     suitability: DataSuitability = Field(default_factory=DataSuitability)
     raw: dict[str, Any] = Field(default_factory=dict)
 
+    def to_source_record(self) -> SourceRecord:
+        timestamp = self.timestamp.isoformat()
+        safe_venue = _safe_component(self.venue)
+        safe_symbol = _safe_symbol(self.symbol)
+        return SourceRecord(
+            record_id=f"{self.source}:{safe_venue}:{safe_symbol}:funding_rate:{timestamp}",
+            source=self.source,
+            record_type="funding_rate",
+            observed_at=self.timestamp,
+            payload=self.model_dump(mode="json"),
+        )
+
 
 class OpenInterestRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)

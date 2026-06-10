@@ -22,7 +22,9 @@ from crypto_alpha_agent.data.ingestion import (
     ingest_binance_public_month,
     ingest_binance_public_um_futures_month,
     ingest_binance_usdm_basis,
+    ingest_binance_usdm_funding_rate_history,
     ingest_binance_usdm_global_long_short_account_ratio,
+    ingest_binance_usdm_open_interest_history,
     ingest_binance_usdm_premium_index_klines,
     ingest_binance_usdm_taker_buy_sell_volume,
     ingest_ccxt_funding_rate_history,
@@ -1202,12 +1204,14 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument("--symbol", help="CCXT market symbol to ingest.")
     ingest_parser.add_argument("--timeframe", help="CCXT OHLCV timeframe, required for --ccxt-feed ohlcv.")
     ingest_parser.add_argument("--since", type=int, help="Optional CCXT since timestamp in milliseconds.")
-    ingest_parser.add_argument("--limit", type=_positive_int, help="Optional positive CCXT record limit.")
+    ingest_parser.add_argument("--limit", type=_positive_int, help="Optional positive source record limit.")
     ingest_parser.add_argument(
         "--binance-usdm-feed",
         choices=(
             "premium-index-klines",
             "basis",
+            "funding-rate-history",
+            "open-interest-history",
             "global-long-short-account-ratio",
             "taker-buy-sell-volume",
         ),
@@ -2775,6 +2779,7 @@ def _handle_evidence_universe_lab(args: argparse.Namespace) -> dict[str, Any]:
         (month.year, month.month)
         for month in expand_campaign_months(spec.start, spec.end)
     ]
+    evaluation_start, evaluation_end = _campaign_evaluation_window(spec)
     feasibility_report = build_multi_hypothesis_feasibility_report(
         args.db,
         memory_path=args.memory,
@@ -2784,6 +2789,8 @@ def _handle_evidence_universe_lab(args: argparse.Namespace) -> dict[str, Any]:
         cost_bps_grid=args.cost_bps_grid or None,
         min_split_count=args.min_split_count,
         candidates=args.candidate or None,
+        evaluation_start=evaluation_start,
+        evaluation_end=evaluation_end,
         feasibility_version="v2",
         purge_gap_bars=args.purge_gap_bars,
         requested_months=requested_months,
@@ -2879,6 +2886,17 @@ def _handle_evidence_universe_lab(args: argparse.Namespace) -> dict[str, Any]:
     )
     write_json_artifact(args.json_out, payload)
     return payload
+
+
+def _campaign_evaluation_window(
+    spec: DataDepthCampaignSpec,
+) -> tuple[datetime, datetime]:
+    start = datetime(spec.start.year, spec.start.month, 1, tzinfo=UTC)
+    if spec.end.month == 12:
+        end = datetime(spec.end.year + 1, 1, 1, tzinfo=UTC)
+    else:
+        end = datetime(spec.end.year, spec.end.month + 1, 1, tzinfo=UTC)
+    return start, end
 
 
 def _collect_data_depth_missing_jobs(
@@ -3879,6 +3897,24 @@ def _validate_binance_usdm_ingest_args(args: argparse.Namespace) -> None:
         )
         _reject_binance_usdm_args(args, "--symbol", args.symbol, "--interval", args.interval)
         return
+    if args.binance_usdm_feed == "funding-rate-history":
+        _require_binance_usdm_args(args, "--symbol", args.symbol)
+        _reject_binance_usdm_args(
+            args,
+            "--pair",
+            args.pair,
+            "--contract-type",
+            args.contract_type,
+            "--period",
+            args.period,
+            "--interval",
+            args.interval,
+        )
+        return
+    if args.binance_usdm_feed == "open-interest-history":
+        _require_binance_usdm_args(args, "--symbol", args.symbol, "--period", args.period)
+        _reject_binance_usdm_args(args, "--pair", args.pair, "--contract-type", args.contract_type, "--interval", args.interval)
+        return
 
     _require_binance_usdm_args(args, "--symbol", args.symbol, "--period", args.period)
     _reject_binance_usdm_args(args, "--pair", args.pair, "--contract-type", args.contract_type, "--interval", args.interval)
@@ -4002,6 +4038,25 @@ def _run_binance_usdm_ingestion(args: argparse.Namespace):
             args.db,
             pair=args.pair,
             contract_type=args.contract_type,
+            period=args.period,
+            limit=args.limit,
+            start_time_ms=args.start_time_ms,
+            end_time_ms=args.end_time_ms,
+            allow_network=True,
+        )
+    if args.binance_usdm_feed == "funding-rate-history":
+        return ingest_binance_usdm_funding_rate_history(
+            args.db,
+            symbol=args.symbol,
+            limit=args.limit,
+            start_time_ms=args.start_time_ms,
+            end_time_ms=args.end_time_ms,
+            allow_network=True,
+        )
+    if args.binance_usdm_feed == "open-interest-history":
+        return ingest_binance_usdm_open_interest_history(
+            args.db,
+            symbol=args.symbol,
             period=args.period,
             limit=args.limit,
             start_time_ms=args.start_time_ms,

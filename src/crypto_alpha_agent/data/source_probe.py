@@ -86,6 +86,18 @@ class SourceProbeSummary(_StrictProbeModel):
 
 _TARGETS: tuple[SourceProbeTarget, ...] = (
     SourceProbeTarget(
+        target_id="binance_usdm_funding_rate_history",
+        display_name="Binance USD-M Funding Rate History",
+        source="binance_usdm",
+        feed="funding_rate_history",
+        endpoint_family="GET /fapi/v1/fundingRate",
+        url_family="binance_usdm_funding_rate_history",
+        url="https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&limit=1",
+        typed_count_path=(),
+        expected_fields=("symbol", "fundingRate", "fundingTime"),
+        rate_limit_assumption="500 requests per 5 minutes per Binance docs",
+    ),
+    SourceProbeTarget(
         target_id="binance_usdm_open_interest_history",
         display_name="Binance USD-M Open Interest History",
         source="binance_usdm",

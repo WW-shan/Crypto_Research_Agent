@@ -138,6 +138,49 @@ def test_multi_hypothesis_lab_blocks_single_asset_dependency(tmp_path):
     assert metric.candidate_state_target == "redesign_required"
 
 
+def test_multi_hypothesis_lab_canonicalizes_redundant_market_sources(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "candidate-memory.jsonl"
+    records = []
+    for index in range(30):
+        records.append(_market_candle("BTC/USDT", index, close=100.0 + index))
+        ccxt_record = _market_candle("BTC/USDT", index, close=200.0 + index).model_copy(
+            update={
+                "record_id": f"ccxt:binance_usdm:BTCUSDT:1h:{(START + timedelta(hours=index)).isoformat()}",
+                "source": "ccxt",
+            }
+        )
+        ccxt_payload = dict(ccxt_record.payload)
+        ccxt_payload["source"] = "ccxt"
+        records.append(ccxt_record.model_copy(update={"payload": ccxt_payload}))
+    records.extend(
+        [
+            _source_health("binance_public", "um_futures_ohlcv", START + timedelta(hours=29)),
+            _source_health("ccxt", "ohlcv", START + timedelta(hours=29)),
+        ]
+    )
+    ResearchDataStore(db_path).upsert_records(records)
+
+    from crypto_alpha_agent.pipeline.multi_hypothesis_feasibility import (
+        build_multi_hypothesis_feasibility_report,
+    )
+
+    report = build_multi_hypothesis_feasibility_report(
+        db_path,
+        memory_path=memory_path,
+        symbols=["BTC/USDT"],
+        timeframe="1h",
+        current_capital_usd=300.0,
+        cost_bps_grid=[5.0],
+        min_split_count=1,
+        candidates=["short_horizon_momentum_volatility_filter"],
+    )
+
+    metric = report.candidate_metrics[0]
+    assert metric.raw_sample_count == 5
+    assert metric.asset_coverage == {"BTC/USDT": 5}
+
+
 def test_multi_hypothesis_lab_fails_closed_for_future_watchlist_data(tmp_path):
     db_path = tmp_path / "research.sqlite"
     memory_path = tmp_path / "candidate-memory.jsonl"
@@ -182,6 +225,45 @@ def test_multi_hypothesis_lab_fails_closed_for_future_watchlist_data(tmp_path):
     assert "watchlist_only_source" in metric.reason_codes
     assert metric.candidate_state_target == "redesign_required"
     assert metric.sample_count == 0
+
+
+def test_multi_hypothesis_lab_future_watchlist_does_not_block_market_candidates(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "candidate-memory.jsonl"
+    evaluation_end = START + timedelta(hours=90)
+    future = evaluation_end + timedelta(days=2)
+    _seed_directional_market_candles(db_path, count=100)
+    ResearchDataStore(db_path).upsert_records(
+        [
+            _dex_pair("BTC", "USDT", future),
+            _defi_yield("USDT", future),
+            _source_health("dexscreener", "pairs", future),
+            _source_health("defillama", "yield_pools", future),
+            _source_health("binance_public", "um_futures_ohlcv", future),
+        ]
+    )
+
+    from crypto_alpha_agent.pipeline.multi_hypothesis_feasibility import (
+        build_multi_hypothesis_feasibility_report,
+    )
+
+    report = build_multi_hypothesis_feasibility_report(
+        db_path,
+        memory_path=memory_path,
+        symbols=SYMBOLS,
+        timeframe="1h",
+        current_capital_usd=300.0,
+        cost_bps_grid=[5.0],
+        min_split_count=1,
+        candidates=["short_horizon_momentum_volatility_filter"],
+        evaluation_start=START,
+        evaluation_end=evaluation_end,
+    )
+
+    metric = report.candidate_metrics[0]
+    assert report.universe.point_in_time_universe is False
+    assert metric.sample_count > 0
+    assert "lookahead_risk" not in metric.reason_codes
 
 
 def test_multi_hypothesis_lab_blocks_cost_sensitive_candidates(tmp_path):
@@ -324,6 +406,103 @@ def test_multi_hypothesis_lab_blocks_excessive_turnover(tmp_path):
     assert metric.readiness == "blocked"
     assert "excessive_turnover" in metric.reason_codes
     assert metric.candidate_state_target == "redesign_required"
+
+
+def test_derivatives_basis_funding_candidate_builds_temporal_observations(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "candidate-memory.jsonl"
+    ResearchDataStore(db_path).upsert_records(
+        [
+            *[
+                _market_candle("BTC/USDT", index, close=100.0 + index)
+                for index in range(40)
+            ],
+            *[
+                _premium_index_record("BTCUSDT", index, close=0.0002 + index / 1_000_000)
+                for index in range(5, 35)
+            ],
+            *[
+                _basis_record("BTCUSDT", index, basis_rate=0.001 + index / 1_000_000)
+                for index in range(5, 35)
+            ],
+            *[
+                _funding_rate_record("BTCUSDT", index, funding_rate=0.0005)
+                for index in range(5, 35)
+            ],
+            _source_health("binance_public", "um_futures_ohlcv", START + timedelta(hours=39)),
+            _source_health("binance_usdm", "premium_index_klines", START + timedelta(hours=39)),
+            _source_health("binance_usdm", "basis", START + timedelta(hours=39)),
+            _source_health("binance_usdm", "funding_rate_history", START + timedelta(hours=39)),
+        ]
+    )
+
+    from crypto_alpha_agent.pipeline.multi_hypothesis_feasibility import (
+        build_multi_hypothesis_feasibility_report,
+    )
+
+    report = build_multi_hypothesis_feasibility_report(
+        db_path,
+        memory_path=memory_path,
+        symbols=["BTC/USDT"],
+        timeframe="1h",
+        current_capital_usd=300.0,
+        cost_bps_grid=[5.0],
+        min_split_count=1,
+        candidates=["perp_spot_basis_funding_deviation"],
+    )
+
+    metric = report.candidate_metrics[0]
+    assert metric.raw_sample_count > 0
+    assert metric.sample_count > 0
+    assert metric.split_coverage >= 1
+
+
+def test_derivatives_crowding_candidate_builds_temporal_observations(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    memory_path = tmp_path / "candidate-memory.jsonl"
+    ResearchDataStore(db_path).upsert_records(
+        [
+            *[
+                _market_candle("BTC/USDT", index, close=100.0 + index)
+                for index in range(40)
+            ],
+            *[
+                _long_short_record("BTCUSDT", index, long_short_ratio=1.2 + index / 1000)
+                for index in range(5, 35)
+            ],
+            *[
+                _taker_record("BTCUSDT", index, buy_sell_ratio=1.1 + index / 1000)
+                for index in range(5, 35)
+            ],
+            _source_health("binance_public", "um_futures_ohlcv", START + timedelta(hours=39)),
+            _source_health(
+                "binance_usdm",
+                "global_long_short_account_ratio",
+                START + timedelta(hours=39),
+            ),
+            _source_health("binance_usdm", "taker_buy_sell_volume", START + timedelta(hours=39)),
+        ]
+    )
+
+    from crypto_alpha_agent.pipeline.multi_hypothesis_feasibility import (
+        build_multi_hypothesis_feasibility_report,
+    )
+
+    report = build_multi_hypothesis_feasibility_report(
+        db_path,
+        memory_path=memory_path,
+        symbols=["BTC/USDT"],
+        timeframe="1h",
+        current_capital_usd=300.0,
+        cost_bps_grid=[5.0],
+        min_split_count=1,
+        candidates=["derivatives_crowding_price_action"],
+    )
+
+    metric = report.candidate_metrics[0]
+    assert metric.raw_sample_count > 0
+    assert metric.sample_count > 0
+    assert metric.split_coverage >= 1
 
 
 def test_multi_hypothesis_lab_does_not_count_same_timestamp_symbol_fanout_as_turnover(
@@ -596,6 +775,106 @@ def _market_candle(symbol: str, index: int, *, close: float) -> SourceRecord:
         volume=10_000.0 + index,
         suitability=DataSuitability(),
     ).to_source_record()
+
+
+def _premium_index_record(symbol: str, index: int, *, close: float) -> SourceRecord:
+    observed_at = START + timedelta(hours=index)
+    return SourceRecord(
+        record_id=f"binance_usdm:{symbol}:premium_index_kline:1h:{observed_at.isoformat()}",
+        source="binance_usdm",
+        record_type="premium_index_kline",
+        observed_at=observed_at,
+        payload={
+            "source": "binance_usdm",
+            "venue": "binance",
+            "symbol": symbol,
+            "timestamp": observed_at.isoformat(),
+            "interval": "1h",
+            "open": close,
+            "high": close,
+            "low": close,
+            "close": close,
+        },
+    )
+
+
+def _basis_record(symbol: str, index: int, *, basis_rate: float) -> SourceRecord:
+    observed_at = START + timedelta(hours=index)
+    return SourceRecord(
+        record_id=f"binance_usdm:{symbol}:basis:PERPETUAL:1h:{observed_at.isoformat()}",
+        source="binance_usdm",
+        record_type="basis",
+        observed_at=observed_at,
+        payload={
+            "source": "binance_usdm",
+            "venue": "binance",
+            "pair": symbol,
+            "contract_type": "PERPETUAL",
+            "period": "1h",
+            "timestamp": observed_at.isoformat(),
+            "index_price": 100.0,
+            "futures_price": 100.1,
+            "basis": 0.1,
+            "basis_rate": basis_rate,
+        },
+    )
+
+
+def _funding_rate_record(symbol: str, index: int, *, funding_rate: float) -> SourceRecord:
+    observed_at = START + timedelta(hours=index)
+    return SourceRecord(
+        record_id=f"binance_usdm:{symbol}:funding_rate:{observed_at.isoformat()}",
+        source="binance_usdm",
+        record_type="funding_rate",
+        observed_at=observed_at,
+        payload={
+            "source": "binance_usdm",
+            "venue": "binance",
+            "symbol": symbol,
+            "timestamp": observed_at.isoformat(),
+            "funding_rate": funding_rate,
+        },
+    )
+
+
+def _long_short_record(symbol: str, index: int, *, long_short_ratio: float) -> SourceRecord:
+    observed_at = START + timedelta(hours=index)
+    return SourceRecord(
+        record_id=f"binance_usdm:{symbol}:long_short_account_ratio:1h:{observed_at.isoformat()}",
+        source="binance_usdm",
+        record_type="long_short_account_ratio",
+        observed_at=observed_at,
+        payload={
+            "source": "binance_usdm",
+            "venue": "binance",
+            "symbol": symbol,
+            "period": "1h",
+            "timestamp": observed_at.isoformat(),
+            "long_short_ratio": long_short_ratio,
+            "long_account": 0.55,
+            "short_account": 0.45,
+        },
+    )
+
+
+def _taker_record(symbol: str, index: int, *, buy_sell_ratio: float) -> SourceRecord:
+    observed_at = START + timedelta(hours=index)
+    return SourceRecord(
+        record_id=f"binance_usdm:{symbol}:taker_buy_sell_volume:1h:{observed_at.isoformat()}",
+        source="binance_usdm",
+        record_type="taker_buy_sell_volume",
+        observed_at=observed_at,
+        payload={
+            "source": "binance_usdm",
+            "venue": "binance",
+            "symbol": symbol,
+            "period": "1h",
+            "timestamp": observed_at.isoformat(),
+            "buy_sell_ratio": buy_sell_ratio,
+            "buy_volume": 110.0,
+            "sell_volume": 100.0,
+        },
+    )
 
 
 def _dex_pair(base_token: str, quote_token: str, observed_at: datetime) -> SourceRecord:

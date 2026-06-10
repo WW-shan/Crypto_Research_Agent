@@ -424,6 +424,47 @@ real capital remain blocked. The next practical work is not backtest
 expansion; it is point-in-time derivatives/DeFi coverage expansion or
 basis/funding hypothesis redesign before another feasibility v2 run.
 
+Round 25 completed on 2026-06-10 as Derivatives PIT Coverage And
+Basis/Funding Redesign. Its design source is
+`docs/superpowers/specs/2026-06-10-derivatives-pit-coverage-and-basis-funding-redesign-design.md`,
+its implementation plan is
+`docs/superpowers/plans/2026-06-10-derivatives-pit-coverage-and-basis-funding-redesign.md`,
+its path map is
+`docs/goals/round-25-derivatives-pit-coverage-path-map.md`, and its Smart
+Search evidence index is
+`docs/goals/evidence-index/2026-06-10-round-25-derivatives-pit-coverage-evidence-index.md`.
+The phase report is
+`docs/goals/phase-reports/2026-06-10-derivatives-pit-coverage-and-basis-funding-redesign-report.md`.
+
+Round 25's local audit found that part of Round 24's
+`insufficient_universe_coverage` came from redundant qualified execution
+history: `binance_public` and `ccxt` overlap for BTC/USDT, ETH/USDT, and
+SOL/USDT market candles at the same timestamps. Binance Public Data itself has
+no duplicate rows for the eight Round 24 symbols. Round 25 therefore fixes
+canonical execution-history selection before expanding derivatives. It then
+adds endpoint-level derivatives metadata, first-party Binance USD-M
+funding-rate and open-interest history ingestion, source coverage for
+`funding_rate` and `open_interest`, and read-only temporal observation builders
+for basis/funding and crowding candidates.
+
+The final Round 25 bounded lab wrote artifacts under
+`var/reports/evidence-universe-lab/round-25-derivatives-pit-main/`, evaluated
+11 read-only candidates, persisted 15 candidate-state records, and still
+produced 0 feasible candidates. Market and cross-asset candidates remained
+negative after cost-aware filtering and unstable across purged walk-forward
+splits. Basis/funding candidates produced 957 raw observations but only one
+unique effective month and no accepted walk-forward splits. Crowding
+candidates produced 957 observations and three splits but only one unique
+month and negative net expectancy after baseline costs. DeFi/DEX watchlist
+candidates remained blocked by snapshot lookahead and watchlist-only source
+roles.
+
+Round 25 improved the evidence funnel but did not open the backtest gate.
+Backtest, paper collection, tiny-live review, live execution, wallet access,
+order routing, and real capital remain blocked. The next practical work is
+longer point-in-time derivatives history or derivatives-hypothesis redesign,
+not event-driven backtest expansion.
+
 The active path map is:
 
 Persistent Round 22 path map:

@@ -70,6 +70,10 @@ _MARKET_EXECUTION_SCREENS = {
     "regime_gated_cross_asset_momentum",
     "regime_gated_cross_asset_reversal",
 }
+_MARKET_SOURCE_PRIORITY = {
+    "binance_public": 0,
+    "ccxt": 1,
+}
 
 
 class _StrictMultiHypothesisModel(BaseModel):
@@ -237,6 +241,7 @@ def build_multi_hypothesis_feasibility_report(
             db_path,
             screen_id,
             universe,
+            records,
             market_by_symbol,
             symbols=normalized_symbols,
             timeframe=timeframe,
@@ -402,6 +407,7 @@ def _candidate_metric(
     db_path: str | Path,
     screen_id: CandidateScreenId,
     universe: EvidenceUniverseReport,
+    records: list[SourceRecord],
     market_by_symbol: dict[str, list[_MarketRow]],
     *,
     symbols: list[str],
@@ -424,7 +430,10 @@ def _candidate_metric(
     )
 
     reason_codes: list[MultiHypothesisBlockedReason] = []
-    if not universe.point_in_time_universe or "lookahead_universe_risk" in universe.reason_codes:
+    if (
+        (not universe.point_in_time_universe or "lookahead_universe_risk" in universe.reason_codes)
+        and definition.execution_role == "watchlist_or_regime_only"
+    ):
         reason_codes.append("lookahead_risk")
     if (
         definition.execution_role == "watchlist_or_regime_only"
@@ -440,7 +449,12 @@ def _candidate_metric(
 
     raw_observations: list[_Observation] = []
     if not {"lookahead_risk", "watchlist_only_source"} & set(reason_codes):
-        raw_observations = _historical_observations(screen_id, market_by_symbol)
+        raw_observations = _historical_observations(
+            screen_id,
+            records,
+            market_by_symbol,
+            timeframe=timeframe,
+        )
         if not raw_observations and "insufficient_universe_coverage" not in reason_codes:
             reason_codes.append("insufficient_samples")
 
@@ -553,8 +567,21 @@ def _asset_coverage(
 
 def _historical_observations(
     screen_id: CandidateScreenId,
+    records: list[SourceRecord],
     market_by_symbol: dict[str, list[_MarketRow]],
+    *,
+    timeframe: str,
 ) -> list[_Observation]:
+    if screen_id in {
+        "perp_spot_basis_funding_deviation",
+        "funding_basis_convergence_liquidity_filter",
+    }:
+        return _derivatives_basis_funding_observations(records, market_by_symbol, timeframe)
+    if screen_id in {
+        "derivatives_crowding_price_action",
+        "derivatives_crowding_recent_window_price_action",
+    }:
+        return _derivatives_crowding_observations(records, market_by_symbol, timeframe)
     if screen_id not in _MARKET_EXECUTION_SCREENS:
         return []
     if screen_id == "cross_asset_ranking_turnover_cap":
@@ -650,6 +677,176 @@ def _cross_asset_ranking_observations(
             )
         )
     return observations
+
+
+def _derivatives_basis_funding_observations(
+    records: list[SourceRecord],
+    market_by_symbol: dict[str, list[_MarketRow]],
+    timeframe: str,
+) -> list[_Observation]:
+    required_types = ("premium_index_kline", "basis", "funding_rate")
+    derivatives = _derivative_records_by_symbol_type(
+        records,
+        market_by_symbol,
+        timeframe,
+        required_types,
+    )
+    observations: list[_Observation] = []
+    for symbol, rows in market_by_symbol.items():
+        if len(rows) < 2:
+            continue
+        for index, current in enumerate(rows[:-1]):
+            matched = {
+                record_type: _latest_record_at_or_before(
+                    derivatives.get((symbol, record_type), []),
+                    current.timestamp,
+                )
+                for record_type in required_types
+            }
+            if any(record is None for record in matched.values()):
+                continue
+            premium = matched["premium_index_kline"]
+            basis = matched["basis"]
+            funding = matched["funding_rate"]
+            assert premium is not None and basis is not None and funding is not None
+            signal_score = (
+                abs(_payload_float(premium, "close"))
+                + abs(_payload_float(basis, "basis_rate"))
+                + abs(_payload_float(funding, "funding_rate"))
+            )
+            if signal_score <= 0 or current.close <= 0:
+                continue
+            observations.append(
+                _Observation(
+                    timestamp=current.timestamp,
+                    selected_symbol=symbol,
+                    gross_return=rows[index + 1].close / current.close - 1,
+                    signal_score=signal_score,
+                )
+            )
+    return sorted(observations, key=lambda row: (row.timestamp, row.selected_symbol))
+
+
+def _derivatives_crowding_observations(
+    records: list[SourceRecord],
+    market_by_symbol: dict[str, list[_MarketRow]],
+    timeframe: str,
+) -> list[_Observation]:
+    required_types = ("long_short_account_ratio", "taker_buy_sell_volume")
+    derivatives = _derivative_records_by_symbol_type(
+        records,
+        market_by_symbol,
+        timeframe,
+        required_types,
+    )
+    observations: list[_Observation] = []
+    for symbol, rows in market_by_symbol.items():
+        if len(rows) < 2:
+            continue
+        for index, current in enumerate(rows[:-1]):
+            long_short = _latest_record_at_or_before(
+                derivatives.get((symbol, "long_short_account_ratio"), []),
+                current.timestamp,
+            )
+            taker = _latest_record_at_or_before(
+                derivatives.get((symbol, "taker_buy_sell_volume"), []),
+                current.timestamp,
+            )
+            if long_short is None or taker is None:
+                continue
+            signal_score = abs(_payload_float(long_short, "long_short_ratio") - 1.0) + abs(
+                _payload_float(taker, "buy_sell_ratio") - 1.0
+            )
+            if signal_score <= 0 or current.close <= 0:
+                continue
+            observations.append(
+                _Observation(
+                    timestamp=current.timestamp,
+                    selected_symbol=symbol,
+                    gross_return=rows[index + 1].close / current.close - 1,
+                    signal_score=signal_score,
+                )
+            )
+    return sorted(observations, key=lambda row: (row.timestamp, row.selected_symbol))
+
+
+def _derivative_records_by_symbol_type(
+    records: list[SourceRecord],
+    market_by_symbol: dict[str, list[_MarketRow]],
+    timeframe: str,
+    record_types: tuple[str, ...],
+) -> dict[tuple[str, str], list[SourceRecord]]:
+    requested = {
+        _exchange_symbol(symbol): symbol
+        for symbol, rows in market_by_symbol.items()
+        if rows
+    }
+    grouped: dict[tuple[str, str], list[SourceRecord]] = {}
+    for record in records:
+        if record.record_type not in record_types:
+            continue
+        if not _derivative_record_source_is_qualified(record):
+            continue
+        if not _derivative_record_timeframe_matches(record, timeframe):
+            continue
+        symbol = requested.get(_exchange_symbol(_derivative_record_symbol(record)))
+        if symbol is None:
+            continue
+        grouped.setdefault((symbol, record.record_type), []).append(record)
+    for key, rows in grouped.items():
+        grouped[key] = sorted(rows, key=lambda record: _aware(record.observed_at))
+    return grouped
+
+
+def _latest_record_at_or_before(
+    records: list[SourceRecord],
+    timestamp: datetime,
+) -> SourceRecord | None:
+    selected: SourceRecord | None = None
+    cutoff = _aware(timestamp)
+    for record in records:
+        if _aware(record.observed_at) > cutoff:
+            break
+        selected = record
+    return selected
+
+
+def _derivative_record_source_is_qualified(record: SourceRecord) -> bool:
+    if record.record_type in {
+        "premium_index_kline",
+        "basis",
+        "long_short_account_ratio",
+        "taker_buy_sell_volume",
+    }:
+        return record.source == "binance_usdm"
+    if record.record_type == "funding_rate":
+        return record.source in {"binance_usdm", "ccxt"}
+    return False
+
+
+def _derivative_record_timeframe_matches(record: SourceRecord, timeframe: str) -> bool:
+    payload = record.payload
+    if record.record_type == "premium_index_kline":
+        return payload.get("interval") == timeframe
+    if record.record_type in {"basis", "long_short_account_ratio", "taker_buy_sell_volume"}:
+        return payload.get("period") == timeframe
+    return True
+
+
+def _derivative_record_symbol(record: SourceRecord) -> str:
+    if record.record_type == "basis":
+        return str(record.payload.get("pair", ""))
+    return str(record.payload.get("symbol", ""))
+
+
+def _payload_float(record: SourceRecord, key: str) -> float:
+    value = record.payload.get(key)
+    if value is None:
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _cost_sensitivity(
@@ -869,7 +1066,9 @@ def _market_rows_by_symbol(
     evaluation_end: datetime | None,
 ) -> dict[str, list[_MarketRow]]:
     requested = {_exchange_symbol(symbol): symbol for symbol in symbols}
-    rows: dict[str, list[_MarketRow]] = {symbol: [] for symbol in symbols}
+    grouped: dict[str, dict[datetime, list[SourceRecord]]] = {
+        symbol: {} for symbol in symbols
+    }
     for record in records:
         if record.record_type != "market_candle":
             continue
@@ -883,16 +1082,38 @@ def _market_rows_by_symbol(
         symbol = requested.get(_exchange_symbol(str(payload.get("symbol", ""))))
         if symbol is None:
             continue
-        rows[symbol].append(
-            _MarketRow(
-                symbol=symbol,
-                timestamp=_aware(record.observed_at),
-                close=float(payload["close"]),
-            )
+        grouped[symbol].setdefault(_aware(record.observed_at), []).append(record)
+    return {
+        symbol: sorted(
+            [
+                _MarketRow(
+                    symbol=symbol,
+                    timestamp=_aware(record.observed_at),
+                    close=float(record.payload["close"]),
+                )
+                for record in _canonical_market_records_by_timestamp(by_timestamp)
+            ],
+            key=lambda row: row.timestamp,
         )
-    for symbol in symbols:
-        rows[symbol] = sorted(rows[symbol], key=lambda row: row.timestamp)
-    return rows
+        for symbol, by_timestamp in grouped.items()
+    }
+
+
+def _canonical_market_records_by_timestamp(
+    by_timestamp: dict[datetime, list[SourceRecord]],
+) -> list[SourceRecord]:
+    canonical_records: list[SourceRecord] = []
+    for records in by_timestamp.values():
+        if not records:
+            continue
+        canonical_source = min(
+            {record.source for record in records},
+            key=lambda source: (_MARKET_SOURCE_PRIORITY.get(source, 100), source),
+        )
+        canonical_records.extend(
+            record for record in records if record.source == canonical_source
+        )
+    return canonical_records
 
 
 def _aligned_timestamps(market_by_symbol: dict[str, list[_MarketRow]]) -> list[datetime]:

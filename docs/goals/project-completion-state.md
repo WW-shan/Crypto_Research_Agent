@@ -6,31 +6,27 @@ round.
 
 ## Current Round
 
-- Round: 24
-- Status: Candidate Quality And Cost-Aware Evidence Expansion completed as a
-  read-only optimization of the Round 23 evidence lab. The phase added
-  deterministic `liquid-usdm-top20` universe resolution, cost-aware signal
-  filtering, explicit cost-threshold diagnostics, timestamp-grouped turnover
-  measurement, turnover gating, CLI wiring, CLI guardrails for ignored policy
-  flags, a bounded lab rerun, and persisted Round 24 evidence docs. No
-  candidate reached `feasibility_passed`.
-- Started: 2026-06-09
-- Completed: 2026-06-09 after cost-aware implementation, timestamp-grouped
-  turnover correction, final bounded lab rerun, candidate-state persistence,
-  focused tests, non-LLM and full pytest verification, ruff checks,
-  documentation updates, staged diff checks, staged secret scan, closeout
-  commit, and push.
-- Active slice: Candidate Quality And Cost-Aware Evidence Expansion
+- Round: 25
+- Status: Derivatives PIT Coverage And Basis/Funding Redesign implemented and
+  lab-rerun. The round fixed canonical execution-history coverage, added
+  endpoint-level derivatives metadata, added first-party Binance USD-M
+  funding/open-interest ingestion, extended source coverage, and added
+  read-only derivatives temporal observations for feasibility v2. The final
+  lab still produced 0 `feasibility_passed` candidates, so event-driven
+  backtest remains ineligible.
+- Started: 2026-06-10
+- Completed: 2026-06-10.
+- Active slice: Derivatives PIT Coverage And Basis/Funding Redesign
 - Active design source:
-  `docs/superpowers/specs/2026-06-09-candidate-quality-and-cost-aware-evidence-expansion-design.md`
+  `docs/superpowers/specs/2026-06-10-derivatives-pit-coverage-and-basis-funding-redesign-design.md`
 - Active plan source:
-  `docs/superpowers/plans/2026-06-09-candidate-quality-and-cost-aware-evidence-expansion.md`
+  `docs/superpowers/plans/2026-06-10-derivatives-pit-coverage-and-basis-funding-redesign.md`
 - Active path map:
-  `docs/goals/round-24-candidate-quality-cost-aware-path-map.md`
+  `docs/goals/round-25-derivatives-pit-coverage-path-map.md`
 - Phase report:
-  `docs/goals/phase-reports/2026-06-09-candidate-quality-and-cost-aware-evidence-expansion-report.md`
+  `docs/goals/phase-reports/2026-06-10-derivatives-pit-coverage-and-basis-funding-redesign-report.md`
 - Smart Search evidence index:
-  `docs/goals/evidence-index/2026-06-09-round-24-next-optimization-evidence-index.md`
+  `docs/goals/evidence-index/2026-06-10-round-25-derivatives-pit-coverage-evidence-index.md`
 - Working branch:
   `main`
 - Baseline branch:
@@ -38,33 +34,100 @@ round.
 
 ## Next Planned Round
 
-- Round: 25
-- Status: Not opened. Event-Driven Backtest Expansion remains ineligible until
-  a candidate reaches `feasibility_passed` under strict v2 gates.
-- Planned slice: Derivatives Point-In-Time Coverage And Basis/Funding Redesign,
-  or an equivalent evidence-first redesign that improves point-in-time
-  derivatives and DeFi/DEX source coverage before another feasibility run.
-- Planned design source: deferred until the next deep research and local
-  feasibility audit.
-- Planned plan source: deferred until the next deep research and local
-  feasibility audit.
+- Round: 26
+- Status: Not opened. Event-Driven Backtest Expansion remains ineligible
+  because Round 25 produced 0 `feasibility_passed` candidates under strict v2
+  gates.
+- Planned slice: another upstream evidence-source/hypothesis redesign round,
+  unless a future bounded rerun produces a real `feasibility_passed`
+  candidate.
+- Planned design source: deferred until the Round 26 research/design step.
+- Planned plan source: deferred until the Round 26 research/design step.
 - Smart Search evidence path:
   deferred.
-- Current actual state: Round 24 completed with `source_records` containing
-  28992 Binance Public Data USD-M 1h market candles across BTC/USDT, ETH/USDT,
-  BNB/USDT, SOL/USDT, XRP/USDT, DOGE/USDT, ADA/USDT, and AVAX/USDT from
-  2026-01-01 through 2026-05-31. The final lab rerun evaluated 11 read-only
-  candidate screens, persisted 15 candidate-state memory records, reported 0
-  feasible candidates, and kept `eligible_for_backtest=false`.
-- Current blocker: strategy evidence quality and missing point-in-time
-  non-market source coverage. Market-history candidates still have negative
-  cost-adjusted expectancy and unstable purged walk-forward splits after
-  cost-aware filtering. Derivatives and DeFi/DEX candidates remain blocked by
-  insufficient execution-eligible source coverage or watchlist-only status.
-- Expected next state: Round 25 should expand point-in-time derivatives and
-  DeFi/DEX evidence or redesign basis/funding hypotheses before rerunning
-  feasibility v2. Backtest and paper remain closed until a real
-  `feasibility_passed` candidate exists.
+- Current actual state: Round 25 fixed the false duplicate-source market
+  overlap, added Binance USD-M `funding_rate` and `open_interest` ingestion,
+  added endpoint metadata to source coverage, and made derivatives candidates
+  produce temporal observations where aligned data exists. The final bounded
+  lab evaluated 11 candidates, blocked all 11, and kept backtest/paper/live
+  closed.
+- Current blocker: insufficient multi-month derivatives coverage for
+  basis/funding and crowding candidates, negative cost-adjusted expectancy for
+  market and ranking candidates, and snapshot-only DeFi/DEX watchlist lookahead
+  risk.
+- Expected next state: Round 26 should extend point-in-time derivatives
+  history or redesign derivatives hypotheses before any backtest design is
+  eligible.
+
+### Persisted Round 25 Path Map
+
+The active Round 25 path map is:
+
+`docs/goals/round-25-derivatives-pit-coverage-path-map.md`
+
+The route is:
+
+1. Persist the Round 25 design, implementation plan, evidence index, and path
+   map.
+2. Canonicalize overlapping execution-history candles by deterministic source
+   priority.
+3. Add endpoint-level derivatives metadata for latest-30-days-only feeds,
+   pageable feeds, request limits, and execution/context roles.
+4. Add first-party Binance USD-M funding-rate history and open-interest
+   history ingestion.
+5. Extend source coverage to include `funding_rate` and `open_interest`.
+6. Add temporal derivatives observation builders for basis/funding and
+   crowding candidates.
+7. Run a bounded Round 25 lab and persist actual candidate results.
+8. Keep backtest, paper, wallet access, order routing, live execution, and real
+   capital blocked unless a real `feasibility_passed` candidate exists.
+
+### Persisted Round 25 Results
+
+- Final lab artifacts:
+  `var/reports/evidence-universe-lab/round-25-derivatives-pit-main/evidence-universe-lab.md`,
+  `var/reports/evidence-universe-lab/round-25-derivatives-pit-main/evidence-universe-lab.json`,
+  `var/reports/evidence-universe-lab/round-25-derivatives-pit-main/data-depth-campaign.md`,
+  `var/reports/evidence-universe-lab/round-25-derivatives-pit-main/data-depth-campaign.json`,
+  `var/reports/evidence-universe-lab/round-25-derivatives-pit-main/multi-hypothesis-feasibility.md`,
+  and
+  `var/reports/evidence-universe-lab/round-25-derivatives-pit-main/multi-hypothesis-feasibility.json`.
+- Candidate memory: `var/memory/candidate-state.jsonl`.
+- Final collection result: 0 new collection jobs in the closeout rerun because
+  the requested market-history window was already ready.
+- Current Binance Public Data coverage in SQLite `source_records`: 28992 1h
+  `market_candle` records, 3624 canonical rows each for ADA/USDT, AVAX/USDT,
+  BNB/USDT, BTC/USDT, DOGE/USDT, ETH/USDT, SOL/USDT, and XRP/USDT from
+  2026-01-01 through 2026-05-31.
+- New first-party derivatives coverage in SQLite `source_records`:
+  `binance_usdm` now has 600 `funding_rate` rows and 1500 `open_interest`
+  rows, with matching source-health feeds `funding_rate_history` and
+  `open_interest_history`.
+- Source coverage now reports endpoint metadata for Binance USD-M funding,
+  open interest, premium-index, basis, long/short, and taker feeds, including
+  endpoint family, max limit, start/end pagination, and latest-30-days-only
+  flags.
+- Feasibility result: 11 candidates evaluated, 0 feasible, 11 blocked.
+- Final reason codes:
+  `non_positive_cost_adjusted_expectancy`,
+  `unstable_walk_forward_performance`, `cost_sensitivity_fragile`,
+  `insufficient_walk_forward_splits`, `insufficient_month_coverage`,
+  `single_asset_or_time_window_dependency`, `lookahead_risk`,
+  `watchlist_only_source`, and `insufficient_universe_coverage`.
+- Derivatives observations improved from zero to nonzero for aligned local
+  data: basis/funding candidates produced 957 raw observations but only one
+  unique month and zero accepted walk-forward splits; crowding candidates
+  produced 957 observations, one unique month, and three splits but were
+  negative after baseline costs.
+- Backtest decision: not eligible.
+- Paper/live decision: blocked.
+- Verification result: focused Round 25 plus related LLM/planner suite passed
+  with 176 tests; local non-LLM pytest passed with 1247 tests and 10
+  deselected real LLM integration tests; unrestricted full pytest passed with
+  1257 tests; documentation contract suite passed with 12 tests;
+  `uv run --extra dev ruff check .` returned `All checks passed!`;
+  `git diff --check` and `git diff --cached --check` returned no whitespace
+  errors; staged secret scan returned `[]`.
 
 ### Persisted Round 24 Path Map
 
@@ -662,3 +725,4 @@ If work continues after Phase 13:
 | 22 | 2026-06-08 | Evidence Universe Expansion and Multi-Hypothesis Feasibility Lab | focused suite 98 passed; focused LLM prompt-contract regression 30 passed; full pytest 1197 passed after sourcing the main workspace `.env` for the command only; ruff passed; diff/staged checks passed; staged secret scan returned no findings; Binance Public Data USD-M 1h May 2026 collection wrote 2232 market candles across BTC/ETH/SOL; DefiLlama probes succeeded; DexScreener failed closed; multi-hypothesis lab blocked all six screens and persisted 10 candidate-state memory records; no candidate reached `feasibility_passed` | pending | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 23 | 2026-06-09 | Evidence Universe Data Depth And Hypothesis Redesign | focused Round 23 suite 68 passed; local non-LLM pytest 1202 passed, 10 real LLM integration tests deselected; unrestricted full pytest blocked by missing real LLM provider environment variables; ruff passed; diff checks passed; Binance Public Data USD-M 1h January-May 2026 collection wrote 18120 market candles across BTC/ETH/SOL/BNB/XRP; feasibility v2 evaluated 11 candidate screens, persisted 15 candidate-state records, and blocked all candidates; no candidate reached `feasibility_passed` | `docs: record evidence data depth phase result` | `https://github.com/WW-shan/Crypto_Research_Agent` |
 | 24 | 2026-06-09 | Candidate Quality And Cost-Aware Evidence Expansion | focused Round 24 suite 43 passed; Round 23/24 related suite 89 passed; local non-LLM pytest 1217 passed, 10 real LLM integration tests deselected; unrestricted full pytest 1227 passed; ruff passed; diff/staged checks passed; staged secret scan returned []; final lab rerun evaluated 11 candidate screens across eight liquid USD-M symbols, persisted 15 candidate-state records, reported 0 feasible candidates, and kept backtest/paper/live blocked | `feat: add cost-aware evidence universe controls` | `https://github.com/WW-shan/Crypto_Research_Agent` |
+| 25 | 2026-06-10 | Derivatives PIT Coverage And Basis/Funding Redesign | focused Round 25 plus related LLM/planner suite 176 passed; local non-LLM pytest 1247 passed, 10 real LLM integration tests deselected; unrestricted full pytest 1257 passed; docs contract 12 passed; ruff passed; diff/staged checks passed; staged secret scan returned []; final lab rerun evaluated 11 candidates, persisted 15 candidate-state records, reported 0 feasible candidates, and kept backtest/paper/live blocked | `feat: add derivatives PIT coverage redesign` | `https://github.com/WW-shan/Crypto_Research_Agent` |

@@ -387,6 +387,17 @@ The normal operator baseline is:
    turnover-gated, and candidate-state artifacts. A blocked lab result must not
    be sent to backtest or paper.
 
+   Round 25 extends this upstream lab route with canonical execution-history
+   coverage, Binance USD-M funding/open-interest ingestion, endpoint-level
+   derivatives metadata, and derivatives temporal observations. When running a
+   Round 25 closeout, write artifacts to a round-specific directory such as
+   `var/reports/evidence-universe-lab/round-25-derivatives-pit-main/` and keep
+   `--persist-candidate-state` enabled. If feasible candidate count remains
+   zero, do not run event-driven backtest, paper simulation, live execution,
+   wallet access, or order routing. The 2026-06-10 Round 25 closeout evaluated
+   11 candidates, found 0 feasible candidates, and therefore kept the backtest
+   gate closed.
+
 4. Generate or regenerate the daily report if needed:
 
    ```bash
@@ -619,6 +630,27 @@ uv run --extra dev crypto-alpha-agent ingest \
   --symbol BTC/USDT:USDT \
   --timeframe 1h \
   --limit 200
+```
+
+Binance USD-M first-party derivatives context:
+
+```bash
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source binance-usdm \
+  --allow-network \
+  --binance-usdm-feed funding-rate-history \
+  --symbol BTCUSDT \
+  --limit 1000
+
+uv run --extra dev crypto-alpha-agent ingest \
+  --db var/research.sqlite \
+  --source binance-usdm \
+  --allow-network \
+  --binance-usdm-feed open-interest-history \
+  --symbol BTCUSDT \
+  --period 1h \
+  --limit 500
 ```
 
 DexScreener:

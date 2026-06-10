@@ -379,6 +379,66 @@ def test_planner_retries_structural_proposal_schema_failures(tmp_path):
     assert len(llm.tasks) == 2
 
 
+def test_planner_ignores_llm_supplied_computed_proposal_fields(tmp_path):
+    def llm(_task):
+        return json.dumps(
+            {
+                "proposals": [
+                    _strict_llm_experiment_payload(
+                        proposal_id="llm-should-not-win",
+                        max_capital_usd=90.0,
+                        max_notional_usd=9.0,
+                        accepted=True,
+                        rejected_reason_codes=[],
+                    )
+                ]
+            }
+        )
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        llm=llm,
+        current_capital_usd=90.0,
+    )
+
+    assert result.accepted is True
+    assert result.proposals[0].proposal_id != "llm-should-not-win"
+    assert result.proposals[0].max_capital_usd == 90.0
+    assert result.proposals[0].max_notional_usd == 9.0
+
+
+def test_planner_coerces_llm_text_list_proposal_fields(tmp_path):
+    def llm(_task):
+        return json.dumps(
+            {
+                "proposals": [
+                    _strict_llm_experiment_payload(
+                        why_it_might_improve_edge=[
+                            "Higher funding threshold may reduce noisy entries.",
+                            "Price confirmation may preserve after-cost edge.",
+                        ],
+                        expected_edge_mechanism=[
+                            "Public funding extremes capture crowding.",
+                            "Market candles confirm direction before validation.",
+                        ],
+                    )
+                ]
+            }
+        )
+
+    result = plan_next_experiments(
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        llm=llm,
+        current_capital_usd=90.0,
+    )
+
+    assert result.accepted is True
+    assert "Higher funding threshold" in result.proposals[0].why_it_might_improve_edge
+    assert "Public funding extremes" in result.proposals[0].expected_edge_mechanism
+
+
 def test_planner_rejects_nonexistent_evidence_ref(tmp_path):
     def llm(_task):
         return json.dumps(

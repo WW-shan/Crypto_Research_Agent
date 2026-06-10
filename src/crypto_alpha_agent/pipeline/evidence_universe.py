@@ -31,11 +31,12 @@ UniverseSourceRole = Literal[
 ]
 
 _DERIVATIVES_RECENT_WINDOW_TYPES = {
-    "basis",
     "long_short_account_ratio",
     "taker_buy_sell_volume",
 }
 _DERIVATIVES_TYPES = {
+    "funding_rate",
+    "open_interest",
     "premium_index_kline",
     "basis",
     "long_short_account_ratio",
@@ -43,6 +44,48 @@ _DERIVATIVES_TYPES = {
 }
 _WATCHLIST_TYPES = {"dex_pair", "defi_yield"}
 _UNKNOWN_SOURCE_HEALTH_FEED = "__unknown__"
+_MARKET_SOURCE_PRIORITY = {
+    "binance_public": 0,
+    "ccxt": 1,
+}
+_DERIVATIVES_ENDPOINT_METADATA = {
+    ("binance_usdm", "funding_rate", "funding_rate_history"): {
+        "endpoint_family": "GET /fapi/v1/fundingRate",
+        "max_limit": 1000,
+        "start_end_pagination": True,
+        "latest_30_day_limited": False,
+    },
+    ("binance_usdm", "open_interest", "open_interest_history"): {
+        "endpoint_family": "GET /futures/data/openInterestHist",
+        "max_limit": 500,
+        "start_end_pagination": True,
+        "latest_30_day_limited": False,
+    },
+    ("binance_usdm", "premium_index_kline", "premium_index_kline"): {
+        "endpoint_family": "GET /fapi/v1/premiumIndexKlines",
+        "max_limit": 1500,
+        "start_end_pagination": True,
+        "latest_30_day_limited": False,
+    },
+    ("binance_usdm", "basis", "basis"): {
+        "endpoint_family": "GET /futures/data/basis",
+        "max_limit": 500,
+        "start_end_pagination": True,
+        "latest_30_day_limited": False,
+    },
+    ("binance_usdm", "long_short_account_ratio", "long_short_account_ratio"): {
+        "endpoint_family": "GET /futures/data/globalLongShortAccountRatio",
+        "max_limit": 500,
+        "start_end_pagination": True,
+        "latest_30_day_limited": True,
+    },
+    ("binance_usdm", "taker_buy_sell_volume", "taker_buy_sell_volume"): {
+        "endpoint_family": "GET /futures/data/takerlongshortRatio",
+        "max_limit": 500,
+        "start_end_pagination": True,
+        "latest_30_day_limited": True,
+    },
+}
 
 
 class _StrictUniverseModel(BaseModel):
@@ -69,6 +112,9 @@ class UniverseSourceCoverage(_StrictUniverseModel):
     role: UniverseSourceRole
     records: int = Field(ge=0)
     latest_observed_at: datetime | None = None
+    endpoint_family: str | None = None
+    max_limit: int | None = Field(default=None, ge=0)
+    start_end_pagination: bool = False
     latest_30_day_limited: bool = False
     source_health_present: bool = False
     network_routes: list[str] = Field(default_factory=list)
@@ -312,6 +358,7 @@ def _source_coverage(
     coverage_items: list[UniverseSourceCoverage] = []
     for key, group_records in sorted(grouped.items()):
         source, record_type, feed = key
+        endpoint_metadata = _endpoint_metadata(source, record_type, feed)
         required_health_feeds = _required_health_feeds(record_type, group_records)
         latest_health_rows = [
             _latest_health(source_health.get((source, health_feed), []))
@@ -405,13 +452,29 @@ def _source_coverage(
                 role=_source_role(group_records[0]) or "execution_history",
                 records=len(group_records),
                 latest_observed_at=max(record.observed_at for record in group_records),
-                latest_30_day_limited=record_type in _DERIVATIVES_RECENT_WINDOW_TYPES,
+                endpoint_family=endpoint_metadata["endpoint_family"],
+                max_limit=endpoint_metadata["max_limit"],
+                start_end_pagination=endpoint_metadata["start_end_pagination"],
+                latest_30_day_limited=endpoint_metadata["latest_30_day_limited"],
                 source_health_present=source_health_present,
                 network_routes=routes,
                 blocked_reasons=_dedupe_preserving_order(blocked_reasons),
             )
         )
     return coverage_items
+
+
+def _endpoint_metadata(source: str, record_type: str, feed: str) -> dict[str, object]:
+    default = {
+        "endpoint_family": None,
+        "max_limit": None,
+        "start_end_pagination": False,
+        "latest_30_day_limited": record_type in _DERIVATIVES_RECENT_WINDOW_TYPES,
+    }
+    return {
+        **default,
+        **_DERIVATIVES_ENDPOINT_METADATA.get((source, record_type, feed), {}),
+    }
 
 
 def _append_lookahead_issues(
@@ -512,7 +575,9 @@ def _market_records_by_symbol(
     evaluation_start: datetime | None,
     evaluation_end: datetime | None,
 ) -> dict[str, list[SourceRecord]]:
-    by_symbol: dict[str, list[SourceRecord]] = {symbol: [] for symbol in symbols}
+    grouped: dict[str, dict[datetime, list[SourceRecord]]] = {
+        symbol: defaultdict(list) for symbol in symbols
+    }
     exchange_symbol_to_symbol = {_exchange_symbol(symbol): symbol for symbol in symbols}
     for record in records:
         if record.record_type != "market_candle":
@@ -525,10 +590,32 @@ def _market_records_by_symbol(
         symbol = exchange_symbol_to_symbol.get(_exchange_symbol(str(payload.get("symbol", ""))))
         if symbol is None:
             continue
-        by_symbol[symbol].append(record)
-    for symbol in symbols:
-        by_symbol[symbol] = sorted(by_symbol[symbol], key=lambda record: record.observed_at)
-    return by_symbol
+        grouped[symbol][_aware(record.observed_at)].append(record)
+    return {
+        symbol: sorted(
+            _canonical_market_records_by_timestamp(by_timestamp),
+            key=lambda record: record.observed_at,
+        )
+        for symbol, by_timestamp in grouped.items()
+    }
+
+
+def _canonical_market_records_by_timestamp(
+    by_timestamp: dict[datetime, list[SourceRecord]],
+) -> list[SourceRecord]:
+    canonical_records: list[SourceRecord] = []
+    for records in by_timestamp.values():
+        if not records:
+            continue
+        source_order = sorted(
+            {record.source for record in records},
+            key=lambda source: (_MARKET_SOURCE_PRIORITY.get(source, 100), source),
+        )
+        canonical_source = source_order[0]
+        canonical_records.extend(
+            record for record in records if record.source == canonical_source
+        )
+    return canonical_records
 
 
 def _coverage_records(
@@ -577,6 +664,12 @@ def _record_matches_universe(
         if record.payload.get("period") != timeframe:
             return False
         return _exchange_symbol(str(record.payload.get("symbol", ""))) in requested_symbols
+    if record.record_type == "funding_rate":
+        return _exchange_symbol(str(record.payload.get("symbol", ""))) in requested_symbols
+    if record.record_type == "open_interest":
+        if record.payload.get("timeframe") != timeframe:
+            return False
+        return _exchange_symbol(str(record.payload.get("symbol", ""))) in requested_symbols
     if record.record_type == "dex_pair":
         base = str(record.payload.get("base_token", "")).upper()
         quote = str(record.payload.get("quote_token", "")).upper()
@@ -622,6 +715,10 @@ def _coverage_feed(record: SourceRecord) -> str:
         return "premium_index_kline"
     if record.record_type == "basis":
         return "basis"
+    if record.record_type == "funding_rate":
+        return "funding_rate_history"
+    if record.record_type == "open_interest":
+        return "open_interest_history"
     if record.record_type == "long_short_account_ratio":
         return "long_short_account_ratio"
     if record.record_type == "taker_buy_sell_volume":
@@ -647,6 +744,10 @@ def _required_health_feeds(
         return ["premium_index_klines"]
     if record_type == "basis":
         return ["basis"]
+    if record_type == "funding_rate":
+        return ["funding_rate_history"]
+    if record_type == "open_interest":
+        return ["open_interest_history"]
     if record_type == "long_short_account_ratio":
         return ["global_long_short_account_ratio"]
     if record_type == "taker_buy_sell_volume":

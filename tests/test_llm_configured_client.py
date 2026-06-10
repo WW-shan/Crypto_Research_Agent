@@ -585,6 +585,23 @@ def test_responses_adapter_uses_json_schema_format_for_judgement_task() -> None:
     assert "research_only" in decision_values
 
 
+def test_responses_adapter_judgement_prompt_lists_allowed_decision_values() -> None:
+    adapter = OpenAIResponsesAdapter(_settings())
+    task = LLMJudgementTask(
+        command="source-probe",
+        schema_name="SourceResearchJudgement",
+        objective="Judge whether source is useful.",
+        facts={"source_health": {"targets": []}},
+        evidence_refs=["source-health:list-targets"],
+    )
+
+    prompt = adapter._render_input(task)
+
+    assert "useful_for_research" in prompt
+    assert "not_ready" in prompt
+    assert "Do not use synonyms such as useful" in prompt
+
+
 def test_responses_adapter_includes_health_check_schema_hint_for_runtime_task() -> None:
     adapter = OpenAIResponsesAdapter(_settings())
 

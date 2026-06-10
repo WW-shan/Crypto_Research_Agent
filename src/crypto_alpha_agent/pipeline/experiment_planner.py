@@ -37,6 +37,21 @@ _RETRYABLE_PLANNER_REJECTION_CODES = {
 }
 _FAMILY_SPECIFIC_EVIDENCE_REQUIRED = {"funding_open_interest_crowding"}
 _SUPPORTED_GAP_REFS = {"gap:collect_more_walk_forward_data"}
+_LLM_PROPOSAL_COMPUTED_FIELDS = {
+    "accepted",
+    "batch_id",
+    "decision_reason_codes",
+    "degraded_strategy_families",
+    "max_capital_usd",
+    "max_notional_usd",
+    "proposal_id",
+    "rejected_reason_codes",
+    "stopped_family_override_used",
+}
+_LLM_PROPOSAL_TEXT_FIELDS = {
+    "why_it_might_improve_edge",
+    "expected_edge_mechanism",
+}
 
 
 class _PlannerModel(BaseModel):
@@ -455,8 +470,9 @@ def _proposal_from_payload(
     duplicate_signatures: set[str],
     research_context: AIResearchContext,
 ) -> tuple[ExperimentProposal | None, str | None]:
+    sanitized_item = _sanitize_llm_proposal_item(item)
     try:
-        draft = _LLMExperimentProposalPayload.model_validate(item)
+        draft = _LLMExperimentProposalPayload.model_validate(sanitized_item)
     except ValidationError:
         return None, "invalid_proposal_schema"
 
@@ -506,6 +522,22 @@ def _proposal_from_payload(
         selected_validator=draft.selected_validator,
     )
     return proposal, None
+
+
+def _sanitize_llm_proposal_item(item: Mapping[str, Any]) -> dict[str, Any]:
+    sanitized_item = dict(item)
+    for field_name in _LLM_PROPOSAL_COMPUTED_FIELDS:
+        sanitized_item.pop(field_name, None)
+    for field_name in _LLM_PROPOSAL_TEXT_FIELDS:
+        if field_name in sanitized_item:
+            sanitized_item[field_name] = _coerce_llm_text_field(sanitized_item[field_name])
+    return sanitized_item
+
+
+def _coerce_llm_text_field(value: Any) -> Any:
+    if isinstance(value, list) and value and all(isinstance(item, str) for item in value):
+        return " ".join(item.strip() for item in value if item.strip())
+    return value
 
 
 def _build_proposal(

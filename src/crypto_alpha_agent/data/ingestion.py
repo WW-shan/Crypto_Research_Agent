@@ -71,6 +71,8 @@ class ResearchFeedIngestionSummary(BaseModel):
 BinanceUsdmDerivativesFeed = Literal[
     "premium_index_klines",
     "basis",
+    "funding_rate_history",
+    "open_interest_history",
     "global_long_short_account_ratio",
     "taker_buy_sell_volume",
 ]
@@ -463,6 +465,70 @@ def ingest_binance_usdm_taker_buy_sell_volume(
         db_path,
         feed="taker_buy_sell_volume",
         fetch_records=lambda: binance_client.fetch_taker_buy_sell_volume(
+            symbol=symbol,
+            period=period,
+            limit=limit,
+            start_time_ms=start_time_ms,
+            end_time_ms=end_time_ms,
+        ),
+        symbols=[symbol],
+        pairs=[],
+        interval=None,
+        period=period,
+        contract_type=None,
+    )
+
+
+def ingest_binance_usdm_funding_rate_history(
+    db_path: str | Path,
+    *,
+    symbol: str,
+    limit: int | None = None,
+    start_time_ms: int | None = None,
+    end_time_ms: int | None = None,
+    allow_network: bool = False,
+    client=None,
+) -> BinanceUsdmDerivativesIngestionSummary:
+    if not allow_network:
+        raise ValueError("allow_network is required for Binance USD-M derivatives ingestion")
+
+    binance_client = client or BinanceUsdmDerivativesClient()
+    return _ingest_binance_usdm_derivatives_records(
+        db_path,
+        feed="funding_rate_history",
+        fetch_records=lambda: binance_client.fetch_funding_rate_history(
+            symbol=symbol,
+            limit=limit,
+            start_time_ms=start_time_ms,
+            end_time_ms=end_time_ms,
+        ),
+        symbols=[symbol],
+        pairs=[],
+        interval=None,
+        period=None,
+        contract_type=None,
+    )
+
+
+def ingest_binance_usdm_open_interest_history(
+    db_path: str | Path,
+    *,
+    symbol: str,
+    period: str,
+    limit: int | None = None,
+    start_time_ms: int | None = None,
+    end_time_ms: int | None = None,
+    allow_network: bool = False,
+    client=None,
+) -> BinanceUsdmDerivativesIngestionSummary:
+    if not allow_network:
+        raise ValueError("allow_network is required for Binance USD-M derivatives ingestion")
+
+    binance_client = client or BinanceUsdmDerivativesClient()
+    return _ingest_binance_usdm_derivatives_records(
+        db_path,
+        feed="open_interest_history",
+        fetch_records=lambda: binance_client.fetch_open_interest_history(
             symbol=symbol,
             period=period,
             limit=limit,

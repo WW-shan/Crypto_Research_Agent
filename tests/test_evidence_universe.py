@@ -85,7 +85,8 @@ def test_evidence_universe_reports_coverage_and_source_roles(tmp_path):
         "proxy"
     ]
     assert coverage[("binance_usdm", "premium_index_kline", "premium_index_kline")].records == 1
-    assert coverage[("binance_usdm", "basis", "basis")].latest_30_day_limited is True
+    assert coverage[("binance_usdm", "basis", "basis")].latest_30_day_limited is False
+    assert coverage[("binance_usdm", "basis", "basis")].start_end_pagination is True
     assert coverage[
         ("binance_usdm", "long_short_account_ratio", "long_short_account_ratio")
     ].latest_30_day_limited is True
@@ -268,6 +269,62 @@ def test_evidence_universe_flags_future_discovery_when_only_end_is_supplied(tmp_
     assert "lookahead_universe_risk" in report.reason_codes
 
 
+def test_evidence_universe_does_not_flag_redundant_qualified_market_sources_as_duplicates(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    ResearchDataStore(db_path).upsert_records(
+        [
+            _market_candle(
+                "BTC/USDT",
+                START,
+                source="binance_public",
+                close=100.0,
+                record_id_suffix="public-0",
+            ),
+            _market_candle(
+                "BTC/USDT",
+                START,
+                source="ccxt",
+                close=101.0,
+                record_id_suffix="ccxt-0",
+            ),
+            _market_candle(
+                "BTC/USDT",
+                START + timedelta(hours=1),
+                source="binance_public",
+                close=102.0,
+                record_id_suffix="public-1",
+            ),
+            _market_candle(
+                "BTC/USDT",
+                START + timedelta(hours=1),
+                source="ccxt",
+                close=103.0,
+                record_id_suffix="ccxt-1",
+            ),
+            _source_health("binance_public", "um_futures_ohlcv", START),
+            _source_health("ccxt", "ohlcv", START),
+        ]
+    )
+
+    from crypto_alpha_agent.pipeline.evidence_universe import (
+        build_evidence_universe_report,
+    )
+
+    report = build_evidence_universe_report(
+        db_path,
+        symbols=["BTC/USDT"],
+        timeframe="1h",
+        evaluation_start=START,
+        evaluation_end=START + timedelta(hours=2),
+        now=START + timedelta(hours=2),
+        min_history_records=2,
+    )
+
+    reason_codes = {issue.reason_code for issue in report.quality_issues}
+    assert report.assets[0].market_records == 2
+    assert "duplicate_timestamps" not in reason_codes
+
+
 def test_evidence_universe_requires_feed_level_source_health(tmp_path):
     db_path = tmp_path / "research.sqlite"
     ResearchDataStore(db_path).upsert_records(
@@ -303,6 +360,62 @@ def test_evidence_universe_requires_feed_level_source_health(tmp_path):
     assert "source_probe_required" in coverage[
         ("binance_usdm", "basis", "basis")
     ].blocked_reasons
+
+
+def test_evidence_universe_reports_funding_and_open_interest_source_coverage(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    ResearchDataStore(db_path).upsert_records(
+        [
+            _market_candle("BTC/USDT", START),
+            _funding_rate("BTC/USDT", START, source="binance_usdm"),
+            _open_interest("BTC/USDT", START, source="binance_usdm"),
+            _long_short("BTCUSDT", START),
+            _taker("BTCUSDT", START),
+            _source_health("binance_public", "um_futures_ohlcv", START),
+            _source_health("binance_usdm", "funding_rate_history", START),
+            _source_health("binance_usdm", "open_interest_history", START),
+            _source_health("binance_usdm", "global_long_short_account_ratio", START),
+            _source_health("binance_usdm", "taker_buy_sell_volume", START),
+        ]
+    )
+
+    from crypto_alpha_agent.pipeline.evidence_universe import (
+        build_evidence_universe_report,
+    )
+
+    report = build_evidence_universe_report(
+        db_path,
+        symbols=["BTC/USDT"],
+        timeframe="1h",
+        evaluation_start=START,
+        evaluation_end=START + timedelta(hours=2),
+        now=START + timedelta(hours=2),
+        min_history_records=1,
+    )
+
+    coverage = {
+        (item.source, item.record_type, item.feed): item
+        for item in report.source_coverage
+    }
+    funding = coverage[("binance_usdm", "funding_rate", "funding_rate_history")]
+    open_interest = coverage[("binance_usdm", "open_interest", "open_interest_history")]
+    long_short = coverage[
+        ("binance_usdm", "long_short_account_ratio", "long_short_account_ratio")
+    ]
+    taker = coverage[("binance_usdm", "taker_buy_sell_volume", "taker_buy_sell_volume")]
+
+    assert funding.role == "recent_derivatives_context"
+    assert funding.source_health_present is True
+    assert funding.latest_30_day_limited is False
+    assert funding.start_end_pagination is True
+    assert funding.max_limit == 1000
+    assert open_interest.role == "recent_derivatives_context"
+    assert open_interest.source_health_present is True
+    assert open_interest.latest_30_day_limited is False
+    assert open_interest.start_end_pagination is True
+    assert open_interest.max_limit == 500
+    assert long_short.latest_30_day_limited is True
+    assert taker.latest_30_day_limited is True
 
 
 def test_evidence_universe_uses_latest_source_health_for_staleness(tmp_path):
@@ -702,10 +815,12 @@ def _market_candle(
     symbol: str,
     timestamp: datetime,
     *,
+    source: str = "binance_public",
+    close: float = 100.5,
     record_id_suffix: str | None = None,
 ) -> SourceRecord:
     record = MarketCandle(
-        source="binance_public",
+        source=source,
         venue="binance_usdm",
         symbol=symbol,
         timestamp=timestamp,
@@ -713,7 +828,7 @@ def _market_candle(
         open=100.0,
         high=101.0,
         low=99.0,
-        close=100.5,
+        close=close,
         volume=25.0,
         suitability=DataSuitability(),
     ).to_source_record()
@@ -775,6 +890,50 @@ def _taker(symbol: str, timestamp: datetime) -> SourceRecord:
         buy_volume=110.0,
         sell_volume=100.0,
     ).to_source_record()
+
+
+def _funding_rate(
+    symbol: str,
+    timestamp: datetime,
+    *,
+    source: str = "ccxt",
+) -> SourceRecord:
+    return SourceRecord(
+        record_id=f"{source}:binance:{symbol}:funding_rate:{timestamp.isoformat()}",
+        source=source,
+        record_type="funding_rate",
+        observed_at=timestamp,
+        payload={
+            "source": source,
+            "venue": "binance",
+            "symbol": symbol,
+            "timestamp": timestamp.isoformat(),
+            "funding_rate": 0.0005,
+        },
+    )
+
+
+def _open_interest(
+    symbol: str,
+    timestamp: datetime,
+    *,
+    source: str = "ccxt",
+) -> SourceRecord:
+    return SourceRecord(
+        record_id=f"{source}:binance:{symbol}:open_interest:1h:{timestamp.isoformat()}",
+        source=source,
+        record_type="open_interest",
+        observed_at=timestamp,
+        payload={
+            "source": source,
+            "venue": "binance",
+            "symbol": symbol,
+            "timestamp": timestamp.isoformat(),
+            "timeframe": "1h",
+            "open_interest": 1000.0,
+            "open_interest_value": 100000.0,
+        },
+    )
 
 
 def _dex_pair(

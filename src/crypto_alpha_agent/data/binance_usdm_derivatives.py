@@ -8,7 +8,9 @@ import requests
 
 from crypto_alpha_agent.data.models import (
     BasisRecord,
+    FundingRateRecord,
     LongShortRatioRecord,
+    OpenInterestRecord,
     PremiumIndexKlineRecord,
     TakerBuySellVolumeRecord,
 )
@@ -92,6 +94,56 @@ class BinanceUsdmDerivativesClient:
                 period=period,
             )
             for row in _list_payload(payload, "/futures/data/basis")
+        ]
+
+    def fetch_funding_rate_history(
+        self,
+        *,
+        symbol: str,
+        limit: int | None = None,
+        start_time_ms: int | None = None,
+        end_time_ms: int | None = None,
+    ) -> list[FundingRateRecord]:
+        payload = self._get_json(
+            "/fapi/v1/fundingRate",
+            params=_clean_params(
+                {
+                    "symbol": symbol,
+                    "limit": limit,
+                    "startTime": start_time_ms,
+                    "endTime": end_time_ms,
+                }
+            ),
+        )
+        return [
+            _funding_rate_record(row, fallback_symbol=symbol)
+            for row in _list_payload(payload, "/fapi/v1/fundingRate")
+        ]
+
+    def fetch_open_interest_history(
+        self,
+        *,
+        symbol: str,
+        period: str,
+        limit: int | None = None,
+        start_time_ms: int | None = None,
+        end_time_ms: int | None = None,
+    ) -> list[OpenInterestRecord]:
+        payload = self._get_json(
+            "/futures/data/openInterestHist",
+            params=_clean_params(
+                {
+                    "symbol": symbol,
+                    "period": period,
+                    "limit": limit,
+                    "startTime": start_time_ms,
+                    "endTime": end_time_ms,
+                }
+            ),
+        )
+        return [
+            _open_interest_record(row, fallback_symbol=symbol, timeframe=period)
+            for row in _list_payload(payload, "/futures/data/openInterestHist")
         ]
 
     def fetch_global_long_short_account_ratio(
@@ -199,6 +251,41 @@ def _basis_record(
         basis=_payload_float(payload, "basis"),
         basis_rate=_payload_float(payload, "basisRate"),
         annualized_basis_rate=_payload_optional_float(payload, "annualizedBasisRate"),
+        raw=payload,
+    )
+
+
+def _funding_rate_record(
+    row: Any,
+    *,
+    fallback_symbol: str,
+) -> FundingRateRecord:
+    payload = _mapping_payload(row, "/fapi/v1/fundingRate")
+    return FundingRateRecord(
+        source="binance_usdm",
+        venue="binance",
+        symbol=str(payload.get("symbol") or fallback_symbol),
+        timestamp=_timestamp_ms_to_datetime(payload["fundingTime"]),
+        funding_rate=_payload_float(payload, "fundingRate"),
+        raw=payload,
+    )
+
+
+def _open_interest_record(
+    row: Any,
+    *,
+    fallback_symbol: str,
+    timeframe: str,
+) -> OpenInterestRecord:
+    payload = _mapping_payload(row, "/futures/data/openInterestHist")
+    return OpenInterestRecord(
+        source="binance_usdm",
+        venue="binance",
+        symbol=str(payload.get("symbol") or fallback_symbol),
+        timestamp=_timestamp_ms_to_datetime(payload["timestamp"]),
+        timeframe=timeframe,
+        open_interest=_payload_float(payload, "sumOpenInterest"),
+        open_interest_value=_payload_optional_float(payload, "sumOpenInterestValue"),
         raw=payload,
     )
 

@@ -319,6 +319,89 @@ def test_ingest_cli_runs_binance_usdm_basis(capsys, tmp_path, monkeypatch):
     assert calls[0][1]["period"] == "1h"
 
 
+def test_ingest_cli_runs_binance_usdm_funding_rate_history(capsys, tmp_path, monkeypatch):
+    calls = []
+
+    def fake_ingest(db_path, **kwargs):
+        calls.append((db_path, kwargs))
+        return FakeSummary(feed="funding_rate_history")
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.ingest_binance_usdm_funding_rate_history",
+        fake_ingest,
+        raising=False,
+    )
+
+    exit_code = main(
+        [
+            "ingest",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--source",
+            "binance-usdm",
+            "--allow-network",
+            "--binance-usdm-feed",
+            "funding-rate-history",
+            "--symbol",
+            "BTCUSDT",
+            "--limit",
+            "2",
+            "--start-time-ms",
+            "1780870000000",
+            "--end-time-ms",
+            "1780880000000",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["ingestion"]["feed"] == "funding_rate_history"
+    assert calls[0][1]["symbol"] == "BTCUSDT"
+    assert calls[0][1]["limit"] == 2
+    assert calls[0][1]["start_time_ms"] == 1780870000000
+    assert calls[0][1]["allow_network"] is True
+
+
+def test_ingest_cli_runs_binance_usdm_open_interest_history(capsys, tmp_path, monkeypatch):
+    calls = []
+
+    def fake_ingest(db_path, **kwargs):
+        calls.append((db_path, kwargs))
+        return FakeSummary(feed="open_interest_history")
+
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.ingest_binance_usdm_open_interest_history",
+        fake_ingest,
+        raising=False,
+    )
+
+    exit_code = main(
+        [
+            "ingest",
+            "--db",
+            str(tmp_path / "research.sqlite"),
+            "--source",
+            "binance-usdm",
+            "--allow-network",
+            "--binance-usdm-feed",
+            "open-interest-history",
+            "--symbol",
+            "BTCUSDT",
+            "--period",
+            "1h",
+            "--limit",
+            "2",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["ingestion"]["feed"] == "open_interest_history"
+    assert calls[0][1]["symbol"] == "BTCUSDT"
+    assert calls[0][1]["period"] == "1h"
+    assert calls[0][1]["limit"] == 2
+
+
 @pytest.mark.parametrize(
     ("feed", "args"),
     [
@@ -326,6 +409,8 @@ def test_ingest_cli_runs_binance_usdm_basis(capsys, tmp_path, monkeypatch):
         ("basis", ["--pair", "BTCUSDT", "--period", "1h"]),
         ("global-long-short-account-ratio", ["--symbol", "BTCUSDT"]),
         ("taker-buy-sell-volume", ["--symbol", "BTCUSDT"]),
+        ("funding-rate-history", []),
+        ("open-interest-history", ["--symbol", "BTCUSDT"]),
     ],
 )
 def test_ingest_cli_rejects_incomplete_binance_usdm_arguments(tmp_path, feed, args):
@@ -341,6 +426,45 @@ def test_ingest_cli_rejects_incomplete_binance_usdm_arguments(tmp_path, feed, ar
                 "--binance-usdm-feed",
                 feed,
                 *args,
+            ]
+        )
+
+
+@pytest.mark.parametrize(
+    ("feed", "required_args", "unrelated_args"),
+    [
+        ("funding-rate-history", ["--symbol", "BTCUSDT"], ["--pair", "BTCUSDT"]),
+        ("funding-rate-history", ["--symbol", "BTCUSDT"], ["--contract-type", "PERPETUAL"]),
+        ("funding-rate-history", ["--symbol", "BTCUSDT"], ["--interval", "1h"]),
+        ("funding-rate-history", ["--symbol", "BTCUSDT"], ["--period", "1h"]),
+        ("open-interest-history", ["--symbol", "BTCUSDT", "--period", "1h"], ["--pair", "BTCUSDT"]),
+        (
+            "open-interest-history",
+            ["--symbol", "BTCUSDT", "--period", "1h"],
+            ["--contract-type", "PERPETUAL"],
+        ),
+        ("open-interest-history", ["--symbol", "BTCUSDT", "--period", "1h"], ["--interval", "1h"]),
+    ],
+)
+def test_ingest_cli_rejects_unrelated_binance_usdm_history_arguments(
+    tmp_path,
+    feed,
+    required_args,
+    unrelated_args,
+):
+    with pytest.raises(SystemExit):
+        main(
+            [
+                "ingest",
+                "--db",
+                str(tmp_path / "research.sqlite"),
+                "--source",
+                "binance-usdm",
+                "--allow-network",
+                "--binance-usdm-feed",
+                feed,
+                *required_args,
+                *unrelated_args,
             ]
         )
 

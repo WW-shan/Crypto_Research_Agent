@@ -550,6 +550,80 @@ def test_basis_funding_screen_uses_funding_records_for_signal(tmp_path):
     assert result.signals[0].inputs["funding_rate_records"] == 1
 
 
+def test_basis_funding_screen_accepts_first_party_binance_usdm_funding(tmp_path):
+    db_path = tmp_path / "research.sqlite"
+    ResearchDataStore(db_path).upsert_records(
+        [
+            _market_candle("BTC/USDT", START, close=100),
+            SourceRecord(
+                record_id="binance_usdm:BTCUSDT:premium",
+                source="binance_usdm",
+                record_type="premium_index_kline",
+                observed_at=START,
+                payload={
+                    "source": "binance_usdm",
+                    "venue": "binance",
+                    "symbol": "BTCUSDT",
+                    "timestamp": START.isoformat(),
+                    "interval": "1h",
+                    "open": 0.0,
+                    "high": 0.0,
+                    "low": 0.0,
+                    "close": 0.001,
+                },
+            ),
+            SourceRecord(
+                record_id="binance_usdm:BTCUSDT:basis",
+                source="binance_usdm",
+                record_type="basis",
+                observed_at=START,
+                payload={
+                    "source": "binance_usdm",
+                    "venue": "binance",
+                    "pair": "BTCUSDT",
+                    "contract_type": "PERPETUAL",
+                    "period": "1h",
+                    "timestamp": START.isoformat(),
+                    "index_price": 100.0,
+                    "futures_price": 100.1,
+                    "basis": 0.1,
+                    "basis_rate": 0.001,
+                },
+            ),
+            SourceRecord(
+                record_id="binance_usdm:BTCUSDT:funding",
+                source="binance_usdm",
+                record_type="funding_rate",
+                observed_at=START,
+                payload={
+                    "source": "binance_usdm",
+                    "venue": "binance",
+                    "symbol": "BTCUSDT",
+                    "timestamp": START.isoformat(),
+                    "funding_rate": 0.0005,
+                },
+            ),
+        ]
+    )
+
+    from crypto_alpha_agent.pipeline.candidate_screens import evaluate_candidate_screen
+
+    result = evaluate_candidate_screen(
+        db_path,
+        "perp_spot_basis_funding_deviation",
+        symbols=["BTC/USDT"],
+        timeframe="1h",
+        evaluation_start=START,
+        evaluation_end=START + timedelta(hours=1),
+        min_history_bars=1,
+    )
+
+    assert result.readiness == "candidate"
+    assert result.record_counts["funding_rate"] == 1
+    assert len(result.signals) == 1
+    assert result.signals[0].inputs["funding_rate_records"] == 1
+
+
 def test_reversal_screen_marks_downside_reversion_as_long(tmp_path):
     db_path = tmp_path / "research.sqlite"
     ResearchDataStore(db_path).upsert_records(
