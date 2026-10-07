@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -44,6 +44,13 @@ class CreationObject(_StrictAutonomyModel):
         if self.live_order_routing:
             raise ValueError("live_order_routing must be false")
         return self
+
+
+class CreationPlannerTask(_StrictAutonomyModel):
+    task_id: str = Field(min_length=1)
+    objective: str = Field(min_length=1)
+    context: dict[str, Any]
+    creator_prompt: str = Field(min_length=1)
 
 
 class CreationRoleNote(_StrictAutonomyModel):

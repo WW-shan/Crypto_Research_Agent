@@ -14,10 +14,18 @@ class _CreationRuntime:
         self.role = role
         self.llm = _CreationLLM(response)
         self.health_commands: list[str] = []
+        self.structured_tasks: list[Any] = []
+        self.structured_output_models: list[type[Any]] = []
 
     def health_check(self, *, command: str):
         self.health_commands.append(command)
         return object()
+
+    def structured_call(self, task: Any, output_model: type[Any]) -> Any:
+        self.structured_tasks.append(task)
+        self.structured_output_models.append(output_model)
+        raw_response = self.llm(getattr(task, "creator_prompt", str(task)))
+        return output_model.model_validate_json(raw_response)
 
     def metadata(self) -> dict[str, Any]:
         return {

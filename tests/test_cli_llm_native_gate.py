@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from crypto_alpha_agent.cli import main
+from crypto_alpha_agent.data.store import ResearchDataStore
 from crypto_alpha_agent.llm import LLMProviderError
 from crypto_alpha_agent.llm.runtime import LLMRuntimeError
 
@@ -44,6 +45,11 @@ class PassingRuntime:
 class ProviderFailingRuntime:
     def health_check(self, *, command: str):
         raise LLMProviderError("provider unavailable")
+
+
+class ProviderFailingStructuredRuntime(PassingRuntime):
+    def structured_call(self, task: Any, output_model: type[Any]) -> Any:
+        raise LLMProviderError("provider unavailable during judgement")
 
 
 def test_help_bypasses_llm_gate(capsys: pytest.CaptureFixture[str]) -> None:
@@ -135,6 +141,34 @@ def test_product_command_fails_closed_when_llm_connection_fails(
     assert payload["side_effects_started"] is False
     assert "provider unavailable" in payload["failure"]
     assert not db_path.exists()
+
+
+def test_rollout_review_provider_failure_uses_parser_error(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "crypto_alpha_agent.cli.build_required_real_llm_runtime",
+        lambda role="research": ProviderFailingStructuredRuntime(),
+    )
+    db_path = tmp_path / "research.sqlite"
+    ResearchDataStore(db_path)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "rollout-review",
+                "--db",
+                str(db_path),
+                "--strategy-family",
+                "funding_extremity_price_confirmation",
+            ]
+        )
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert "provider unavailable during judgement" in captured.err
 
 
 def test_offline_only_argument_is_removed(

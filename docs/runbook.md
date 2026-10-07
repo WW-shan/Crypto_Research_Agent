@@ -2,9 +2,9 @@
 
 This system is safe-by-default for local operation. The current workflow is
 real data ingestion, validation, paper simulation, memory feedback, evidence
-reporting, experiment planning, and rollout review. It uses ordinary public APIs
-and a few hundred USD capital profile only for constraints. It uses no wallet
-keys, no live order routing, and no live execution.
+reporting, experiment planning, rollout review, and guarded creation-cycle
+code work. It uses ordinary public APIs and a few hundred USD capital profile
+only for constraints. It uses no wallet keys, no live order routing, and no live execution.
 No wallet keys are required or read by the current workflow.
 
 `evidence-run` is a one-shot command. External operator-controlled scheduling
@@ -41,7 +41,9 @@ capital.
    `var/memory/evidence.jsonl`, reports in `var/reports/`, run manifests and
    failed markers in `var/run-manifests/`, event artifacts in `var/events/`,
    logs in `var/log/`, locks in `var/locks/`, and rollout artifacts in
-   `var/rollout/`.
+   `var/rollout/`. Creation-cycle state lives in
+   `var/autonomy/backlog.jsonl`, `var/autonomy/tasks/`,
+   `var/autonomy/worktrees/`, and optional `var/autonomy/active-worktree`.
 
 ### VPS Docker Operations
 
@@ -61,12 +63,14 @@ The standard timers are:
 - `crypto-alpha-monthly.timer` for owner `rollout-review` packages.
 - `crypto-alpha-backup.timer` for SQLite, memory, reports, and manifest
   backups.
+- `crypto-alpha-creation.timer` for one-shot `creation-cycle` runs.
 
 Run `docker compose run --rm crypto-alpha-agent llm-health-check` before
 enabling timers. If the real LLM connection, structured schema response, or
 runtime gate fails, leave the timers stopped. Expected VPS latest outputs
 include `var/reports/daily/latest.md`,
-`var/reports/iteration/latest.json`, and `var/run-manifests/latest.json`.
+`var/reports/iteration/latest.json`, `var/reports/creation/latest.md`,
+`var/reports/creation/latest.json`, and `var/run-manifests/latest.json`.
 Secrets remain in local `.env`; `.env stays outside git`.
 
 ## Environment
@@ -132,6 +136,16 @@ uv run --extra dev crypto-alpha-agent evidence-report \
   --db var/research.sqlite \
   --memory var/memory/evidence.jsonl \
   --out var/reports/daily.md
+
+uv run --extra dev crypto-alpha-agent creation-cycle \
+  --db var/research.sqlite \
+  --memory var/memory/evidence.jsonl \
+  --autonomy-root var/autonomy \
+  --task-root var/autonomy/tasks \
+  --worktree-root var/autonomy/worktrees \
+  --reports-root var/reports \
+  --repo-root . \
+  --max-creations 1
 ```
 
 Deterministic modules still normalize data, validate schemas, compute source
@@ -139,6 +153,40 @@ quality, run strategy validators, simulate paper outcomes, model costs, enforce
 risk guards, redact secrets, and preserve evidence ledgers. They are
 calculators and constraints inside the LLM-native flow; they do not define a
 successful product run without the real LLM runtime.
+
+### Creation-Cycle Workflow
+
+`creation-cycle` is real LLM required and Codex required. Before each run,
+confirm `llm-health-check` passes, the `codex` CLI is available, Docker can run
+the configured runner image, and the owner checkout is clean enough for a task
+worktree. The command reads recent daily, weekly, iteration, and creation
+reports plus `var/autonomy/backlog.jsonl`, asks the planning LLM for one strict
+creation object, then asks Codex to build in an isolated worktree under
+`var/autonomy/worktrees/`.
+
+Generated verification is deliberately narrow. Pytest verification command forms are accepted only as: `pytest ...`, `python -m pytest ...`, and
+`uv run pytest ...`. Accepted command forms run inside a Docker sandbox with
+`--network none`, dropped Linux capabilities, `no-new-privileges`, a read-only
+container filesystem, bounded resources, and only the task worktree mounted.
+Help/version, plugin, override config, absolute-path, parent-path, no-op, and
+coverage/export pytest modes are rejected.
+
+Creation-cycle artifacts to inspect after every run:
+
+- `var/autonomy/backlog.jsonl`
+- `var/autonomy/tasks/<task-id>/creation.json`
+- `var/autonomy/tasks/<task-id>/builder-output.json`
+- `var/autonomy/tasks/<task-id>/runner.md`
+- `var/autonomy/tasks/<task-id>/patch.diff`
+- `var/reports/creation/latest.md`
+- `var/reports/creation/latest.json`
+
+Accepted creation work may be promoted into `var/autonomy/active-worktree`, but
+it is not auto-pushed and not auto-merged into the owner main checkout. Review
+the report, patch, runner output, and secret scan before any manual merge.
+Rejected runs are expected when Codex fails, verification fails, Docker is
+unavailable, or the LLM provider returns invalid guarded output. No creation
+run may use live capital or live order routing.
 
 ### Real LLM Test Policy
 

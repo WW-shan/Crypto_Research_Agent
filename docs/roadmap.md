@@ -651,6 +651,8 @@ strict `IterationCandidate` JSON, and then applies deterministic guards for
 evidence refs, required tests, source probe plans, direct-code-write authority,
 real capital, live routing, and charter safety.
 
+### Phase 17: Creation-First Codex Autonomy
+
 Phase 17 adds the first Codex-backed creation loop: `creation-cycle`. It asks
 the configured planning LLM for a strict `CreationObject`, stores task
 artifacts and backlog state, runs Codex in an isolated git worktree, accepts
@@ -658,6 +660,9 @@ only pytest verification command forms, executes verification in a Docker
 sandbox, exports a patch, and promotes passing task worktrees to the persistent
 autonomy worktree. It does not merge to `main`, push to GitHub, trade, route
 orders, access wallets, or bypass review.
+
+Its durable state and latest report paths include `var/autonomy/backlog.jsonl`,
+`var/autonomy/tasks/`, and `var/reports/creation/latest.json`.
 
 This is a safe autonomy increment, not unrestricted self-improvement. The full
 owner autonomy target is not yet implemented. The autonomous code-writing loop
@@ -668,6 +673,12 @@ promotion to `main` remains an operator-reviewed action.
 Relative to the completed Phase 0 through Phase 17 roadmap, this broader owner
 autonomy target still has these gaps:
 
+- A real accepted creation-cycle artifact has been observed in durable local state
+  on 2026-06-06 for
+  `creation-20260606T074040Z-d88a1ac24e` (`accepted=true`,
+  `runner_exit_code=0`); its creation object remained `status=needs_fix`, so
+  this records a guarded local candidate, not a completed product change.
+- 30/60/90 out-of-sample paper evidence remains uncollected.
 - autonomous new data source discovery remains probe-gated outside the curated
   source-probe and query catalogs;
 - closed auto-iteration has separate `iteration-cycle` and `creation-cycle`

@@ -650,6 +650,10 @@ implementation gaps remain:
 - the Phase 17 closeout commit is ready to publish after final staged review
   and secret scan; product runtime still requires a healthy LLM route before it
   can be declared fully green.
+- A 2026-06-06 creation-cycle record for
+  `creation-20260606T074040Z-d88a1ac24e` recorded `accepted=true` and
+  `runner_exit_code=0`; the creation object remained `status=needs_fix`, so it
+  was a local repair candidate rather than a completed product change.
 
 Operational evidence collection also remains necessary:
 

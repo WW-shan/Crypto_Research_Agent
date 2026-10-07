@@ -33,6 +33,8 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-markers"
+testpaths = ["tests"]
+norecursedirs = [".git", ".venv", ".worktrees", "var"]
 markers = [
     "integration: tests that call configured external services",
     "llm_integration: tests that call the configured real LLM provider",

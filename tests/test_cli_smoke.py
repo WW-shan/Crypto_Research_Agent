@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import tomllib
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -123,6 +124,15 @@ def test_repo_ignores_local_macos_and_cache_artifacts():
     assert ".claude/" in ignore_text
     assert "var/" in ignore_text
     assert "*.pyc" in ignore_text
+
+
+def test_pytest_default_collection_ignores_runtime_worktrees():
+    config = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    pytest_options = config["tool"]["pytest"]["ini_options"]
+
+    assert pytest_options["testpaths"] == ["tests"]
+    assert "var" in pytest_options["norecursedirs"]
+    assert ".worktrees" in pytest_options["norecursedirs"]
 
 
 def test_cli_help_lists_operator_commands():

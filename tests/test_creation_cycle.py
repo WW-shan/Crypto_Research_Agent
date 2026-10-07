@@ -112,6 +112,23 @@ def test_docker_pytest_command_is_networkless_and_mounts_only_workdir(
     ]
 
 
+def test_docker_pytest_command_resolves_relative_workdir_for_bind_mount(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    command = cycle_module._docker_pytest_command(
+        ["tests/test_created.py", "-q"],
+        Path("repo"),
+        {"CRYPTO_ALPHA_AGENT_RUNNER_IMAGE": "runner-image:test"},
+    )
+
+    assert f"type=bind,source={repo},target=/workspace" in command
+
+
 def test_creation_cycle_without_commands_writes_artifacts_and_reports(
     tmp_path: Path,
 ) -> None:
@@ -186,6 +203,28 @@ def test_creation_cycle_calls_codex_health_check_before_builder_prompt(
 
     assert codex.events[0] == "health"
     assert codex.events.index("health") < codex.events.index("exec")
+
+
+def test_creation_cycle_uses_structured_planning_call_for_creation_object(
+    tmp_path: Path,
+) -> None:
+    runtime = StructuredOnlyRuntime(_creation_payload())
+    codex = FakeCodex(exit_code=0)
+
+    report = run_creation_cycle(
+        repo_root=tmp_path / "repo",
+        db_path=tmp_path / "research.sqlite",
+        memory_path=tmp_path / "memory.jsonl",
+        reports_root=tmp_path / "reports",
+        autonomy_root=tmp_path / "autonomy",
+        llm_runtime=runtime,
+        codex=codex,
+        run_commands=False,
+    )
+
+    assert report.creation.title == "Funding open interest crowding"
+    assert runtime.output_models == [cycle_module.CreationObject]
+    assert runtime.tasks[0].__class__.__name__ == "CreationPlannerTask"
 
 
 def test_creation_cycle_rejects_nonzero_injected_health_check_before_llm(
@@ -762,13 +801,42 @@ class FakeRuntime:
     def __init__(self, response: dict[str, Any] | str) -> None:
         self.response = response
         self.prompts: list[str] = []
+        self.structured_tasks: list[Any] = []
+        self.structured_output_models: list[type[Any]] = []
 
     def llm(self, prompt: str) -> dict[str, Any] | str:
         self.prompts.append(prompt)
         return self.response
 
+    def structured_call(self, task: Any, output_model: type[Any]) -> Any:
+        self.structured_tasks.append(task)
+        self.structured_output_models.append(output_model)
+        self.prompts.append(getattr(task, "creator_prompt", str(task)))
+        return _parse_fake_response(self.response, output_model)
+
     def metadata(self) -> dict[str, str]:
         return {"provider": "fake"}
+
+
+class StructuredOnlyRuntime:
+    def __init__(self, response: dict[str, Any] | str) -> None:
+        self.response = response
+        self.tasks: list[Any] = []
+        self.output_models: list[type[Any]] = []
+
+    def structured_call(self, task: Any, output_model: type[Any]) -> Any:
+        self.tasks.append(task)
+        self.output_models.append(output_model)
+        return _parse_fake_response(self.response, output_model)
+
+    def metadata(self) -> dict[str, str]:
+        return {"provider": "fake"}
+
+
+def _parse_fake_response(response: dict[str, Any] | str, output_model: type[Any]) -> Any:
+    if isinstance(response, str):
+        return output_model.model_validate_json(response)
+    return output_model.model_validate(response)
 
 
 class FakeCodex:

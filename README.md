@@ -43,6 +43,25 @@ paths. The scheduling boundary is operator-controlled:
 `evidence-run` is a safe one-shot command that an external cron or systemd timer
 may call, while the agent itself does not become an always-on daemon.
 
+## Creation-First Codex Autonomy
+
+`creation-cycle` is the first guarded code-creation loop. It is real LLM
+required and Codex required: the command reads latest reports and backlog
+state, asks the configured planning LLM for one strict creation object, asks
+Codex to build in an isolated worktree, runs only accepted pytest verification
+command forms, and writes local artifacts under:
+
+- `var/autonomy/backlog.jsonl`
+- `var/autonomy/tasks/`
+- `var/reports/creation/latest.md`
+- `var/reports/creation/latest.json`
+
+Accepted work is not auto-pushed and not auto-merged into the owner checkout.
+Inspect the creation report, task artifacts, patch, and test output before any
+manual merge. The command keeps `uses_real_capital=false` and
+`live_order_routing=false`; it adds no live capital path and no live order
+routing.
+
 ## Safe Evidence Run
 
 `evidence-run` is the normal daily operator entry point. It ingests public

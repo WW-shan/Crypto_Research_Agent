@@ -78,6 +78,22 @@ Existing patterns reused:
 - ops wrapper and systemd timer contracts;
 - pytest-focused verification gates.
 
+## Accepted Creation-Cycle Artifact
+
+The 2026-06-06 closeout records that a real accepted creation-cycle artifact has been observed
+in local operator state. The latest report recorded
+`task_id=creation-20260606T074040Z-d88a1ac24e`, `accepted=true`, and
+`runner_exit_code=0`; the associated creation object remained `status=needs_fix`,
+so this was a guarded local candidate, not a completed product change. Its
+artifacts were recorded under `var/autonomy/backlog.jsonl`,
+`var/autonomy/tasks/`, `var/reports/creation/latest.md`, and
+`var/reports/creation/latest.json`.
+
+The creation-cycle is real LLM required and Codex required, uses an isolated worktree,
+and runs accepted pytest verification command forms inside a Docker sandbox
+with `--network none`. It is not auto-pushed and is not auto-merged, and
+introduces no live order routing and no live capital. The 30/60/90 out-of-sample paper evidence remains uncollected.
+
 ## Files Changed In Phase 17
 
 Phase 17 local commits added or modified:
