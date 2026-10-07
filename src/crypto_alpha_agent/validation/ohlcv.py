@@ -36,6 +36,27 @@ def validate_ohlcv_frame(frame: Mapping[str, Sequence[Any]]) -> OhlcvValidationR
             f"missing required columns: {', '.join(missing_columns)}"
         )
 
+    present_columns = [
+        (column, frame[column])
+        for column in REQUIRED_OHLCV_COLUMNS
+        if column in frame
+    ]
+    if present_columns:
+        reference_column, reference_values = present_columns[0]
+        reference_length = len(reference_values)
+        mismatched_columns = [
+            f"{column}={len(values)}"
+            for column, values in present_columns[1:]
+            if len(values) != reference_length
+        ]
+        if mismatched_columns:
+            errors.append(
+                "column length mismatch: "
+                + ", ".join(
+                    [f"{reference_column}={reference_length}", *mismatched_columns]
+                )
+            )
+
     if "timestamp" in frame:
         errors.extend(_timestamp_errors(frame["timestamp"]))
 

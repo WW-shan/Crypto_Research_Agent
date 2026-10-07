@@ -58,6 +58,16 @@ def test_ohlcv_frame_rejects_duplicate_timestamps():
     )
 
 
+def test_ohlcv_frame_rejects_columns_with_different_lengths():
+    frame = _valid_frame()
+    frame["volume"].pop()
+
+    result = validate_ohlcv_frame(frame)
+
+    assert result.valid is False
+    assert result.errors == ("column length mismatch: timestamp=3, volume=2",)
+
+
 def test_ohlcv_frame_rejects_negative_numeric_fields():
     frame = _valid_frame()
     frame["open"][1] = -1.0
